@@ -1,0 +1,72 @@
+# Curated company watchlist. /find-jobs pulls live roles directly from each
+# company's PUBLIC ATS board API and searches across them semantically.
+#
+# Edit freely: add/remove entries, or use the add_company tool with a board URL.
+#   ats:  greenhouse | lever | ashby
+#   slug: the board token in the company's ATS URL
+# All entries below were verified live at build time.
+
+companies:
+  # --- Greenhouse ---
+  - name: Stripe
+    ats: greenhouse
+    slug: stripe
+  - name: Figma
+    ats: greenhouse
+    slug: figma
+  - name: Databricks
+    ats: greenhouse
+    slug: databricks
+  - name: Airtable
+    ats: greenhouse
+    slug: airtable
+  - name: Brex
+    ats: greenhouse
+    slug: brex
+  - name: Mercury
+    ats: greenhouse
+    slug: mercury
+  - name: Coinbase
+    ats: greenhouse
+    slug: coinbase
+  - name: Anthropic
+    ats: greenhouse
+    slug: anthropic
+  - name: Scale AI
+    ats: greenhouse
+    slug: scaleai
+  - name: Instacart
+    ats: greenhouse
+    slug: instacart
+  - name: Airbnb
+    ats: greenhouse
+    slug: airbnb
+  - name: Robinhood
+    ats: greenhouse
+    slug: robinhood
+  - name: Samsara
+    ats: greenhouse
+    slug: samsara
+
+  # --- Ashby ---
+  - name: Ramp
+    ats: ashby
+    slug: ramp
+  - name: Notion
+    ats: ashby
+    slug: notion
+  - name: Plaid
+    ats: ashby
+    slug: plaid
+  - name: Vanta
+    ats: ashby
+    slug: vanta
+  - name: Linear
+    ats: ashby
+    slug: linear
+  - name: OpenAI
+    ats: ashby
+    slug: openai
+  - name: Snowflake
+    ats: ashby
+    slug: snowflake

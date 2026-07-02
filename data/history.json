@@ -1,0 +1,46 @@
+[
+  {
+    "question": "Country*",
+    "answer": "United States"
+  },
+  {
+    "question": "Location (City)*",
+    "answer": "Los Angeles"
+  },
+  {
+    "question": "Why do you want to work at Discord?*",
+    "answer": "I am drawn to Discord because of its commitment to fostering community and connection through innovative technology. As a Product Manager, I admire how Discord continuously enhances user experience and engagement. I believe my background in data-driven product strategy and my experience in developing user-centric solutions align well with Discord's mission. I am excited about the opportunity to contribute to a platform that empowers diverse communities and facilitates meaningful interactions."
+  },
+  {
+    "question": "How did you hear about this job?",
+    "answer": "I learned about this job opportunity at Discord through a professional network where industry colleagues frequently share openings. Additionally, I follow Discord's updates and initiatives, which keeps me informed about roles that align with my skills and interests in product management and community engagement."
+  },
+  {
+    "question": "Are you legally authorized to work in the United States for our Company?*",
+    "answer": "Yes"
+  },
+  {
+    "question": "Are you currently located in the US?*",
+    "answer": "Yes"
+  },
+  {
+    "question": "Are you currently based in or willing to relocate to the Bay Area for this position?*",
+    "answer": "Yes"
+  },
+  {
+    "question": "Country",
+    "answer": "United States"
+  },
+  {
+    "question": "What is your permanent country of residence?*",
+    "answer": "United States"
+  },
+  {
+    "question": "If located in the US, what state? *",
+    "answer": "California"
+  },
+  {
+    "question": "Are you legally allowed to work in your permanent country of residence without visa sponsorship now or in the future?*",
+    "answer": "Yes"
+  }
+]

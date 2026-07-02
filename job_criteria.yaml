@@ -1,0 +1,44 @@
+# Job search configuration.
+#   search_defaults: used to build searches when you don't override per run.
+#   baseline: the STRICT acceptance bar — a listing is only returned if it
+#             passes every applicable criterion here. Edit these to taste.
+
+search_defaults:
+  titles:
+    - "Product Manager"
+    - "Senior Product Manager"
+    - "Product Strategy"
+  locations:
+    - "Los Angeles"
+    - "Remote"
+  remote_ok: true
+  date_posted_days: 30
+
+baseline:
+  # Title / seniority
+  # These double as the watchlist title prefilter (substring match). Keep them as
+  # role phrases, not bare words like "product" (which matches sales/eng titles).
+  acceptable_titles:
+    - "Product Manager"
+    - "Product Management"
+    - "Product Lead"
+    - "Product Operations"
+    - "Product Strategy"
+    - "Corporate Strategy"
+    - "Business Strategy"
+    - "Strategy & Operations"
+    - "Strategy and Operations"
+    - "Chief of Staff"
+    - "BizOps"
+    - "Business Operations"
+  acceptable_seniority: ["Mid", "Senior"]
+  excluded_seniority: ["Director", "VP", "Head", "Principal", "Associate", "Intern", "Junior"]
+
+  # Location / remote
+  locations_allowed: ["Los Angeles", "Remote"]
+  relocation_targets: ["San Francisco Bay Area", "New York"]
+  remote_allowed: true
+
+  # Salary floor (USD). A DISCLOSED salary below this is dropped; a listing that
+  # does not disclose salary is kept but flagged "salary not listed".
+  salary_floor: 150000

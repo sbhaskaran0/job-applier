@@ -1,0 +1,121 @@
+"""Shared paths and file loaders for the Job Applier.
+
+No LLM SDK lives here anymore: Claude Code is the reasoning layer and drives
+everything through the MCP tools. These helpers just locate and load the
+local materials (profile, resume, history, context knowledge base).
+"""
+
+import json
+import yaml
+from pathlib import Path
+
+# Base paths
+BASE_DIR = Path(__file__).parent.parent
+DATA_DIR = BASE_DIR / "data"
+CONTEXT_DIR = BASE_DIR / "context"
+DATA_DIR.mkdir(exist_ok=True)
+CONTEXT_DIR.mkdir(exist_ok=True)
+
+# Config / material paths
+USER_PROFILE_PATH = BASE_DIR / "user_profile.yaml"
+JOB_CRITERIA_PATH = BASE_DIR / "job_criteria.yaml"
+WATCHLIST_PATH = BASE_DIR / "watchlist.yaml"
+HISTORY_PATH = DATA_DIR / "history.json"
+
+# The resume has two roles:
+#   - RESUME_TEXT_PATH: plain text used for reasoning / answer-crafting.
+#   - the upload file: the actual document sent to application forms. Prefer a
+#     real PDF/DOCX (what employers expect); fall back to the text file.
+RESUME_TEXT_PATH = BASE_DIR / "resume.txt"
+_RESUME_UPLOAD_CANDIDATES = ["resume.pdf", "resume.docx", "resume.doc", "resume.txt"]
+
+
+def resume_upload_path() -> Path:
+    """Path of the resume file to upload to forms (PDF/DOCX preferred)."""
+    for name in _RESUME_UPLOAD_CANDIDATES:
+        p = BASE_DIR / name
+        if p.exists():
+            return p
+    return RESUME_TEXT_PATH
+
+
+def extract_pdf_text(path) -> str:
+    """Extract text from a PDF (empty string if pypdf is missing or it fails)."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return ""
+    try:
+        reader = PdfReader(str(path))
+        return "\n".join((page.extract_text() or "") for page in reader.pages)
+    except Exception:
+        return ""
+
+
+def load_user_profile() -> dict:
+    if not USER_PROFILE_PATH.exists():
+        raise FileNotFoundError(f"User profile not found at {USER_PROFILE_PATH}")
+    with open(USER_PROFILE_PATH, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def sync_resume_text_from_pdf() -> bool:
+    """If a resume.pdf exists, extract its text and (over)write resume.txt so the
+    reasoning text stays in sync with the document that is actually uploaded.
+    Returns True if the sync happened. No-op when there is no PDF (or it yields
+    no extractable text), leaving a hand-written resume.txt untouched."""
+    pdf = BASE_DIR / "resume.pdf"
+    if not pdf.exists():
+        return False
+    text = extract_pdf_text(pdf)
+    if not text.strip():
+        return False
+    RESUME_TEXT_PATH.write_text(text, encoding="utf-8")
+    return True
+
+
+def load_watchlist() -> list:
+    """Return the list of watchlist companies ({name, ats, slug})."""
+    if not WATCHLIST_PATH.exists():
+        return []
+    with open(WATCHLIST_PATH, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("companies", [])
+
+
+def load_search_criteria() -> dict:
+    """Load job_criteria.yaml (search defaults + the strict baseline bar)."""
+    if not JOB_CRITERIA_PATH.exists():
+        return {}
+    with open(JOB_CRITERIA_PATH, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def load_resume() -> str:
+    """Return the resume as text for reasoning: resume.txt if present, else
+    text extracted from resume.pdf."""
+    if RESUME_TEXT_PATH.exists():
+        return RESUME_TEXT_PATH.read_text(encoding="utf-8")
+    pdf = BASE_DIR / "resume.pdf"
+    if pdf.exists():
+        text = extract_pdf_text(pdf)
+        if text.strip():
+            return text
+    raise FileNotFoundError(
+        f"No resume found. Add resume.txt or resume.pdf in {BASE_DIR}"
+    )
+
+
+def load_history() -> list:
+    if HISTORY_PATH.exists():
+        with open(HISTORY_PATH, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return []
+    return []
+
+
+def save_history(history: list) -> None:
+    with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2, ensure_ascii=False)

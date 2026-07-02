@@ -1,0 +1,40 @@
+# Exact, factual answers. get_profile_field() maps form labels to these keys
+# via the alias table in src/data.py. Leave a value empty ("") to have the
+# agent fall back to history/context instead of filling it. Sensitive EEO
+# fields are blank by default — fill them only if you want them auto-answered.
+
+first_name: "Siddharth"
+last_name: "Bhaskaran"
+full_name: "Siddharth Bhaskaran"
+email: "siddharth99.ram@gmail.com"
+phone: "310-343-9671"
+
+address: "7660 Beverly Blvd Apt 231"
+city: "Los Angeles"
+state: "California"
+country: "United States"
+location: "Los Angeles, CA"
+
+linkedin_url: ""
+github_url: ""
+portfolio_url: ""
+website_url: ""
+
+current_company: "M Science"
+current_title: "Product Manager, Systematic Data"
+years_experience: "5"
+
+work_authorization: "Yes, I am legally authorized to work in the United States and do not require visa sponsorship now or in the future."
+requires_sponsorship: "No"
+willing_to_relocate: "Yes"
+how_did_you_hear: "Company careers page / professional network"
+
+desired_salary: ""
+notice_period: ""
+
+# EEO / self-identification (optional — left blank on purpose)
+gender: ""
+pronouns: ""
+race_ethnicity: ""
+veteran_status: ""
+disability_status: ""

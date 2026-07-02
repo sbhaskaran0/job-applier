@@ -1,0 +1,17 @@
+To the DoorDash Hiring Team,
+I recently came across the posting for the Associate Manager, New Verticals - Selection Strategy & Operations role. I am certain that my background in solving big strategic hurdles and collaboratively building technical solutions makes me a perfect fit for your team. I have built my career on taking "0 to 1" initiatives from concept to execution, leveraging a blend of technical data skills and strategic cross-functional leadership
+. The mandate to lead cutting-edge tech solutions that improve selection coverage and address gaps across Grocery, Convenience, and Retail aligns perfectly with my expertise as an operator who solves problems from first principles.
+The role involves driving initiatives that address selection gaps and launching operational processes at scale, a challenge that requires rigorous data analysis and cross-functional alignment
+. At M Science, I demonstrated this capability by managing the transformation of the KPI API product. Through product discovery, I identified a critical "selection" gap: the existing data structure resulted in restatements that created look ahead bias, invalidating the product for quant investors
+. I collaborated with Engineering and Data Science to design a new schema using point in time history to eliminate this bias and worked with investment research to create standardized dimension tables for better semantic context
+. This strategic overhaul directly resulted in an ~80% increase in product ARR and a steep increase in new business deals
+.
+I understand that effective selection strategy and fulfillment requires robust infrastructure and a willingness to operate at the lowest level of detail
+. I have a proven track record of rolling up my sleeves to build the backend systems necessary for such processes. For example, I architected a master data system within Salesforce to unify our metadata and automate entitlements, which effectively built the scalable "semantic layer" needed for product analytics and internal reporting
+. Additionally, my technical proficiency in SQL and Python allows me to be self-sufficient in analyzing complex dynamics
+. This was evident when I took ownership of automating a 40+ man-hour weekly manual entitlement process; I personally wrote a Python script to perform complex mapping and reduce scope, and then reviewed and corrected over 10,000 records to ensure the data integrity required to launch the automated system
+.
+I excel at influencing without authority and solving ambiguous problems with data
+. I am eager to bring my uniquely suited skillset as a “Swiss Army Knife” candidate to help the New Verticals team drive innovation and operational excellence, ensuring we effectively scale selection to delight customers beyond restaurant delivery.
+Sincerely,
+Siddharth Bhaskaran
