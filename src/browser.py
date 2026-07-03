@@ -87,6 +87,62 @@ _SCAN_JS = r"""
     });
     idx++;
   }
+
+  // --- Second pass: button-group choice controls (e.g. Ashby Yes/No booleans
+  // and segmented pickers). These render as a group of sibling <button> (or
+  // [role=radio]) elements backed by a HIDDEN <input>, so the native-input
+  // pass above skips them entirely. We only treat a button group as a field
+  // when it looks like a real form control — it has a backing hidden
+  // input[type=checkbox|radio] or sits inside a [data-field-path]/[role=radiogroup]
+  // wrapper — so page tabs, the submit button, and the resume dropzone are
+  // never captured.
+  const GBAD = new Set(['submit', 'submit application', 'apply', 'upload file',
+    'upload', 'replace', 'browse', 'remove', 'delete', 'next', 'back',
+    'previous', 'continue', 'save', 'cancel', 'add', 'edit', '+', '×', 'x']);
+  const optSel = 'button, [role=radio]';
+  const seenParents = new Set();
+  for (const b of Array.from(document.querySelectorAll(optSel))) {
+    if (b.hasAttribute('data-jaidx')) continue;
+    const parent = b.parentElement;
+    if (!parent || seenParents.has(parent)) continue;
+    const sibs = Array.from(parent.children).filter(c =>
+      (c.tagName === 'BUTTON' || c.getAttribute('role') === 'radio') &&
+      clean(c.innerText).length > 0 && clean(c.innerText).length <= 40 &&
+      (c.getAttribute('type') || '').toLowerCase() !== 'submit');
+    if (sibs.length < 2 || sibs.length > 6) continue;
+    if (sibs.some(s => GBAD.has(clean(s.innerText).toLowerCase()))) continue;
+    if (parent.querySelector('input[type=file]')) continue;   // resume dropzone
+    // Must look like a real form field, not a tab strip / button toolbar:
+    const backing = parent.querySelector('input[type=checkbox], input[type=radio]');
+    const wrapper = parent.closest('[data-field-path], [role=radiogroup]');
+    if (!backing && !wrapper) continue;
+    seenParents.add(parent);
+
+    const entry = parent.closest('[data-field-path]') ||
+                  parent.closest('div, section, fieldset, li');
+    let glabel = '';
+    if (entry) { const lab = entry.querySelector('label'); if (lab) glabel = clean(lab.innerText); }
+    if (!glabel) glabel = labelFor(parent);
+    const req = entry
+      ? /required/i.test((entry.className || '') + ' ' +
+          ((entry.querySelector('label') || {}).className || '')) || undefined
+      : undefined;
+    const gname = 'btngroup_' + idx;
+    for (const opt of sibs) {
+      const t = clean(opt.innerText);
+      const selected = opt.getAttribute('aria-checked') === 'true' ||
+        opt.getAttribute('aria-pressed') === 'true' ||
+        /(selected|active|checked)/i.test(opt.className);
+      opt.setAttribute('data-jaidx', String(idx));
+      out.push({
+        index: idx, kind: 'radio', label: glabel || t,
+        group: gname, option_value: t, native: false,
+        options: null, required: req,
+        current_value: selected ? 'checked' : '',
+      });
+      idx++;
+    }
+  }
   return out;
 }
 """
@@ -168,7 +224,8 @@ class BrowserSession:
             except Exception:
                 continue
             for d in descriptors:
-                self.fields[d["index"]] = {"frame": frame, "kind": d["kind"]}
+                self.fields[d["index"]] = {"frame": frame, "kind": d["kind"],
+                                           "native": d.get("native", True)}
                 # drop None/undefined keys for a clean payload
                 all_fields.append({k: v for k, v in d.items() if v is not None})
                 counter = max(counter, d["index"] + 1)
@@ -192,11 +249,17 @@ class BrowserSession:
             except Exception:
                 await loc.select_option(value=value)
         elif kind in ("radio", "checkbox"):
-            check = str(value).strip().lower() in ("true", "yes", "1", "checked", "on")
-            if check:
-                await loc.check()
+            # Non-native option (a <button>/[role=radio] in a segmented control,
+            # e.g. Ashby Yes/No): the index already points at the specific option,
+            # so selecting it is just a click — .check() would fail on a <button>.
+            if not self.fields[index].get("native", True):
+                await loc.click()
             else:
-                await loc.uncheck()
+                check = str(value).strip().lower() in ("true", "yes", "1", "checked", "on")
+                if check:
+                    await loc.check()
+                else:
+                    await loc.uncheck()
         elif kind == "combobox":
             # React-select style widget (common on Greenhouse/Ashby/Lever):
             # open it, type to filter, then click the matching option (fall
