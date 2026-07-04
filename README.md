@@ -33,4 +33,50 @@ Edit `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`, `resume.txt`
 > optional — delete the values to have those sections left blank instead. EEO
 > answers are never written to the answer history or the application log.
 
+## How a field gets answered
+
+Every form field runs through a strict source cascade — **profile → history →
+context** — where the first hit wins and precision decreases (and gating
+increases) down the stack. Approved and submitted answers flow back into
+history, so the system compounds with every application.
+
+```mermaid
+flowchart TD
+    F["Form field label"] --> P{"1 · Profile<br/>user_profile.yaml<br/>alias match?"}
+
+    P -- "exact value<br/>(EEO entries flagged)" --> PV["Fill verbatim<br/>+ style rules"]
+    P -- "no match" --> H{"2 · History<br/>history.json<br/>similarity ≥ 0.7?"}
+
+    H -- "evergreen or<br/>same-company scope" --> HH["confidence: high<br/>adapt & fill"]
+    H -- "other-company or<br/>conditional scope" --> HR["confidence: review<br/>adapt, then GATE"]
+    H -- "no strong match" --> C["3 · Context retrieval<br/>context/*.md·txt·pdf + resume text<br/>top-5 keyword-scored snippets"]
+
+    C --> CR["Claude crafts answer<br/>confidence: craft"]
+    HR --> U{"User approves / edits"}
+    CR --> U
+    U --> FM["fill_many"]
+    U -- "save_answer<br/>(question, answer, scope)" --> HIST
+
+    PV --> REV["Review: verify current_value,<br/>user explicitly says submit"]
+    HH --> REV
+    FM --> REV
+
+    REV --> S["submit_application<br/>status verified:<br/>submitted vs attempted"]
+    S -- "form snapshot<br/>(EEO never persisted)" --> HIST[("history.json<br/>normalized dedupe,<br/>scope + company + date")]
+    S -- "confirmed submits only" --> APPS[("applications.json<br/>tracker")]
+
+    HIST -. "reused on the<br/>next application" .-> H
+```
+
+- **Profile** (deterministic): ~30 curated facts matched by alias phrases;
+  filled verbatim, never re-stored. EEO self-ID values are flagged and only
+  used in voluntary self-ID sections.
+- **History** (probabilistic, vetted): your own past answers, fuzzy-matched
+  and scope-gated — only evergreen or same-company matches auto-fill;
+  everything else needs approval.
+- **Context + resume** (generative, always gated): paragraph chunks scored by
+  keyword overlap; Claude writes from the snippets and pauses for approval.
+  The resume text is just another retrieval source here — it has no special
+  priority over `context/` files.
+
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**
