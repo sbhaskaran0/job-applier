@@ -203,9 +203,18 @@ class BrowserSession:
               "ashby" if "ashby" in host else \
               "workday" if "workday" in host else "generic"
         title = await self.page.title()
+        # One-shot: also return the intervention check and the parsed form so the
+        # common open path is a single round-trip instead of three. read_form()
+        # populates self.fields as a side effect. If the page later changes,
+        # re-call read_form / check_for_intervention.
+        intervention = await self.detect_blockers()
+        fields = await self.read_form()
         return {"url": url, "title": title, "detected_ats": ats,
                 "resume_synced": resume_synced,
-                "note": "Call read_form() to list the form fields."}
+                "intervention": intervention, "fields": fields,
+                "note": ("intervention + fields are included — no need to call "
+                         "check_for_intervention or read_form again unless the "
+                         "page navigates or changes.")}
 
     async def read_form(self) -> list[dict]:
         """Read the live page + all iframes; return a generic field list.
@@ -277,6 +286,21 @@ class BrowserSession:
         else:  # text / textarea / contenteditable
             await loc.fill(value)
         return {"index": index, "kind": kind, "status": "filled", "value": value}
+
+    async def fill_many(self, items: list[dict]) -> list[dict]:
+        """Fill several fields in one call. `items` is [{index, value}, ...],
+        applied in order. A per-item failure is captured (not fatal) so one bad
+        field doesn't abort the batch."""
+        results: list[dict] = []
+        for it in items:
+            idx = it.get("index")
+            val = it.get("value", "")
+            try:
+                results.append(await self.fill_field(idx, val))
+            except Exception as e:
+                results.append({"index": idx, "status": "error",
+                                "error": f"{type(e).__name__}: {e}"})
+        return results
 
     async def upload_resume(self, index: int | None = None,
                             path: str | None = None) -> dict:

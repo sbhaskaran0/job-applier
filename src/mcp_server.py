@@ -19,8 +19,12 @@ mcp = FastMCP("job-applier")
 @mcp.tool()
 async def open_job(url: str) -> dict:
     """Open a job posting / application page in the live browser (non-headless,
-    so the user can watch). Returns page title and the detected ATS. Call
-    read_form() next to see the fields."""
+    so the user can watch). One-shot: returns {title, detected_ats, resume_synced,
+    intervention:{blocked,signals,message}, fields:[...]} — i.e. it ALSO runs the
+    CAPTCHA/intervention check and reads the form, so you don't need separate
+    check_for_intervention / read_form calls right after opening. If
+    intervention.blocked is true, stop and ask the user to clear it. Re-call
+    read_form only if the page later navigates/changes."""
     return await browser.session.open_job(url)
 
 
@@ -36,8 +40,19 @@ async def read_form() -> list:
 @mcp.tool()
 async def fill_field(index: int, value: str) -> dict:
     """Fill the field at `index`. Handles text/textarea (types), select (chooses
-    the option by label or value), and radio/checkbox (pass 'yes'/'no')."""
+    the option by label or value), and radio/checkbox (pass 'yes'/'no'). To fill
+    many fields at once, prefer fill_many."""
     return await browser.session.fill_field(index, value)
+
+
+@mcp.tool()
+async def fill_many(fields: list[dict]) -> list:
+    """Fill MANY fields in one call — the fast path. `fields` is
+    [{index, value}, ...], applied in order; a per-field failure is captured in
+    the result (not fatal). Use this after resolve_fields to fill everything you
+    resolved/approved in a single round-trip instead of one fill_field per
+    field."""
+    return await browser.session.fill_many(fields)
 
 
 @mcp.tool()
@@ -103,6 +118,42 @@ def get_profile_field(question_or_key: str) -> dict:
 
 
 @mcp.tool()
+def resolve_fields(fields: list[dict]) -> list:
+    """Batch-resolve MANY form fields in ONE call — the fast path that replaces
+    the per-field get_profile_field → search_history → search_context loop.
+    `fields` is [{index, label}, ...]. For each, it runs the same source cascade
+    and returns one row:
+      - source "profile": an exact stored value → `value` (fill verbatim; still
+        apply the short-answer style rules for demographic/eligibility fields).
+      - source "history": a strong past answer (`score` ≥ 0.7) → `value` to adapt
+        (`alternatives` holds the top matches).
+      - source "context": no stored value → `context` snippets (+ `history_top`)
+        to CRAFT from; these are the low-confidence ones to draft and gate for
+        user approval.
+    Fill the profile/history rows with fill_many; craft the context rows, get
+    approval where needed, then fill_many those too."""
+    out = []
+    for f in fields:
+        idx, label = f.get("index"), f.get("label", "")
+        pf = data.get_profile_field(label)
+        if pf.get("value"):
+            out.append({"index": idx, "label": label, "source": "profile",
+                        "value": pf["value"], "matched_key": pf.get("matched_key"),
+                        "confidence": "exact"})
+            continue
+        hist = data.search_history(label, top_k=3)
+        if hist and hist[0]["score"] >= 0.7:
+            out.append({"index": idx, "label": label, "source": "history",
+                        "value": hist[0]["answer"], "score": hist[0]["score"],
+                        "confidence": "high", "alternatives": hist})
+            continue
+        out.append({"index": idx, "label": label, "source": "context",
+                    "confidence": "craft", "history_top": hist[:2],
+                    "context": context.search_context(label, top_k=3)})
+    return out
+
+
+@mcp.tool()
 def search_history(question: str, top_k: int = 5) -> list:
     """Find the closest past answers to a question from history.json, ranked by
     similarity score. Use a high-scoring past answer (adapt it) before crafting
@@ -144,25 +195,39 @@ def get_search_criteria() -> dict:
 # Watchlist discovery (curated companies via public ATS board APIs)
 # --------------------------------------------------------------------------- #
 @mcp.tool()
-async def list_watchlist_postings() -> dict:
+async def list_watchlist_postings(query: str = "", limit: int = 0) -> dict:
     """Pull live product/strategy roles across all watchlist companies (public
     Greenhouse/Lever/Ashby APIs), pre-filtered to the acceptable titles and
-    seniority from job_criteria.yaml and deduped. Returns
+    seniority from job_criteria.yaml and deduped by (company, title). Returns
     {postings:[{company,title,location,remote,salary_min,salary_max,url,snippet}],
-    total_scanned, matched, companies_failed}. This is the corpus to rank
-    semantically against the user's query + the strict criteria; deep-read
-    finalists with get_posting."""
+    total_scanned, matched, returned, companies_failed}.
+
+    Pass `query` (natural-language keywords, e.g. "fintech product strategy") to
+    narrow the corpus and `limit` (e.g. 40) to cap the payload so you can rank it
+    inline without a subagent. `matched` = all roles that passed the strict
+    filter; `returned` = after query/limit. Deep-read finalists with
+    get_postings (batch) or get_posting (single)."""
     base = config.load_search_criteria().get("baseline", {})
     return await wl.list_postings(base.get("acceptable_titles"),
-                                  base.get("excluded_seniority"))
+                                  base.get("excluded_seniority"),
+                                  query=query or None, limit=limit or None)
 
 
 @mcp.tool()
 async def get_posting(url: str) -> dict:
     """Fetch the full job description for one posting URL from its ATS API (for a
     semantic close-call). Returns {found, title, description} or a note to use
-    open_job + get_job_text if it can't be resolved."""
+    open_job + get_job_text if it can't be resolved. To read several at once,
+    prefer get_postings."""
     return await wl.get_posting(url)
+
+
+@mcp.tool()
+async def get_postings(urls: list[str]) -> list:
+    """Deep-read MANY postings in one call (concurrent) — full descriptions for a
+    list of posting URLs. Use this for the find-jobs finalist set instead of one
+    get_posting per URL. Returns [{url, found, title, description}, ...]."""
+    return await wl.get_postings(urls)
 
 
 @mcp.tool()

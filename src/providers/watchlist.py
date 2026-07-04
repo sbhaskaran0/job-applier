@@ -180,17 +180,40 @@ def _snippet(text: str, n: int = 600) -> str:
     return text[:n] + ("…" if len(text) > n else "")
 
 
+def _qtokens(query: str | None) -> list[str]:
+    return [t for t in re.sub(r"[^a-z0-9 ]+", " ", (query or "").lower()).split() if t]
+
+
+def _matches_query(p: dict, qtokens: list[str]) -> bool:
+    """Lenient keyword narrowing so the corpus fits inline — real semantic
+    ranking is still Claude's job over what this returns."""
+    if not qtokens:
+        return True
+    hay = f"{p['title']} {p['company']} {p.get('location', '')} {p.get('snippet', '')}".lower()
+    return any(t in hay for t in qtokens)
+
+
 async def list_postings(keywords: list[str] | None = None,
-                        exclude: list[str] | None = None) -> dict:
+                        exclude: list[str] | None = None,
+                        query: str | None = None,
+                        limit: int | None = None,
+                        snippet_chars: int = 140) -> dict:
     """Corpus for semantic search: prefiltered, deduped, lightweight postings +
     status. Titles + company + location + salary + a short snippet give Claude
-    enough to rank semantically; it deep-reads finalists via get_posting."""
+    enough to rank semantically; it deep-reads finalists via get_posting.
+
+    `query` keyword-narrows the corpus and `limit` caps how many are returned,
+    keeping the payload small enough to rank inline (no subagent detour). Dedup
+    is by (company, title) so one role posted across many cities collapses to a
+    single entry. `matched` counts everything that passed the strict title/
+    seniority prefilter; `returned` is what survived query/limit.
+    """
     data = await fetch_all_with_status()
     filtered = prefilter(data["postings"], keywords, exclude)
 
     seen, light = set(), []
     for p in filtered:
-        key = (p["company"], p["title"].strip().lower(), p["location"].strip().lower())
+        key = (p["company"], p["title"].strip().lower())
         if key in seen:
             continue
         seen.add(key)
@@ -198,12 +221,20 @@ async def list_postings(keywords: list[str] | None = None,
             "company": p["company"], "title": p["title"], "location": p["location"],
             "remote": p["remote"], "salary_min": p["salary_min"],
             "salary_max": p["salary_max"], "url": p["url"],
-            "snippet": _snippet(p["description"], 220),
+            "snippet": _snippet(p["description"], snippet_chars),
         })
+
+    matched = len(light)
+    qtokens = _qtokens(query)
+    if qtokens:
+        light = [p for p in light if _matches_query(p, qtokens)]
+    if limit and limit > 0:
+        light = light[:limit]
     return {
         "postings": light,
         "total_scanned": len(data["postings"]),
-        "matched": len(light),
+        "matched": matched,
+        "returned": len(light),
         "companies_failed": data["errors"],
     }
 
@@ -255,6 +286,14 @@ async def get_posting(url: str) -> dict:
                                 j.get("descriptionPlain") or j.get("description", ""))}
     return {"url": url, "found": False,
             "note": "Could not resolve via ATS API; use open_job + get_job_text."}
+
+
+async def get_postings(urls: list[str]) -> list[dict]:
+    """Deep-read several postings concurrently — one round-trip for the whole
+    finalist set instead of one get_posting call per URL."""
+    if not urls:
+        return []
+    return list(await asyncio.gather(*(get_posting(u) for u in urls)))
 
 
 # --------------------------------------------------------------------------- #

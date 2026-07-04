@@ -48,7 +48,7 @@ playwright install chromium          # the browser the agent drives
 
 Then, in Claude Code, **open this project and reload it** so it loads
 [.mcp.json](.mcp.json). Run `/mcp` — you should see the `job-applier` server with
-**18 tools**.
+**21 tools**.
 
 > Whenever you change code in `src/`, reload Claude Code so the MCP server
 > restarts with the new code.
@@ -165,13 +165,16 @@ one is present.
 
 ---
 
-## 7. The full tool set (18)
+## 7. The full tool set (21)
 
 **Browser / apply**
-- `open_job(url)` — open a posting; syncs resume.pdf→txt; reports the ATS.
+- `open_job(url)` — open a posting; syncs resume.pdf→txt; **one shot**: also
+  returns the intervention check + the parsed form (no separate
+  `check_for_intervention`/`read_form` needed right after).
 - `read_form()` — list every fillable field (any ATS, no per-site rules).
 - `get_field_options(index)` — real options for a dropdown/combobox.
-- `fill_field(index, value)` — fill text / select / radio / checkbox / combobox.
+- `fill_field(index, value)` — fill one field (text/select/radio/checkbox/combobox).
+- `fill_many([{index,value}])` — **fill many fields in one call** (the fast path).
 - `upload_resume([index])` — attach the resume (auto-finds hidden file inputs).
 - `screenshot([path])` — capture the page for review.
 - `get_job_text()` — the visible page text (read a JD).
@@ -179,15 +182,19 @@ one is present.
 - `submit_application([index])` — **gated**; only on your explicit go-ahead.
 
 **Answers / memory**
-- `get_profile_field(label)` — exact value from your profile.
+- `resolve_fields([{index,label}])` — **resolve many fields in one call**
+  (profile → history → context cascade), tagged by source. The fast path.
+- `get_profile_field(label)` — exact value from your profile (single).
 - `search_history(question)` — closest past answers, scored.
 - `save_answer(question, answer)` — remember an approved answer.
 - `search_context(query)` — relevant snippets from your knowledge base.
 
 **Criteria / discovery**
 - `get_search_criteria()` — your strict bar from job_criteria.yaml.
-- `list_watchlist_postings()` — live product/strategy roles across the watchlist.
+- `list_watchlist_postings([query],[limit])` — live product/strategy roles across
+  the watchlist; `query`/`limit` keep the payload small enough to rank inline.
 - `get_posting(url)` — full description for one posting (via ATS API).
+- `get_postings([urls])` — **deep-read many postings in one call** (batch).
 - `list_companies()` / `add_company(url)` — view / grow the watchlist.
 
 ---
@@ -234,7 +241,7 @@ Job Applier/
 ├─ context/                      # knowledge base (md/txt/pdf) for crafting answers
 ├─ data/history.json             # learned answers
 ├─ src/
-│  ├─ mcp_server.py              # the 18 tools
+│  ├─ mcp_server.py              # the 21 tools
 │  ├─ browser.py                 # ATS-agnostic form reading/filling
 │  ├─ data.py                    # profile lookup + history
 │  ├─ context.py                 # knowledge-base retrieval

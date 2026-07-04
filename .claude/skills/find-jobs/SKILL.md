@@ -12,12 +12,17 @@ strict baseline bar. Low volume, high quality.
 
 ## Workflow
 
-1. **Load the corpus** — call `list_watchlist_postings`. It returns product/
-   strategy roles across all watchlist companies, already pre-filtered to the
-   acceptable titles/seniority from `job_criteria.yaml` and deduped, each with
-   `{company, title, location, remote, salary_min, salary_max, url, snippet}`,
-   plus `companies_failed` (report any). Also call `get_search_criteria` for the
-   strict bar (salary_floor, locations, remote policy).
+1. **Load the corpus** — call `list_watchlist_postings(query, limit)`, passing
+   the user's argument as `query` (e.g. "fintech product strategy") and a `limit`
+   (~40) so the payload stays small enough to **rank inline — do not spawn a
+   subagent**. It returns product/strategy roles across all watchlist companies,
+   pre-filtered to the acceptable titles/seniority from `job_criteria.yaml` and
+   deduped, each `{company, title, location, remote, salary_min, salary_max, url,
+   snippet}`, plus `matched` (all that passed the strict filter), `returned`
+   (after query/limit), and `companies_failed` (report any). If `returned` looks
+   too narrow, re-call with a broader/empty `query` or a higher `limit`. Also
+   call `get_search_criteria` for the strict bar (salary_floor, locations, remote
+   policy) — issue these two independent calls together in one message.
 2. **Semantic rank** — interpret the user's argument as a natural-language intent
    (e.g. "fintech product strategy", "AI/ML product", "payments"). Rank the
    postings by how well each **semantically** matches that intent, using the
@@ -25,9 +30,10 @@ strict baseline bar. Low volume, high quality.
    Coinbase = fintech; OpenAI/Anthropic/Scale = AI), and snippet. No query =
    rank by overall fit to the profile/context (use `search_context` if helpful).
 3. **Deep-read finalists** — for your top ~5–12 candidates, call
-   `get_posting(url)` to read the full JD (confirm seniority, remote/location,
-   and salary — especially for Greenhouse roles where salary isn't structured and
-   lives in the description).
+   **`get_postings([url, ...])` once** (batch) to read the full JDs together
+   rather than one `get_posting` per URL. Confirm seniority, remote/location, and
+   salary — especially for Greenhouse roles where salary isn't structured and
+   lives in the description.
 4. **Strict filter** — keep a listing ONLY if it passes ALL of:
    - **Title/seniority** — a product/strategy role at mid/senior level (the
      corpus is pre-filtered, but drop anything the JD reveals as Director+/Staff/
