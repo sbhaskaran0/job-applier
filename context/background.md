@@ -3,6 +3,18 @@
 Siddharth Bhaskaran is a Product Manager based in Los Angeles, CA with ~5 years
 of experience spanning product management, product strategy, and data/analytics.
 
+## Career timeline (most recent first — use this for ordering and tense)
+- **M Science — Product Manager, Systematic Data — Apr 2023–Present (CURRENT).**
+  This is the current primary role.
+- **Audare AI — Fractional Product Manager (part-time) — Mar 2025–Nov 2025 (ENDED).**
+  A concurrent part-time engagement that has since ended.
+- **YipitData — Business Operations Associate — Mar 2022–Feb 2023.**
+- **PennyMac Loan Services — Data Analyst II — Jul 2020–Feb 2022.**
+
+Note: M Science is the **current** role. The Audare AI engagement ended in
+November 2025 — never describe it in the present tense or as more recent than
+M Science.
+
 ## Current role — M Science (Apr 2023–Present), New York, NY
 - **Product Manager, Systematic Data:** owns the KPI API product end to end —
   product strategy, client feedback, roadmap, backlog prioritization.
@@ -21,7 +33,7 @@ of experience spanning product management, product strategy, and data/analytics.
   north-star metrics, data pipelines/governance in Databricks Unity Catalog, and
   executive dashboards.
 
-## Fractional Product Manager — Stealth Startup (Mar 2025–Nov 2025), Remote
+## Fractional Product Manager — Audare AI (Mar 2025–Nov 2025, ended), Remote
 - PM for a B2B2C personal finance & literacy tool: product discovery, ICP and
   user personas, product strategy and roadmap, resulting in the MVP and a clear
   product vision.
