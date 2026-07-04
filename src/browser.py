@@ -424,9 +424,19 @@ class BrowserSession:
     async def submit_application(self, index: int | None = None) -> dict:
         """Click the submit control. DESTRUCTIVE — the caller (skill) must
         confirm with the user first. If `index` is given, that field is clicked;
-        otherwise a best-effort submit button is located."""
+        otherwise a best-effort submit button is located.
+
+        Snapshots the form (labels + current values) just before clicking and
+        returns it as `form_snapshot` so the caller can persist what was
+        actually submitted. Re-scanning an unchanged DOM re-tags the same
+        elements with the same indices, so a caller-supplied `index` stays
+        valid; the snapshot is best-effort and never blocks the submit."""
         if self.page is None:
             raise RuntimeError("No page open.")
+        try:
+            form_snapshot = await self.read_form()
+        except Exception:
+            form_snapshot = []
         if index is not None:
             loc, _ = self._locator(index)
             await loc.click()
@@ -438,7 +448,8 @@ class BrowserSession:
             ).first
             await btn.click()
         await self.page.wait_for_timeout(3000)
-        return {"status": "submitted", "current_url": self.page.url}
+        return {"status": "submitted", "current_url": self.page.url,
+                "form_snapshot": form_snapshot}
 
     async def close(self) -> None:
         if self.browser is not None:

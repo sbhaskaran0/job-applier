@@ -99,11 +99,26 @@ async def get_job_text() -> str:
 
 
 @mcp.tool()
-async def submit_application(index: int = -1) -> dict:
+async def submit_application(index: int = -1, company: str = "",
+                              job_title: str = "") -> dict:
     """DESTRUCTIVE: submit the application. Only call after the user has
     explicitly confirmed. If `index` >= 0 that field is clicked, otherwise a
-    submit button is located automatically."""
-    return await browser.session.submit_application(index if index >= 0 else None)
+    submit button is located automatically.
+
+    Pass `company` and `job_title` (from the posting) — the form is snapshotted
+    just before the click, every filled answer is auto-captured into history
+    (conservatively scoped; entries you already saved via save_answer keep
+    their scope), and the submission is logged to data/applications.json. The
+    result's `capture` field summarizes what was persisted."""
+    result = await browser.session.submit_application(index if index >= 0 else None)
+    snapshot = result.pop("form_snapshot", [])
+    try:
+        result["capture"] = data.capture_submission(
+            snapshot, company=company, job_title=job_title,
+            url=result.get("current_url", ""))
+    except Exception as e:  # capture must never mask a successful submit
+        result["capture"] = {"error": f"{type(e).__name__}: {e}"}
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -118,20 +133,28 @@ def get_profile_field(question_or_key: str) -> dict:
 
 
 @mcp.tool()
-def resolve_fields(fields: list[dict]) -> list:
+def resolve_fields(fields: list[dict], company: str = "") -> list:
     """Batch-resolve MANY form fields in ONE call — the fast path that replaces
     the per-field get_profile_field → search_history → search_context loop.
-    `fields` is [{index, label}, ...]. For each, it runs the same source cascade
-    and returns one row:
+    `fields` is [{index, label}, ...]; pass `company` (the employer you're
+    applying to) so company-scoped past answers can be reused safely. For each
+    field, it runs the same source cascade and returns one row:
       - source "profile": an exact stored value → `value` (fill verbatim; still
         apply the short-answer style rules for demographic/eligibility fields).
-      - source "history": a strong past answer (`score` ≥ 0.7) → `value` to adapt
-        (`alternatives` holds the top matches).
+      - source "history", confidence "high": a strong past answer (`score` ≥
+        0.7) whose scope allows confident reuse (evergreen, or company-scoped
+        for THIS company) → `value` to adapt (`alternatives` holds the top
+        matches).
+      - source "history", confidence "review": a strong match that is
+        company-scoped for a DIFFERENT company or conditional (role/location-
+        dependent) → adapt `value` but GATE it for user approval like a crafted
+        answer; never fill it silently.
       - source "context": no stored value → `context` snippets (+ `history_top`)
         to CRAFT from; these are the low-confidence ones to draft and gate for
         user approval.
-    Fill the profile/history rows with fill_many; craft the context rows, get
-    approval where needed, then fill_many those too."""
+    Fill the profile and confidence-"high" history rows with fill_many; craft/
+    adapt the rest, get approval where needed, then fill_many those too."""
+    comp = (company or "").strip().lower()
     out = []
     for f in fields:
         idx, label = f.get("index"), f.get("label", "")
@@ -142,10 +165,24 @@ def resolve_fields(fields: list[dict]) -> list:
                         "confidence": "exact"})
             continue
         hist = data.search_history(label, top_k=3)
-        if hist and hist[0]["score"] >= 0.7:
+        strong = [h for h in hist if h["score"] >= 0.7]
+        reusable = [h for h in strong
+                    if h.get("scope") == "evergreen"
+                    or (h.get("scope") == "company" and comp
+                        and h.get("company", "").strip().lower() == comp)]
+        if reusable:
+            best = reusable[0]
             out.append({"index": idx, "label": label, "source": "history",
-                        "value": hist[0]["answer"], "score": hist[0]["score"],
+                        "value": best["answer"], "score": best["score"],
                         "confidence": "high", "alternatives": hist})
+            continue
+        if strong:
+            best = strong[0]
+            out.append({"index": idx, "label": label, "source": "history",
+                        "value": best["answer"], "score": best["score"],
+                        "scope": best.get("scope"),
+                        "company": best.get("company", ""),
+                        "confidence": "review", "alternatives": hist})
             continue
         out.append({"index": idx, "label": label, "source": "context",
                     "confidence": "craft", "history_top": hist[:2],
@@ -162,10 +199,20 @@ def search_history(question: str, top_k: int = 5) -> list:
 
 
 @mcp.tool()
-def save_answer(question: str, answer: str) -> dict:
+def save_answer(question: str, answer: str, scope: str = "evergreen",
+                company: str = "") -> dict:
     """Persist an approved answer so it is reused next time. Call this after the
-    user approves a crafted answer."""
-    return data.save_answer(question, answer)
+    user approves a crafted or adapted answer. Questions are matched on their
+    normalized form ("Country*" == "Country"), updating in place.
+
+    Classify `scope` honestly — it controls how the answer is reused later:
+      - "evergreen": a stable fact true anywhere (work auth, state, years of
+        experience) → eligible for confident auto-fill.
+      - "company": tailored to one employer ("Why do you want to work at X?")
+        → pass `company`; confidently reused only for that same company.
+      - "conditional": depends on the role/location/moment (relocation,
+        salary, start date, how-did-you-hear) → always gated for review."""
+    return data.save_answer(question, answer, scope=scope, company=company)
 
 
 # --------------------------------------------------------------------------- #

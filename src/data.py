@@ -5,9 +5,15 @@ it matched; Claude decides whether a match is good enough to use.
 """
 
 import re
+from datetime import date
 from difflib import SequenceMatcher
 
 from . import config
+
+# Reuse scopes for saved answers. Only "evergreen" answers may be reused
+# confidently anywhere; "company" answers are confident only for the same
+# company; "conditional" answers (role/location-dependent) are always gated.
+VALID_SCOPES = ("evergreen", "company", "conditional")
 
 # Maps a canonical profile key -> phrases that commonly appear in the matching
 # form question/label. Matching is substring-based on a normalized question.
@@ -99,10 +105,14 @@ def _similarity(a: str, b: str) -> float:
 
 
 def search_history(question: str, top_k: int = 5) -> list[dict]:
-    """Return the closest past {question, answer} pairs, ranked by similarity."""
+    """Return the closest past {question, answer} pairs, ranked by similarity.
+    Rows carry the entry's reuse metadata (scope/company/date); an entry with
+    no recorded scope is treated as "conditional" so it never auto-fills."""
     history = config.load_history()
     scored = [
         {"question": e.get("question", ""), "answer": e.get("answer", ""),
+         "scope": e.get("scope") or "conditional",
+         "company": e.get("company", ""), "date": e.get("date", ""),
          "score": _similarity(question, e.get("question", ""))}
         for e in history
     ]
@@ -110,15 +120,117 @@ def search_history(question: str, top_k: int = 5) -> list[dict]:
     return scored[:top_k]
 
 
-def save_answer(question: str, answer: str) -> dict:
-    """Persist an approved answer so it can be reused. Updates in place if the
-    exact question already exists, otherwise appends."""
-    history = config.load_history()
+def _upsert_answer(history: list, question: str, answer: str, scope: str,
+                   company: str, keep_existing_scope: bool) -> str:
+    """Insert or update one entry, matching on the *normalized* question so
+    label decoration ("Country*" vs "Country") can't fork duplicates. The raw
+    label is kept (refreshed on update) for display and similarity scoring."""
+    if scope not in VALID_SCOPES:
+        scope = "conditional"
+    key = _normalize(question)
+    today = date.today().isoformat()
     for entry in history:
-        if entry.get("question") == question:
+        if _normalize(entry.get("question", "")) == key:
+            entry["question"] = question
             entry["answer"] = answer
-            config.save_history(history)
-            return {"status": "updated", "count": len(history)}
-    history.append({"question": question, "answer": answer})
+            if not keep_existing_scope or not entry.get("scope"):
+                entry["scope"] = scope
+            if company or not keep_existing_scope:
+                entry["company"] = company
+            entry["date"] = today
+            return "updated"
+    history.append({"question": question, "answer": answer, "scope": scope,
+                    "company": company, "date": today})
+    return "added"
+
+
+def save_answer(question: str, answer: str, scope: str = "evergreen",
+                company: str = "") -> dict:
+    """Persist an approved answer so it can be reused. Matches existing entries
+    on the normalized question (updates in place), otherwise appends. An
+    explicit save overwrites the entry's scope/company classification."""
+    history = config.load_history()
+    status = _upsert_answer(history, question, answer, scope, company,
+                            keep_existing_scope=False)
     config.save_history(history)
-    return {"status": "added", "count": len(history)}
+    return {"status": status, "count": len(history)}
+
+
+# Question phrases that mark an answer as situation-dependent: true for this
+# role/location/moment but not safely reusable verbatim elsewhere.
+_CONDITIONAL_MARKERS = (
+    "relocat", "this position", "this role", "commut", "onsite", "on site",
+    "hybrid", "office", "start date", "notice period", "salary",
+    "compensation", "how did you hear", "how soon", "available",
+)
+
+
+def _classify_scope(question: str, answer: str, kind: str, company: str) -> str:
+    """Conservative scope for an auto-captured answer. Company-flavored or
+    essay-length answers are "company"; situation-dependent ones are
+    "conditional"; only short stable facts default to "evergreen"."""
+    q, a = _normalize(question), _normalize(answer)
+    comp = _normalize(company)
+    if comp and (comp in q or comp in a):
+        return "company"
+    if kind == "textarea" or len(answer) > 150:
+        return "company"
+    if any(m in q for m in _CONDITIONAL_MARKERS):
+        return "conditional"
+    return "evergreen"
+
+
+def capture_submission(fields: list[dict], company: str = "",
+                       job_title: str = "", url: str = "") -> dict:
+    """Structural capture at submit time: persist every filled answer from a
+    form snapshot into history and log the application to applications.json.
+
+    Skips file fields, empty values, and fields the profile already answers
+    (the profile is their canonical source). Radio/checkbox rows are captured
+    only when checked and only when the row's label is the group question
+    rather than the option text (e.g. Ashby button-groups). Auto-captured
+    entries get a conservative scope; an entry that already has a scope (e.g.
+    from an explicit save_answer) keeps it."""
+    history = config.load_history()
+    added = updated = 0
+    submitted: list[dict] = []
+    for f in fields:
+        label = (f.get("label") or "").strip()
+        kind = f.get("kind", "")
+        value = (f.get("current_value") or "").strip()
+        if not label or kind == "file":
+            continue
+        if kind in ("radio", "checkbox"):
+            if value != "checked":
+                continue
+            option = (f.get("option_value") or "").strip() or "Yes"
+            # native radios label the *option* ("Yes"); only capture when the
+            # label reads as the question itself
+            if _normalize(label) == _normalize(option) or len(label) < 12:
+                continue
+            value = option
+        if not value:
+            continue
+        submitted.append({"question": label, "answer": value})
+        pf = get_profile_field(label)
+        if pf.get("value"):
+            continue  # profile is the canonical source for this field
+        scope = _classify_scope(label, value, kind, company)
+        status = _upsert_answer(history, label, value, scope, company
+                                if scope == "company" else "",
+                                keep_existing_scope=True)
+        if status == "added":
+            added += 1
+        else:
+            updated += 1
+    config.save_history(history)
+
+    applications = config.load_applications()
+    applications.append({"company": company, "job_title": job_title,
+                         "url": url, "date": date.today().isoformat(),
+                         "status": "submitted", "fields": submitted})
+    config.save_applications(applications)
+    return {"answers_added": added, "answers_updated": updated,
+            "history_count": len(history),
+            "application_logged": True,
+            "applications_count": len(applications)}

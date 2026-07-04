@@ -21,6 +21,7 @@ USER_PROFILE_PATH = BASE_DIR / "user_profile.yaml"
 JOB_CRITERIA_PATH = BASE_DIR / "job_criteria.yaml"
 WATCHLIST_PATH = BASE_DIR / "watchlist.yaml"
 HISTORY_PATH = DATA_DIR / "history.json"
+APPLICATIONS_PATH = DATA_DIR / "applications.json"
 
 # The resume has two roles:
 #   - RESUME_TEXT_PATH: plain text used for reasoning / answer-crafting.
@@ -119,3 +120,19 @@ def load_history() -> list:
 def save_history(history: list) -> None:
     with open(HISTORY_PATH, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2, ensure_ascii=False)
+
+
+def load_applications() -> list:
+    """The application log: one record per submitted application."""
+    if APPLICATIONS_PATH.exists():
+        with open(APPLICATIONS_PATH, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return []
+    return []
+
+
+def save_applications(applications: list) -> None:
+    with open(APPLICATIONS_PATH, "w", encoding="utf-8") as f:
+        json.dump(applications, f, indent=2, ensure_ascii=False)

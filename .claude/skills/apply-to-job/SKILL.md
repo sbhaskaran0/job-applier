@@ -30,15 +30,22 @@ issue any genuinely independent calls together in a single message.
 2. **Understand the role (optional)** — `get_job_text()` to read the JD if you
    need it to tailor open-ended answers.
 3. **Resolve every field at once** — build `[{index, label}, ...]` for all
-   fillable fields and call **`resolve_fields(fields)` once**. Each row comes
-   back tagged by `source`:
+   fillable fields and call **`resolve_fields(fields, company)` once** (pass
+   the employer name so company-scoped past answers are reused safely). Each
+   row comes back tagged by `source` and `confidence`:
    - `profile` → an exact `value`; fill it (apply the style rules below).
-   - `history` → a strong past answer (`score` ≥ 0.7); adapt it.
+   - `history` / confidence `high` → a strong past answer (`score` ≥ 0.7)
+     that is evergreen or tailored to THIS company; adapt it.
+   - `history` / confidence `review` → a strong match that is tailored to a
+     **different** company or is conditional (relocation, salary, how-did-you-
+     hear). Adapt it, but treat it like a crafted answer: **gate it for user
+     approval** — never fill it silently.
    - `context` → no stored value; use the returned `context` snippets (plus
      `get_job_text`) to **craft** an answer in the `preferences.md` voice
      (concise, specific, results-oriented, first person).
 4. **Fill the confident ones in one call** — assemble `[{index, value}, ...]`
-   for all `profile` and strong `history` rows and call **`fill_many`** once.
+   for all `profile` and confidence-`high` `history` rows and call
+   **`fill_many`** once.
    - Apply the **style rules** while assembling values (strip demographic/
      eligibility answers to a bare value; map to the matching `select`/`radio`/
      `checkbox` option, e.g. work-auth "Yes"). Skip EEO/self-ID fields unless the
@@ -50,22 +57,32 @@ issue any genuinely independent calls together in a single message.
    - **Resume/CV:** call `upload_resume()` with **no index** — it finds the file
      input even when hidden behind an "Attach"/dropzone widget, preferring resume
      over cover-letter. (Uploads resume.pdf/.docx if present, else resume.txt.)
-5. **Craft + gate the rest** — for `context` rows and anything uncertain:
+5. **Craft + gate the rest** — for `context` rows, `review`-confidence history
+   rows, and anything uncertain:
    - **Auto-fill** (add to a `fill_many` batch) only factual, well-supported
      answers.
    - **Pause and ask the user** — show the field, your draft, and the source —
-     for open-ended essays you crafted, weak-context drafts, or anything you're
-     unsure of. Fill (via `fill_many`) only after they approve or edit.
-   - After the user approves or edits a *crafted* answer, call
-     `save_answer(question, final_answer)` so it's reused next time.
+     for open-ended essays you crafted, `review` history adaptations,
+     weak-context drafts, or anything you're unsure of. Fill (via `fill_many`)
+     only after they approve or edit.
+   - After the user approves or edits a crafted **or adapted** answer, call
+     `save_answer(question, final_answer, scope, company)` so the refined
+     version is reused next time. Classify `scope` honestly: `evergreen`
+     (stable fact, safe to auto-fill anywhere), `company` (tailored to this
+     employer — pass `company`), `conditional` (role/location/time-dependent —
+     always re-reviewed).
 6. **Review** — verify cheaply by re-reading the DOM: call `read_form()` and
    confirm each field's `current_value` is set as intended (prefer this over a
    screenshot). Take a `screenshot()` only if a widget looks ambiguous or a fill
    didn't take. Summarize what you filled and from which source, and list
    anything you skipped or left for the user.
-7. **Submit** — call `submit_application()` **only after the user explicitly
-   says to submit.** Never auto-submit; this is destructive and always gated,
-   regardless of confidence.
+7. **Submit** — call `submit_application(company=..., job_title=...)` **only
+   after the user explicitly says to submit.** Never auto-submit; this is
+   destructive and always gated, regardless of confidence. Pass the employer
+   name and role title: the tool snapshots the form just before clicking,
+   auto-captures every filled answer into history (so nothing is lost even if
+   a `save_answer` was missed), and logs the submission to
+   `data/applications.json`. Mention the `capture` summary in your wrap-up.
 
 ## Human intervention (CAPTCHAs, logins, "verify you are human")
 
