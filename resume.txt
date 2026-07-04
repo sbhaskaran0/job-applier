@@ -1,21 +1,25 @@
 Siddharth Bhaskaran  
 7660 Beverly Blvd Apt 231, Los Angeles CA 90036 
 310-343-9671 | siddharth99.ram@gmail.com 
+ 
 EDUCATION 
-University of California-Santa Barbara       
-Bachelor of Arts, Economics        
+ 
+University of California-Los Angeles       Los Angeles, CA 
+Master of Quantitative Economics (part-time)      December 2027 (Expected) 
+ 
+ 
+University of California-Santa Barbara       Santa Barbara, CA 
+Bachelor of Arts, Economics        June 2020 
 • Cumulative GPA 3.66 
-Santa Barbara, CA 
-June 2020 
 • Relevant Coursework: Econometrics, Statistics, Financial Management, Intro to Data Science, Game 
 Theory, Linear Algebra, Intro to Programming: Python, College Writing, Calculus 
 • Research Assistant to Dr. Kelly Bedard (January 2020 - April 2020) 
 • 1st place winner, UCSB Economics Data Hack (October 2019) 
+ 
 EXPERIENCE 
-M Science               
-Product Manager, Systematic Data        
-New York, NY 
-April 2023-Present 
+ 
+M Science               New York, NY 
+Product Manager, Systematic Data        April 2023-Present 
 • Manage the KPI API product, involving defining the overall product strategy, gathering client feedback, 
 building the product roadmap, prioritizing the backlog, etc. 
 • Collaborated with engineering to define and launch new API schema, allowing clients to leverage 
@@ -27,10 +31,11 @@ annual error rate from over 2% to ~0%.
 ingestion and product utility. 
 • Worked with sales and marketing leadership to develop GTM strategy for systematic data offering, 
 resulting in an exponential increase in new business deals on the product. 
-Product Strategy Associate 
+ 
+Strategy & Operations Associate 
 • Led the team developing the packaging and pricing model, collaborating cross-functionally with data 
 science, sales and investment research to build a data-driven model and establishing a pricing desk, 
-resulting in a ~35% increase in ARR in the first quarter following the rollout of the model. 
+resulting in a ~35% increase in ARR growth in the first quarter following the rollout of the model. 
 • Conceptualized, built and led adoption of an internal Salesforce product to act as the master data system 
 for all product metadata, acting as a semantic layer for AI products, automating product entitlements, 
 powering the customer portal and enabling product level unit economics and analytics. 
@@ -39,10 +44,19 @@ standardized methodology and sources of truth, developing data pipelines and gov
 UC and building Dashboards for key executive stakeholders. 
 • Leveraged analysis to provide strategic insights to the executive management team, helping guide 
 company strategy and enabling data driven decision making. 
-Stealth Startup              
-Fractional Product Manager (Part-Time)       
-Remote 
-March 2025-November 2025 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Audare AI               Remote 
+Fractional Product Manager (Part-Time)       March 2025-Ongoing 
 • Product Manager for B2B2C personal finance and literacy tool, leading product discovery, identifying 
 the ICP and building key user personas, establishing the product strategy and creating the product 
 roadmap, resulting in the creation of the MVP and a clear vision for the future of the product. 
@@ -51,10 +65,9 @@ roadmap, resulting in the creation of the MVP and a clear vision for the future 
 product increments, pushing for CI/CD and enabling the team with tooling. 
 • Worked with founder on pitch materials, monetization strategy and defining the core value proposition 
 of the product. 
-Yipitdata               
-Business Operations Associate        
-New York, NY 
-March 2022-February 2023 
+ 
+Yipitdata               New York, NY 
+Business Operations Associate        March 2022-February 2023 
 • Identified gaps in the report publishing process based on data analysis and qualitative analysis of product 
 team interviews, proposed new best practices and operational changes, and implemented them in the 
 new product development process and on existing teams after collaborating with product team 
@@ -69,23 +82,25 @@ improvement in data reliability, consistency, and the speed of analysis.
 • Established and created data management guidelines, involving the creation of documentation, including 
 data dictionaries, ERDs, table naming and schema conventions, changelog management, source data 
 documentation and more. 
-PennyMac Loan Services             
-Data Analyst II          
-Westlake Village, CA 
-July 2020-February 2022 
+ 
+PennyMac Loan Services             Westlake Village, CA 
+Data Analyst II          July 2020-February 2022 
 • Designed, developed, and maintained high-visibility reports using complex SQL queries and advanced 
 Excel for Sales and Marketing used for compensation, strategic planning, and marketing efforts. 
 • Scaled quickly on the job to become domain expert for Broker Direct data, entailing acting as the subject 
 expert in the development of new reporting and becoming the point of contact to senior management, 
 analysts, and the sales team. 
 • Automated legacy reporting using Python to reduce time spent sending out reports manually, increasing 
-the team's capacity. 
+the team’s capacity. 
 • Created time sensitive ad-hoc Regulatory reports for state examination, often using open queries to 
 AWS Athena. 
+ 
 SKILLS & INTERESTS 
+ 
 • Skills: Product Strategy, Executive Communication, SQL, Python, Statistical analysis, 
 Agile Project Management, Advanced Excel, PowerPoint and Word, Document 
 Writing, Quantitative Analysis, Data Analytics, BI, VBA, Tableau, Data Visualization, 
 AI/ML, Stakeholder Management, Databricks Unity Catalog, ETL, A/B testing, 
 Salesforce 
-• Interests: Finance, Technology, Data Analytics, Product, Strategy & Operations
+• Interests: Finance, Technology, Data Analytics, Product, Strategy & Operations 
+ 
