@@ -48,12 +48,18 @@ issue any genuinely independent calls together in a single message.
    **`fill_many`** once.
    - Apply the **style rules** while assembling values (strip demographic/
      eligibility answers to a bare value; map to the matching `select`/`radio`/
-     `checkbox` option, e.g. work-auth "Yes"). Skip EEO/self-ID fields unless the
-     profile has a value or the user asks.
+     `checkbox` option, e.g. work-auth "Yes"). Skip EEO/self-ID fields unless
+     the profile has a value (rows flagged `eeo: true` — fill those only into
+     voluntary self-ID sections, as bare option values) or the user asks.
    - For a **combobox** whose options you don't already know ("How did you hear
      about us?", a consent dropdown), call `get_field_options(index)` first, then
      include the exact option label in the `fill_many` batch. Yes/No and
      free-type comboboxes can be filled directly.
+   - **Check every fill result.** A combobox row may come back `unmatched` with
+     the widget's real `options` (e.g. the list says `US`, not
+     "United States") — refill those indexes with the matching option text in
+     one follow-up `fill_many`. `uncommitted` means the click didn't stick —
+     verify visually and retry.
    - **Resume/CV:** call `upload_resume()` with **no index** — it finds the file
      input even when hidden behind an "Attach"/dropzone widget, preferring resume
      over cover-letter. (Uploads resume.pdf/.docx if present, else resume.txt.)
@@ -81,8 +87,13 @@ issue any genuinely independent calls together in a single message.
    destructive and always gated, regardless of confidence. Pass the employer
    name and role title: the tool snapshots the form just before clicking,
    auto-captures every filled answer into history (so nothing is lost even if
-   a `save_answer` was missed), and logs the submission to
-   `data/applications.json`. Mention the `capture` summary in your wrap-up.
+   a `save_answer` was missed; EEO answers are never persisted), and logs the
+   submission to `data/applications.json` **only when the submit is
+   confirmed**. Trust the returned `status`: `"submitted"` is verified;
+   `"attempted"` means no confirmation was seen — screenshot, look for a
+   validation error or a verification gate (e.g. Greenhouse emails an
+   8-character code), hand off to the user if needed, and don't claim success.
+   Mention the `capture` summary in your wrap-up.
 
 ## Human intervention (CAPTCHAs, logins, "verify you are human")
 

@@ -8,6 +8,7 @@ that list and fills fields by index. This is what makes it work on any ATS
 (Greenhouse, Lever, Ashby, Workday, ...) without predefined rules.
 """
 
+import re
 from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
@@ -77,6 +78,15 @@ _SCAN_JS = r"""
     let value = '';
     if (kind === 'checkbox' || kind === 'radio') value = el.checked ? 'checked' : '';
     else value = el.value || '';
+    if (kind === 'combobox' && !value) {
+      // React-select renders the committed choice in a sibling "single-value"
+      // element, not in the input itself — surface it so verification and
+      // submit-time capture can see combobox answers.
+      const ctl = el.closest('[class*="control"]') ||
+                  (el.parentElement && el.parentElement.parentElement);
+      const sv = ctl && ctl.querySelector('[class*="single-value"], [class*="singleValue"]');
+      if (sv) value = clean(sv.innerText);
+    }
 
     el.setAttribute('data-jaidx', String(idx));
     out.push({
@@ -144,6 +154,46 @@ _SCAN_JS = r"""
     }
   }
   return out;
+}
+"""
+
+
+# JS: enumerate the options of the listbox controlled by the combobox at
+# data-jaidx=idx. Scoped via aria-controls/aria-owns so options from OTHER
+# widgets (e.g. the phone country-code dropdown) don't leak in; falls back to
+# on-screen [role=option] elements only.
+_COMBO_OPTIONS_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  const lbId = el && (el.getAttribute('aria-controls') || el.getAttribute('aria-owns'));
+  const root = lbId ? document.getElementById(lbId) : null;
+  let opts;
+  if (root) {
+    opts = Array.from(root.querySelectorAll('[role=option]'));
+    if (!opts.length && root.getAttribute('role') === 'option') opts = [root];
+  } else {
+    opts = Array.from(document.querySelectorAll('[role=option]')).filter(o => {
+      const r = o.getBoundingClientRect();
+      return r.width > 1 && r.height > 1;
+    });
+  }
+  return opts.map(o => clean(o.textContent)).filter(Boolean);
+}
+"""
+
+# JS: the value the combobox at data-jaidx=idx has actually COMMITTED (the
+# react-select "single-value" element), as opposed to transient typed text.
+_COMBO_VALUE_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  if (!el) return '';
+  const ctl = el.closest('[class*="control"]') ||
+              (el.parentElement && el.parentElement.parentElement);
+  const sv = ctl && ctl.querySelector('[class*="single-value"], [class*="singleValue"]');
+  if (sv) return (sv.innerText || '').replace(/\s+/g, ' ').trim();
+  // plain comboboxes (no react-select shell) keep the value in the input
+  return (el.value || '').replace(/\s+/g, ' ').trim();
 }
 """
 
@@ -270,22 +320,80 @@ class BrowserSession:
                 else:
                     await loc.uncheck()
         elif kind == "combobox":
-            # React-select style widget (common on Greenhouse/Ashby/Lever):
-            # open it, type to filter, then click the matching option (fall
-            # back to Enter). Typing goes to whichever input the widget focuses.
-            frame = self.fields[index]["frame"]
-            await loc.click()
-            await self.page.wait_for_timeout(200)
-            await self.page.keyboard.type(value, delay=20)
-            await self.page.wait_for_timeout(500)
-            option = frame.get_by_role("option", name=value, exact=False).first
-            try:
-                await option.click(timeout=1500)
-            except Exception:
-                await self.page.keyboard.press("Enter")
+            return await self._fill_combobox(index, loc, value)
         else:  # text / textarea / contenteditable
             await loc.fill(value)
         return {"index": index, "kind": kind, "status": "filled", "value": value}
+
+    @staticmethod
+    def _match_option(value: str, options: list[str]) -> str | None:
+        """Pick the option that actually MEANS `value`: exact (case-insensitive)
+        first, then prefix, then abbreviation (initials — 'US' ↔ 'United
+        States'). Returns None when nothing matches; never falls back to 'first
+        option in the filtered list' (that is how 'US' once selected
+        'AUStralia')."""
+        v = (value or "").strip().lower()
+        if not v:
+            return None
+
+        def initials(s: str) -> str:
+            return "".join(w[0] for w in re.findall(r"[A-Za-z]+", s)).lower()
+
+        for o in options:
+            if o.strip().lower() == v:
+                return o
+        for o in options:
+            if o.strip().lower().startswith(v):
+                return o
+        for o in options:
+            if initials(o) == v or initials(value) == o.strip().lower():
+                return o
+        if len(options) == 1 and v in options[0].lower():
+            return options[0]
+        return None
+
+    async def _fill_combobox(self, index: int, loc, value: str) -> dict:
+        """Open the widget, type to filter, then select the option that best
+        matches `value` and VERIFY the widget committed it. If no option
+        matches, the typed text is cleared and the real options are returned
+        (status "unmatched") so the caller can refill with the right label."""
+        frame = self.fields[index]["frame"]
+        await loc.click()
+        await self.page.wait_for_timeout(200)
+        await self.page.keyboard.type(value, delay=20)
+        await self.page.wait_for_timeout(600)
+        options = await frame.evaluate(_COMBO_OPTIONS_JS, index)
+        target = self._match_option(value, options)
+        if target is None:
+            # Clear the typed filter and re-read the unfiltered list so the
+            # caller sees the widget's actual choices.
+            for _ in range(len(value) + 2):
+                await self.page.keyboard.press("Backspace")
+            await self.page.wait_for_timeout(400)
+            full = await frame.evaluate(_COMBO_OPTIONS_JS, index)
+            await self.page.keyboard.press("Escape")
+            return {"index": index, "kind": "combobox", "status": "unmatched",
+                    "value": value, "options": full[:80],
+                    "note": "no option matched the value; call fill_field "
+                            "again with one of `options` verbatim"}
+        try:
+            await frame.get_by_role("option", name=target, exact=True).first \
+                .click(timeout=2000)
+        except Exception:
+            try:
+                await frame.get_by_role("option", name=target).first \
+                    .click(timeout=1500)
+            except Exception:
+                await self.page.keyboard.press("Enter")
+        await self.page.wait_for_timeout(200)
+        committed = await frame.evaluate(_COMBO_VALUE_JS, index)
+        if committed:
+            return {"index": index, "kind": "combobox", "status": "filled",
+                    "value": committed}
+        return {"index": index, "kind": "combobox", "status": "uncommitted",
+                "value": value, "matched_option": target,
+                "note": "clicked an option but the widget shows no committed "
+                        "value — verify visually or retry"}
 
     async def fill_many(self, items: list[dict]) -> list[dict]:
         """Fill several fields in one call. `items` is [{index, value}, ...],
@@ -367,9 +475,7 @@ class BrowserSession:
             frame = self.fields[index]["frame"]
             await loc.click()
             await self.page.wait_for_timeout(500)
-            opts = await frame.evaluate(
-                "() => Array.from(document.querySelectorAll('[role=option]'))"
-                ".map(o => (o.textContent || '').trim()).filter(Boolean)")
+            opts = await frame.evaluate(_COMBO_OPTIONS_JS, index)
             try:
                 await self.page.keyboard.press("Escape")
             except Exception:
@@ -421,16 +527,71 @@ class BrowserSession:
         text = await self.page.inner_text("body")
         return " ".join(text.split())[:8000]
 
+    async def _find_submit_button(self):
+        """Locate the real submit control across all frames. Candidate
+        selectors are tried in priority order, and anything reading like
+        'Quick Apply' is skipped — the naive DOM-first `button:has-text
+        ('Apply')` once clicked Greenhouse's 'Quick Apply with MyGreenhouse'
+        button instead of 'Submit application'."""
+        for sel in ("button[type=submit], input[type=submit]",
+                    "button:has-text('Submit application')",
+                    "button:has-text('Submit')",
+                    "button:has-text('Apply')"):
+            for frame in self.page.frames:
+                try:
+                    cands = frame.locator(sel)
+                    n = await cands.count()
+                except Exception:
+                    continue
+                for i in range(n):
+                    cand = cands.nth(i)
+                    try:
+                        if not await cand.is_visible():
+                            continue
+                        label = (await cand.evaluate(
+                            "el => (el.innerText || el.value || '')")).lower()
+                    except Exception:
+                        continue
+                    if "quick apply" in label:
+                        continue
+                    return cand
+        return None
+
+    async def _submission_confirmed(self, fields_before: int) -> tuple[bool, str]:
+        """Decide whether the submit actually went through: confirmation text
+        on the page, or the form largely disappearing. Anything else is only
+        an *attempt* — the click may have hit validation, a verification gate,
+        or the wrong control."""
+        try:
+            body = " ".join((await self.page.inner_text("body")).split()).lower()
+        except Exception:
+            return False, "could not read the page after the click"
+        m = re.search(
+            r"thank you for (applying|submitting)"
+            r"|application (has been |was )?(received|submitted)"
+            r"|we('ve| have) received your application", body)
+        if m:
+            return True, f'confirmation text: "{m.group(0)}"'
+        try:
+            after = len(await self.read_form())
+        except Exception:
+            after = fields_before
+        if fields_before >= 4 and after <= fields_before // 4:
+            return True, f"form fields went from {fields_before} to {after}"
+        return False, (f"form still present ({after} fields, was "
+                       f"{fields_before}); no confirmation text found")
+
     async def submit_application(self, index: int | None = None) -> dict:
         """Click the submit control. DESTRUCTIVE — the caller (skill) must
-        confirm with the user first. If `index` is given, that field is clicked;
-        otherwise a best-effort submit button is located.
+        confirm with the user first. If `index` is given, that field is
+        clicked; otherwise the submit button is located across frames
+        (excluding 'Quick Apply' style buttons).
 
         Snapshots the form (labels + current values) just before clicking and
         returns it as `form_snapshot` so the caller can persist what was
-        actually submitted. Re-scanning an unchanged DOM re-tags the same
-        elements with the same indices, so a caller-supplied `index` stays
-        valid; the snapshot is best-effort and never blocks the submit."""
+        actually submitted, then verifies the submission landed: `status` is
+        "submitted" only when the page shows confirmation (or the form is
+        gone); otherwise "attempted" with the evidence in `confirmation`."""
         if self.page is None:
             raise RuntimeError("No page open.")
         try:
@@ -439,16 +600,19 @@ class BrowserSession:
             form_snapshot = []
         if index is not None:
             loc, _ = self._locator(index)
-            await loc.click()
         else:
-            frame = self.page.main_frame
-            btn = frame.locator(
-                "button[type=submit], input[type=submit], "
-                "button:has-text('Submit'), button:has-text('Apply')"
-            ).first
-            await btn.click()
+            loc = await self._find_submit_button()
+            if loc is None:
+                return {"status": "no_submit_button",
+                        "current_url": self.page.url,
+                        "form_snapshot": form_snapshot,
+                        "note": "no visible submit control found; ask the "
+                                "user to submit manually"}
+        await loc.click()
         await self.page.wait_for_timeout(3000)
-        return {"status": "submitted", "current_url": self.page.url,
+        confirmed, evidence = await self._submission_confirmed(len(form_snapshot))
+        return {"status": "submitted" if confirmed else "attempted",
+                "confirmation": evidence, "current_url": self.page.url,
                 "form_snapshot": form_snapshot}
 
     async def close(self) -> None:

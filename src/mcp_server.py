@@ -41,7 +41,12 @@ async def read_form() -> list:
 async def fill_field(index: int, value: str) -> dict:
     """Fill the field at `index`. Handles text/textarea (types), select (chooses
     the option by label or value), and radio/checkbox (pass 'yes'/'no'). To fill
-    many fields at once, prefer fill_many."""
+    many fields at once, prefer fill_many.
+
+    Comboboxes are verified: status "filled" means the widget committed the
+    (possibly normalized) `value` shown in the result. Status "unmatched" means
+    no option matched — the result carries the widget's real `options`; call
+    again with the correct option text verbatim (e.g. "United States" → "US")."""
     return await browser.session.fill_field(index, value)
 
 
@@ -51,7 +56,8 @@ async def fill_many(fields: list[dict]) -> list:
     [{index, value}, ...], applied in order; a per-field failure is captured in
     the result (not fatal). Use this after resolve_fields to fill everything you
     resolved/approved in a single round-trip instead of one fill_field per
-    field."""
+    field. Check each result: a combobox row with status "unmatched" includes
+    its real `options` — refill those indexes with the matching option text."""
     return await browser.session.fill_many(fields)
 
 
@@ -102,20 +108,26 @@ async def get_job_text() -> str:
 async def submit_application(index: int = -1, company: str = "",
                               job_title: str = "") -> dict:
     """DESTRUCTIVE: submit the application. Only call after the user has
-    explicitly confirmed. If `index` >= 0 that field is clicked, otherwise a
-    submit button is located automatically.
+    explicitly confirmed. If `index` >= 0 that field is clicked, otherwise the
+    submit button is located automatically (across frames, never a
+    "Quick Apply" button).
 
-    Pass `company` and `job_title` (from the posting) — the form is snapshotted
-    just before the click, every filled answer is auto-captured into history
-    (conservatively scoped; entries you already saved via save_answer keep
-    their scope), and the submission is logged to data/applications.json. The
-    result's `capture` field summarizes what was persisted."""
+    The result's `status` is VERIFIED: "submitted" only when the page confirms
+    (thank-you text or the form disappearing); "attempted" means the click
+    happened but no confirmation was seen — inspect (screenshot /
+    check_for_intervention) and hand off to the user if a verification gate is
+    blocking. Pass `company` and `job_title` (from the posting): the form is
+    snapshotted just before the click and every filled answer is auto-captured
+    into history (conservatively scoped; EEO fields never persisted); the
+    application is logged to data/applications.json only on a CONFIRMED
+    submit. The `capture` field summarizes what was persisted."""
     result = await browser.session.submit_application(index if index >= 0 else None)
     snapshot = result.pop("form_snapshot", [])
     try:
         result["capture"] = data.capture_submission(
             snapshot, company=company, job_title=job_title,
-            url=result.get("current_url", ""))
+            url=result.get("current_url", ""),
+            log_application=(result.get("status") == "submitted"))
     except Exception as e:  # capture must never mask a successful submit
         result["capture"] = {"error": f"{type(e).__name__}: {e}"}
     return result
@@ -160,9 +172,12 @@ def resolve_fields(fields: list[dict], company: str = "") -> list:
         idx, label = f.get("index"), f.get("label", "")
         pf = data.get_profile_field(label)
         if pf.get("value"):
-            out.append({"index": idx, "label": label, "source": "profile",
-                        "value": pf["value"], "matched_key": pf.get("matched_key"),
-                        "confidence": "exact"})
+            row = {"index": idx, "label": label, "source": "profile",
+                   "value": pf["value"], "matched_key": pf.get("matched_key"),
+                   "confidence": "exact"}
+            if pf.get("eeo"):
+                row["eeo"] = True  # voluntary self-ID: fill only in self-ID sections
+            out.append(row)
             continue
         hist = data.search_history(label, top_k=3)
         strong = [h for h in hist if h["score"] >= 0.7]

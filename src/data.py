@@ -21,7 +21,8 @@ VALID_SCOPES = ("evergreen", "company", "conditional")
 ALIASES: dict[str, list[str]] = {
     "requires_sponsorship": [
         "require sponsorship", "need sponsorship", "visa sponsorship",
-        "sponsorship now or in the future", "require visa",
+        "sponsorship now or in the future", "require visa", "sponsor",
+        "work permit",
     ],
     "work_authorization": [
         "authorized to work", "legally authorized", "legally allowed to work",
@@ -54,8 +55,18 @@ ALIASES: dict[str, list[str]] = {
     "gender": ["gender"],
     "pronouns": ["pronoun"],
     "race_ethnicity": ["race", "ethnicity"],
+    "hispanic_latino": ["hispanic", "latino"],
     "veteran_status": ["veteran"],
     "disability_status": ["disability"],
+}
+
+# Phrases that disqualify an alias match even when its phrase appears. E.g.
+# "...for the location(s) you selected..." inside a sponsorship or remote-work
+# question must not resolve to the user's location.
+ALIAS_EXCLUDE: dict[str, list[str]] = {
+    "location": ["remote", "sponsor", "relocat", "work permit",
+                 "anticipate working", "authorized"],
+    "city": ["remote", "sponsor", "work permit"],
 }
 
 
@@ -67,32 +78,45 @@ def _tokens(text: str) -> set[str]:
     return set(_normalize(text).split())
 
 
+def _unwrap_profile_value(raw):
+    """A profile value may be a scalar or a dict like {value: ..., eeo: true}
+    (the dict form marks voluntary EEO self-ID data). Returns (value, is_eeo)."""
+    if isinstance(raw, dict):
+        return (raw.get("value") or None), bool(raw.get("eeo"))
+    return (raw or None), False
+
+
 def get_profile_field(question_or_key: str) -> dict:
     """Resolve a form label (or a raw key) to an exact profile value.
 
-    Returns {"matched_key", "value", "confidence"}. `value` is None when no
-    field maps to the question. `confidence` is "exact" when a value is found.
+    Returns {"matched_key", "value", "confidence", "eeo"}. `value` is None when
+    no field maps to the question. `confidence` is "exact" when a value is
+    found. `eeo` is True for voluntary self-identification values — fill them
+    only into voluntary self-ID sections, and never store them in history.
     """
     profile = config.load_user_profile()
     norm = _normalize(question_or_key)
 
     # 1) direct key hit (e.g. Claude passes "email" straight through)
     if question_or_key in profile:
-        val = profile.get(question_or_key)
-        return {"matched_key": question_or_key, "value": val or None,
-                "confidence": "exact" if val else "empty"}
+        val, eeo = _unwrap_profile_value(profile.get(question_or_key))
+        return {"matched_key": question_or_key, "value": val,
+                "confidence": "exact" if val else "empty", "eeo": eeo}
 
     # 2) alias phrase match against the normalized question
     for key, phrases in ALIASES.items():
         if key not in profile:
             continue
+        if any(x in norm for x in ALIAS_EXCLUDE.get(key, ())):
+            continue
         for phrase in phrases:
             if phrase in norm:
-                val = profile.get(key)
-                return {"matched_key": key, "value": val or None,
-                        "confidence": "exact" if val else "empty"}
+                val, eeo = _unwrap_profile_value(profile.get(key))
+                return {"matched_key": key, "value": val,
+                        "confidence": "exact" if val else "empty", "eeo": eeo}
 
-    return {"matched_key": None, "value": None, "confidence": "none"}
+    return {"matched_key": None, "value": None, "confidence": "none",
+            "eeo": False}
 
 
 def _similarity(a: str, b: str) -> float:
@@ -181,16 +205,19 @@ def _classify_scope(question: str, answer: str, kind: str, company: str) -> str:
 
 
 def capture_submission(fields: list[dict], company: str = "",
-                       job_title: str = "", url: str = "") -> dict:
+                       job_title: str = "", url: str = "",
+                       log_application: bool = True) -> dict:
     """Structural capture at submit time: persist every filled answer from a
-    form snapshot into history and log the application to applications.json.
+    form snapshot into history and (when `log_application` — i.e. the submit
+    was actually confirmed) log the application to applications.json.
 
-    Skips file fields, empty values, and fields the profile already answers
-    (the profile is their canonical source). Radio/checkbox rows are captured
-    only when checked and only when the row's label is the group question
-    rather than the option text (e.g. Ashby button-groups). Auto-captured
-    entries get a conservative scope; an entry that already has a scope (e.g.
-    from an explicit save_answer) keeps it."""
+    Skips file fields, empty values, EEO self-ID fields (never persisted
+    anywhere), and — for history — fields the profile already answers (the
+    profile is their canonical source). Radio/checkbox rows are captured only
+    when checked and only when the row's label is the group question rather
+    than the option text (e.g. Ashby button-groups). Auto-captured entries get
+    a conservative scope; an entry that already has a scope (e.g. from an
+    explicit save_answer) keeps it."""
     history = config.load_history()
     added = updated = 0
     submitted: list[dict] = []
@@ -211,8 +238,10 @@ def capture_submission(fields: list[dict], company: str = "",
             value = option
         if not value:
             continue
-        submitted.append({"question": label, "answer": value})
         pf = get_profile_field(label)
+        if pf.get("eeo"):
+            continue  # sensitive self-ID data: never persisted anywhere
+        submitted.append({"question": label, "answer": value})
         if pf.get("value"):
             continue  # profile is the canonical source for this field
         scope = _classify_scope(label, value, kind, company)
@@ -225,12 +254,14 @@ def capture_submission(fields: list[dict], company: str = "",
             updated += 1
     config.save_history(history)
 
-    applications = config.load_applications()
-    applications.append({"company": company, "job_title": job_title,
-                         "url": url, "date": date.today().isoformat(),
-                         "status": "submitted", "fields": submitted})
-    config.save_applications(applications)
-    return {"answers_added": added, "answers_updated": updated,
-            "history_count": len(history),
-            "application_logged": True,
-            "applications_count": len(applications)}
+    result = {"answers_added": added, "answers_updated": updated,
+              "history_count": len(history), "application_logged": False}
+    if log_application:
+        applications = config.load_applications()
+        applications.append({"company": company, "job_title": job_title,
+                             "url": url, "date": date.today().isoformat(),
+                             "status": "submitted", "fields": submitted})
+        config.save_applications(applications)
+        result["application_logged"] = True
+        result["applications_count"] = len(applications)
+    return result

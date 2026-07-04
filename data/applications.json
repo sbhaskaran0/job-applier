@@ -1,0 +1,75 @@
+[
+  {
+    "company": "Stripe",
+    "job_title": "Product Manager, Payments",
+    "url": "https://job-boards.greenhouse.io/embed/job_app?for=stripe&token=7176530",
+    "date": "2026-07-04",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Please select the country where you currently reside. *",
+        "answer": "US"
+      },
+      {
+        "question": "Please select the country or countries you anticipate working in for the role in which you are applying. *",
+        "answer": "US"
+      },
+      {
+        "question": "Are you authorized to work in the location(s) you selected in your previous response?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Will you require Stripe to sponsor you for a work permit now or in the future for the location(s) you selected in your previous response? *",
+        "answer": "No"
+      },
+      {
+        "question": "If this role offers the option to work from a remote location, do you plan to work remotely?*",
+        "answer": "Yes, I intend to work remotely."
+      },
+      {
+        "question": "Have you ever been employed by Stripe or a Stripe affiliate?*",
+        "answer": "No"
+      },
+      {
+        "question": "Who is your current or previous employer?*",
+        "answer": "M Science"
+      },
+      {
+        "question": "What is your current or previous job title?*",
+        "answer": "Product Manager, Systematic Data"
+      },
+      {
+        "question": "What is the most recent school you attended?*",
+        "answer": "University of California-Los Angeles"
+      },
+      {
+        "question": "Do you opt-in to receive WhatsApp messages from Stripe Recruiting?*",
+        "answer": "No"
+      },
+      {
+        "question": "If located in the US, in what city and state do you reside?*",
+        "answer": "Los Angeles, California"
+      },
+      {
+        "question": "What is the most recent degree you obtained?*",
+        "answer": "Bachelor's Degree"
+      }
+    ]
+  }
+]

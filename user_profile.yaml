@@ -32,9 +32,23 @@ how_did_you_hear: "Company careers page / professional network"
 desired_salary: ""
 notice_period: ""
 
-# EEO / self-identification (optional — left blank on purpose)
-gender: ""
+# EEO / voluntary self-identification. Each entry is marked `eeo: true` so the
+# agent knows it is handling sensitive demographic data (see the warning in
+# README.md). Filled only into voluntary self-ID form sections; delete a value
+# (or the whole entry) to stop auto-answering it.
+gender:
+  value: "Male"
+  eeo: true
 pronouns: ""
-race_ethnicity: ""
-veteran_status: ""
-disability_status: ""
+race_ethnicity:
+  value: "Asian"
+  eeo: true
+hispanic_latino:
+  value: "No"
+  eeo: true
+veteran_status:
+  value: "I am not a protected veteran"
+  eeo: true
+disability_status:
+  value: "No, I do not have a disability and have not had one in the past"
+  eeo: true
