@@ -67,8 +67,8 @@ Then, in Claude Code, **open this project and reload it** so it loads
 | [resume.txt](resume.txt)               | Resume **text** used for crafting answers.                                                                                                                       |
 | `**resume.pdf`** (add to project root) | The actual file **uploaded** to forms (preferred over `.txt`). On each apply, its text is auto-synced into `resume.txt`.                                         |
 | [context/](context/)                   | Your "knowledge base" — `background.md`, `stories.md`, `preferences.md`, and any `.md` / `.txt` / `**.pdf`** you add. Searched when crafting open-ended answers. |
-| [job_criteria.yaml](job_criteria.yaml) | The strict bar for `/find-jobs`: acceptable titles, seniority, locations/remote, and `salary_floor`.                                                             |
-| [watchlist.yaml](watchlist.yaml)       | The ~30 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04).                                                                |
+| [job_criteria.yaml](job_criteria.yaml) | The strict bar for `/find-jobs`: acceptable titles, seniority, locations/remote, and `salary_floor` (currently **$130k**; mid-level ops titles allowed and `Associate` not excluded, per JOB-26). |
+| [watchlist.yaml](watchlist.yaml)       | The ~34 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04, and mid-level S&O/BizOps sources Atticus/Tailscale/Ladder/Toast added 2026-07-05 for JOB-26). |
 | [data/history.json](data/history.json) | Past Q&A answers. Grows automatically as you approve crafted answers.                                                                                            |
 
 

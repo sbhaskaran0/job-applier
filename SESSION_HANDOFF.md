@@ -1,15 +1,17 @@
 # Session handoff — job-applier
 
 Paste this into a fresh Claude Code session to restore context. Last updated
-2026-07-05 (session 7 — postings store Phase 1 shipped; handoff distilled to
-current state, per-session narratives dropped: see git log + Linear for history).
+2026-07-05 (session 8 — JOB-26 watchlist S&O rework executed: +4 mid-level
+sources, salary_floor 150k→130k, ops titles broadened; qualifying corpus 1→97.
+Handoff distilled to current state, per-session narratives dropped: see git log
++ Linear for history).
 
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
 `python -m src.mcp_server`, **24 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
-- **`/find-jobs <query>`** — roles across a curated 30-company watchlist
+- **`/find-jobs <query>`** — roles across a curated 34-company watchlist
   (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
   strict-filtered by `job_criteria.yaml`, ranked semantically by Claude.
 - **`/apply-to-job <url>`** — fills an application from profile→history→context
@@ -102,10 +104,12 @@ Queued (user deferred): **Rula — S&O Manager, Remote-US** (Ashby:
 Shortlist: Anthropic Product Ops Mgr (Feedback Loops), Greenhouse.
 
 ## Git state
-- Branch **`main`** = `b479909` (docs reconcile) ← **`3dcf8d4` postings store
-  Phase 1 (JOB-27..31)** ← `2f6c08d`. **Push to GitHub pending** (`git push
-  origin main`, main is 2 ahead; a push attempt was permission-blocked —
-  user's call).
+- Branch **`main`** ← **JOB-26 sourcing rework** (this session: `watchlist.yaml`
+  +4 companies, `job_criteria.yaml` floor 130k + broadened titles, docs) ←
+  `b479909` (docs reconcile) ← **`3dcf8d4` postings store Phase 1 (JOB-27..31)**.
+  **Push to GitHub pending** (main now ≥3 ahead; a prior push attempt was
+  permission-blocked — user's call). `data/{applications,history}.json` carry
+  another session's application-logging writes, intentionally left unstaged.
 - `.env` untracked/never committed; git identity set locally.
 
 ## OPEN ITEMS / next steps
@@ -121,11 +125,10 @@ Shortlist: Anthropic Product Ops Mgr (Feedback Loops), Greenhouse.
    **UC Santa Barbara** (UCLA MQE in progress, expected Dec 2027). Prep agents
    route around it; the entry still needs fixing.
 6. **Linear:** JOB-24 (Urgent, submit verification — code shipped session 5,
-   verify live) · JOB-26 (watchlist S&O supply — use the digest yield table as
-   evidence) · JOB-32 (Phase 2 embeddings, unblocked) · JOB-19 (part 2 only →
+   verify live) · JOB-32 (Phase 2 embeddings, unblocked) · JOB-19 (part 2 only →
    JOB-32) · JOB-22/20 (queue executor/parent — on JOB-24 + park-path verify) ·
    JOB-33/34 (portability — filed, deliberately NOT executed). Done: JOB-16,
-   JOB-18, JOB-21, JOB-27..31.
+   JOB-18, JOB-21, JOB-26 (this session), JOB-27..31.
 
 ## Proposed backlog (not built — bring back for approval)
 - **Data layer (recommended):** application tracker v2 (status transitions,

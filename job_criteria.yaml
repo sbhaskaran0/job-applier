@@ -31,8 +31,15 @@ baseline:
     - "Chief of Staff"
     - "BizOps"
     - "Business Operations"
+    # Mid-level ops titles (JOB-26): "Manager/Lead" S&O skews 7+ yrs, so include
+    # analyst/associate-level ops phrasings to widen mid-level supply.
+    - "Strategy Analyst"
+    - "Business Operations Analyst"
+    - "Business Operations Associate"
   acceptable_seniority: ["Mid", "Senior"]
-  excluded_seniority: ["Director", "VP", "Head", "Principal", "Associate", "Intern", "Junior"]
+  # "Associate" intentionally NOT excluded (JOB-26): analyst/associate ops roles
+  # are valid mid-level targets, so we don't reject them on the title-seniority gate.
+  excluded_seniority: ["Director", "VP", "Head", "Principal", "Intern", "Junior"]
 
   # Location / remote
   locations_allowed: ["Los Angeles", "Remote"]
@@ -41,4 +48,4 @@ baseline:
 
   # Salary floor (USD). A DISCLOSED salary below this is dropped; a listing that
   # does not disclose salary is kept but flagged "salary not listed".
-  salary_floor: 150000
+  salary_floor: 130000  # JOB-26: lowered 150k->130k to match the S&O search intent

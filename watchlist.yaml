@@ -104,3 +104,17 @@ companies:
   - name: Grow Therapy     # mental-health marketplace, Series C, remote; lists Business Operations
     ats: ashby
     slug: grow-therapy
+  # --- Mid-level S&O / BizOps sources: proven disclosed-salary, remote-friendly
+  #     (added 2026-07-05, JOB-26 off-watchlist sweep) ---
+  - name: Atticus         # legal advocacy, LA-HQ, fully remote; BizOps Lead $130-160k, CoS $160-180k
+    ats: ashby
+    slug: atticus
+  - name: Tailscale       # networking infra, remote; BizOps & Strategy Mgr $124-180k
+    ats: greenhouse
+    slug: tailscale
+  - name: Ladder          # life-insurance fintech, remote incl. CA; BizOps Mgr $122-171k
+    ats: greenhouse
+    slug: ladder33
+  - name: Toast           # restaurant SaaS, remote; Sr Mgr Growth Operations $149-238k
+    ats: greenhouse
+    slug: toast
