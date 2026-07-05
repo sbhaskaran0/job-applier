@@ -281,7 +281,10 @@ batch run after the JOB-16/17/24 fixes went live, then a watchlist expansion.
    around it; the history entry itself still needs correcting.
 
 ## Git state
-- Branch: **`fix/ashby-button-group-and-linkedin`** (off `main`). NOT merged, NOT pushed.
+- Branch: **`main`** — `fix/ashby-button-group-and-linkedin` was fast-forward
+  merged into `main` and **pushed to GitHub** (2026-07-05, session 6;
+  `674bc9b..b5fee67`). GitHub now reflects the full history incl. the README
+  answer-resolution section.
 - Session 3 made **no code commits** (usage + Linear triage only).
 - Commits on it (newest first): `89c4f3b` manual-submission outcome · `4b569ec`
   session-4 data reconcile (pronouns, Notion answers) · `8b30100` session-4 docs
@@ -291,13 +294,13 @@ batch run after the JOB-16/17/24 fixes went live, then a watchlist expansion.
   `a817c7b` handoff refresh · `0a4fa2b` README diagram · `e185486` context files
   · `334a0de` browser/EEO fixes · `1850991` history capture · `b3c3593` Audare
   timeline + batch wiring · `7867f6c` batch tools + compact corpus · `378cb93`
-  button-group + LinkedIn. (Nothing on `main`/GitHub yet.)
+  button-group + LinkedIn. (All now on `main`/GitHub.)
 - `.env` untracked/never committed; git identity set locally.
 
 ## OPEN ITEMS / next steps
 1. **Restart Claude Code** — the running MCP server caches old code; the
    browser-layer + EEO + capture fixes are NOT live until a restart.
-2. **Merge/push** the branch when ready (nothing is on `main`/GitHub yet).
+2. **RESOLVED — merged & pushed** (session 6): `main` = `b5fee67` on GitHub.
 3. **User action: update `resume.pdf`** — still says "Audare AI … Ongoing".
    `resume.txt` is regenerated from it on every `open_job`, so that stale line
    still out-ranks the corrected `background.md` in retrieval. Apply skill style
