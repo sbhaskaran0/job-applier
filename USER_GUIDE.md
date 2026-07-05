@@ -193,15 +193,24 @@ upfront, per job. Only verified submits are logged as `submitted` in
 - The browser is **non-headless** — you can take over at any point.
 - Confidence gating applies to *answers*; submission is *always* your call.
 
-### CAPTCHAs and login walls
-If a "verify you are human" / reCAPTCHA / Cloudflare challenge appears, the agent
-**stops and asks you** to clear it in the open browser window, then continues once
-you confirm. It will never try to solve a CAPTCHA itself, and never submits while
-one is present.
+### CAPTCHAs, verification codes, and login walls
+- **Visible challenges** — a reCAPTCHA v2 checkbox, an image challenge, a
+  Cloudflare/Turnstile widget, a "verify you are human" wall, or a login: the
+  agent **stops and asks you** to clear it in the open browser, then continues
+  once you confirm. It never tries to solve one itself and never submits while
+  one is present.
+- **Invisible anti-bot** — reCAPTCHA v3 / invisible v2, which Greenhouse and
+  Ashby load on *every* page — needs no interaction. The agent flags it as a
+  non-blocking warning and proceeds; it won't ask you to "solve a captcha" that
+  isn't there. (Earlier versions wrongly halted on this.)
+- **Email verification codes** — e.g. Greenhouse emails an 8-character code on
+  submit. The agent detects the gate and, with Gmail connected, fetches the
+  code, fills it, and re-submits on its own — no hand-off. Without Gmail it asks
+  you for the code.
 
 ---
 
-## 7. The full tool set (21)
+## 7. The full tool set (24)
 
 **Browser / apply**
 - `open_job(url)` — open a posting; syncs resume.pdf→txt; **one shot**: also
@@ -214,7 +223,10 @@ one is present.
 - `upload_resume([index])` — attach the resume (auto-finds hidden file inputs).
 - `screenshot([path])` — capture the page for review.
 - `get_job_text()` — the visible page text (read a JD).
-- `check_for_intervention()` — detect CAPTCHA/verification/login walls.
+- `check_for_intervention()` — detect a CAPTCHA/login wall; only a **visible**
+  challenge blocks (invisible reCAPTCHA v3 comes back as a non-blocking warning).
+- `detect_verification_gate()` — spot an email/OTP code gate after a submit.
+- `fill_verification_code(code)` — fill a detected code gate, then re-submit.
 - `submit_application([index])` — **gated**; only on your explicit go-ahead.
 
 **Answers / memory**
@@ -223,6 +235,8 @@ one is present.
 - `get_profile_field(label)` — exact value from your profile (single).
 - `search_history(question)` — closest past answers, scored.
 - `save_answer(question, answer)` — remember an approved answer.
+- `log_application(company, job_title, url, status)` — record a confirmed
+  submit (deduped); used for code-gated or manually-clicked submits and backfills.
 - `search_context(query)` — relevant snippets from your knowledge base.
 
 **Criteria / discovery**

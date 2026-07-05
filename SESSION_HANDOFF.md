@@ -1,6 +1,6 @@
 # Session handoff — job-applier
 
-Paste this into a fresh Claude Code session to restore context. Last updated 2026-07-04 (session 4).
+Paste this into a fresh Claude Code session to restore context. Last updated 2026-07-04 (session 4; JOB-16/17 code fixes reconciled).
 
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
@@ -27,7 +27,8 @@ tech-strategy** roles. Repo: private GitHub `sbhaskaran0/job-applier`.
   + all iframes into generic field descriptors (no per-site selectors). Non-headless.
 - `src/data.py` — `get_profile_field` (alias map → `user_profile.yaml`),
   `search_history` (fuzzy over `data/history.json`), `save_answer`,
-  `capture_submission` (submit-time structural capture).
+  `capture_submission` (submit-time structural capture), `log_application_record`
+  (deduped application log for gated/manual submits + backfills).
 - `src/context.py` — `search_context` over `context/*.md|txt|pdf` + resume text.
 - `src/providers/watchlist.py` — fetch/normalize ATS boards, `list_postings`,
   `get_posting(s)`, `add_company`.
@@ -177,16 +178,41 @@ Executed **JOB-20** (batch-apply queue mode) and its sub-tasks from Linear.
    screenshot-audited; new `manual_submission` status in `applications.json`.
    Encoded in both apply skills + USER_GUIDE + this file.
 
+### JOB-16 / JOB-17 code fixes (commit `0e6e0c6`, base of the session-4 branch)
+Shipped the anti-bot + verification-code fixes filed in session 3. Landed
+*before* the apply-batch commits — but session 4 ran against a **stale MCP
+server** (no restart), so it still saw the old false positives; they resolve on
+the next restart. Verified headless **17/17**.
+- **JOB-16 (Done):** `detect_blockers` now **classifies** anti-bot instead of
+  flagging presence. `_BLOCKER_JS` measures element visibility per-frame and
+  returns `{blocking, warnings}`; `check_for_intervention` gained a `warnings`
+  field. Only a **visible** challenge (v2 checkbox, open image challenge,
+  Turnstile/hCaptcha, "verify you are human" wall) sets `blocked:true`;
+  invisible v3 / invisible v2 / the badge → non-blocking `warnings`. **ATS-
+  agnostic** (per-frame, no per-site rules) — covers the Ashby false positive
+  too.
+- **JOB-17 (In Progress — code done):** `detect_verification_gate()` spots the
+  email/OTP code gate; `fill_verification_code(code)` fills it deterministically
+  (one char per box); `data.log_application_record()` logs a submit made outside
+  a single `submit_application` call, **deduped** on (company, job_title, url) —
+  `capture_submission` now routes through it. New MCP tools:
+  `detect_verification_gate`, `fill_verification_code`, `log_application`.
+  apply-to-job skill documents the gate flow (detect → Gmail fetch → fill →
+  resubmit → log). **Remaining:** live Gmail auto-fetch unproven end-to-end;
+  Scale AI backfill still needs the real posting URL.
+
 ## Git state
 - Branch: **`fix/ashby-button-group-and-linkedin`** (off `main`). NOT merged, NOT pushed.
 - Session 3 made **no code commits** (usage + Linear triage only).
-- Commits on it (newest first): `25552ca` apply-batch text-verify fix (JOB-24)
-  · `e347397` apply-batch skill + data/prep gitignore · `ba3ded3` CLAUDE.md
-  Linear rule · `a817c7b` handoff refresh · `0a4fa2b` README diagram ·
-  `e185486` context files · `334a0de` browser/EEO fixes · `1850991` history
-  capture · `b3c3593` Audare timeline + batch wiring · `7867f6c` batch tools +
-  compact corpus · `378cb93` button-group + LinkedIn. (Nothing on
-  `main`/GitHub yet.)
+- Commits on it (newest first): `89c4f3b` manual-submission outcome · `4b569ec`
+  session-4 data reconcile (pronouns, Notion answers) · `8b30100` session-4 docs
+  (apply-batch + Ashby spam lessons) · `25552ca` apply-batch text-verify fix
+  (JOB-24) · `e347397` apply-batch skill + data/prep gitignore · **`0e6e0c6`
+  JOB-16/17 captcha + email-code gate** · `ba3ded3` CLAUDE.md Linear rule ·
+  `a817c7b` handoff refresh · `0a4fa2b` README diagram · `e185486` context files
+  · `334a0de` browser/EEO fixes · `1850991` history capture · `b3c3593` Audare
+  timeline + batch wiring · `7867f6c` batch tools + compact corpus · `378cb93`
+  button-group + LinkedIn. (Nothing on `main`/GitHub yet.)
 - `.env` untracked/never committed; git identity set locally.
 
 ## OPEN ITEMS / next steps
@@ -205,11 +231,13 @@ Executed **JOB-20** (batch-apply queue mode) and its sub-tasks from Linear.
    as the first `manual_submission` record in `data/applications.json`.
 6. **Open issues:** **JOB-24 (Urgent)** submit verification must read page
    text, not form-count — false "submitted" on Ashby spam-rejection, plus
-   duplicate-log bug in `log_application_record`. JOB-16 (reCAPTCHA-v3 false
-   positive — now confirmed on Ashby too, make it ATS-agnostic), JOB-17
-   (email-code gate + Scale AI backfill), JOB-18 (seniority surfacing), JOB-19
-   (Greenhouse salary + corpus breadth). JOB-22/JOB-20 (queue executor/parent)
-   stay open on JOB-24 + a park-path verification.
+   duplicate-log bug in `log_application_record`. **JOB-16 (Done, commit
+   `0e6e0c6`)** reCAPTCHA-v3 false positive — fix is ATS-agnostic (covers
+   Ashby); verify live after a restart. **JOB-17 (In Progress, code done in
+   `0e6e0c6`)** — gate tools + `log_application` shipped; live Gmail auto-fetch
+   and the Scale AI backfill remain. JOB-18 (seniority surfacing), JOB-19
+   (Greenhouse salary + corpus breadth) still open. JOB-22/JOB-20 (queue
+   executor/parent) stay open on JOB-24 + a park-path verification.
 7. **Remaining shortlist:** Anthropic Product Ops Mgr (Feedback Loops) —
    Greenhouse, best queued after JOB-16/17/24 land.
 
@@ -251,21 +279,23 @@ the hard executor cases).
 - **`open_job` runs `config.sync_resume_text_from_pdf()`**, overwriting
   `resume.txt` from `resume.pdf`. Don't hand-edit `resume.txt` expecting it to stick.
 - **Greenhouse anti-bot**: the reCAPTCHA is **invisible v3** (background scoring,
-  no visible challenge) — but the intervention detector currently **false-positives
-  it as `blocked`** (session 3), telling the user to solve a captcha that isn't
-  there. Until **JOB-16** lands, treat a Greenhouse "reCAPTCHA" block signal as
-  likely spurious and confirm with the user before halting. Real submits may then
-  trigger an **8-char email verification code** — currently a human-only step
-  (**JOB-17** = auto-fetch via Gmail MCP + log the gated submit).
-- **Ashby anti-bot (session 4)**: same invisible-reCAPTCHA `blocked` false
-  positive on `open_job` (screenshot to confirm nothing visible, then proceed) —
-  BUT the low v3 score is real at submit time: Ashby may reject with
-  **"flagged as possible spam"**, and `submit_application`'s form-count
-  verification **reads that rejection page as a verified submit** (JOB-24,
-  Urgent). NEVER trust `status:"submitted"` on Ashby without `get_job_text()`
-  showing "successfully submitted". False successes also **auto-log to
-  `applications.json`** (and retries duplicate records) — audit it after any
-  Ashby submit until JOB-24 lands.
+  no visible challenge). **JOB-16 fix (commit `0e6e0c6`)** now classifies this as
+  a non-blocking `warnings` entry, not `blocked` — so `check_for_intervention`
+  no longer tells the user to solve a phantom captcha (**live once the server is
+  restarted**; until then the running server may still mis-fire, so a Greenhouse
+  "reCAPTCHA" block is likely spurious — confirm before halting). Real submits
+  may trigger an **8-char email verification code**: now handled by
+  `detect_verification_gate` + `fill_verification_code` + a Gmail fetch in the
+  apply skill (**JOB-17**, code shipped; live Gmail fetch still to be proven).
+- **Ashby anti-bot (session 4)**: the same invisible-reCAPTCHA `open_job` false
+  positive is covered by the ATS-agnostic JOB-16 fix (per-frame visibility
+  classification) — verify after restart. **Separate and still open:** the low
+  v3 score is real at submit time — Ashby may reject with **"flagged as possible
+  spam"**, and `submit_application`'s form-count verification **reads that
+  rejection page as a verified submit** (JOB-24, Urgent). NEVER trust
+  `status:"submitted"` on Ashby without `get_job_text()` showing "successfully
+  submitted". False successes also **auto-log to `applications.json`** (and
+  retries duplicate records) — audit it after any Ashby submit until JOB-24 lands.
 - **Spam rejection → manual submission (DESIGN CHOICE, session 4):** don't
   fight reCAPTCHA v3 with automated retries. The rejection restores the
   filled form; leave it filled, present it to the user to click Submit (a

@@ -36,7 +36,7 @@ baseline:
 
   # Location / remote
   locations_allowed: ["Los Angeles", "Remote"]
-  relocation_targets: ["San Francisco Bay Area", "New York"]
+  relocation_targets: []
   remote_allowed: true
 
   # Salary floor (USD). A DISCLOSED salary below this is dropped; a listing that
