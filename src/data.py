@@ -257,11 +257,41 @@ def capture_submission(fields: list[dict], company: str = "",
     result = {"answers_added": added, "answers_updated": updated,
               "history_count": len(history), "application_logged": False}
     if log_application:
-        applications = config.load_applications()
-        applications.append({"company": company, "job_title": job_title,
-                             "url": url, "date": date.today().isoformat(),
-                             "status": "submitted", "fields": submitted})
-        config.save_applications(applications)
+        logged = log_application_record(company=company, job_title=job_title,
+                                        url=url, status="submitted",
+                                        fields=submitted)
         result["application_logged"] = True
-        result["applications_count"] = len(applications)
+        result["applications_count"] = logged.get("applications_count")
     return result
+
+
+def _application_key(company: str, job_title: str, url: str) -> tuple:
+    return (_normalize(company), _normalize(job_title), (url or "").strip())
+
+
+def log_application_record(company: str = "", job_title: str = "", url: str = "",
+                           status: str = "submitted",
+                           fields: list | None = None) -> dict:
+    """Append (or update) one application record in applications.json, deduped on
+    (company, job_title, url). This is the application-only log path used when a
+    submit completes OUTSIDE a single submit_application call — e.g. after an
+    email-verification code gate, or to back-fill a confirmed-but-unlogged
+    submission. `capture_submission` routes through here on a confirmed submit,
+    so a later explicit log of the same job updates in place instead of
+    duplicating."""
+    applications = config.load_applications()
+    key = _application_key(company, job_title, url)
+    for a in applications:
+        if _application_key(a.get("company", ""), a.get("job_title", ""),
+                            a.get("url", "")) == key:
+            a["status"] = status
+            a["date"] = date.today().isoformat()
+            if fields:
+                a["fields"] = fields
+            config.save_applications(applications)
+            return {"status": "updated", "applications_count": len(applications)}
+    applications.append({"company": company, "job_title": job_title, "url": url,
+                         "date": date.today().isoformat(), "status": status,
+                         "fields": fields or []})
+    config.save_applications(applications)
+    return {"status": "added", "applications_count": len(applications)}

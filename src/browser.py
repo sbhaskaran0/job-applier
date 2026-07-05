@@ -198,21 +198,111 @@ _COMBO_VALUE_JS = r"""
 """
 
 
-# JS run in the main document to spot human-verification walls.
+# JS run in each frame to spot human-verification walls. Crucially it separates
+# a VISIBLE, interactable challenge (a reCAPTCHA v2 checkbox, an open image
+# challenge, a Turnstile/hCaptcha widget) — which only a human can clear — from
+# BACKGROUND anti-bot that needs no interaction (reCAPTCHA v3, invisible v2, the
+# collapsed "protected by reCAPTCHA" badge). Only the former should stop the
+# flow; flagging the latter told the user to "solve a captcha" that wasn't there
+# (Greenhouse loads invisible v3 on every page). Returns {blocking, warnings}.
 _BLOCKER_JS = r"""
 () => {
-  const found = [];
-  const has = (s) => !!document.querySelector(s);
-  if (has('.g-recaptcha') || has('iframe[src*="recaptcha"]')) found.push('reCAPTCHA');
-  if (has('.h-captcha') || has('iframe[src*="hcaptcha"]')) found.push('hCaptcha');
-  if (has('.cf-turnstile') || has('iframe[src*="challenges.cloudflare.com"]'))
-    found.push('Cloudflare Turnstile');
+  const blocking = [], warnings = [];
+  const vis = (el) => {
+    if (!el) return false;
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden'
+        || parseFloat(s.opacity || '1') === 0) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 24 || r.height < 24) return false;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (r.right <= 4 || r.bottom <= 4) return false;      // parked off-screen
+    if (vw && r.left >= vw - 4) return false;             // (the collapsed v3 badge)
+    if (vh && r.top >= vh + 600) return false;
+    return true;
+  };
+
+  // --- reCAPTCHA -------------------------------------------------------------
+  const badge = document.querySelector('.grecaptcha-badge');
+  const anchors = Array.from(document.querySelectorAll(
+    'iframe[src*="recaptcha/api2/anchor"], iframe[title="reCAPTCHA"]'));
+  const challengeFrames = Array.from(document.querySelectorAll(
+    'iframe[src*="recaptcha"][src*="bframe"]'));
+  const gDiv = document.querySelector('.g-recaptcha');
+  // A v2 checkbox anchor is visible and NOT tucked inside the invisible badge;
+  // an open image challenge (bframe) is a visible popup.
+  const anchorVisible = anchors.some(a => !(badge && badge.contains(a)) && vis(a));
+  const challengeVisible = challengeFrames.some(vis);
+  const gDivVisible = !!gDiv && vis(gDiv)
+    && (gDiv.getAttribute('data-size') || '') !== 'invisible';
+  const anyRecaptcha = badge || anchors.length || challengeFrames.length || gDiv;
+  if (anchorVisible || challengeVisible || gDivVisible) {
+    blocking.push('reCAPTCHA (visible challenge)');
+  } else if (anyRecaptcha) {
+    warnings.push('reCAPTCHA v3/invisible (background scoring; no challenge to solve)');
+  }
+
+  // --- hCaptcha --------------------------------------------------------------
+  const hFrames = Array.from(document.querySelectorAll('iframe[src*="hcaptcha"]'));
+  const hDiv = document.querySelector('.h-captcha');
+  if (hFrames.some(vis) || (hDiv && vis(hDiv))) blocking.push('hCaptcha');
+  else if (hFrames.length || hDiv) warnings.push('hCaptcha (invisible)');
+
+  // --- Cloudflare Turnstile --------------------------------------------------
+  const tFrames = Array.from(
+    document.querySelectorAll('iframe[src*="challenges.cloudflare.com"]'));
+  const tDiv = document.querySelector('.cf-turnstile');
+  if (tFrames.some(vis) || (tDiv && vis(tDiv))) blocking.push('Cloudflare Turnstile');
+  else if (tFrames.length || tDiv) warnings.push('Cloudflare Turnstile (managed/invisible)');
+
+  // --- Explicit "verify you are human" wall text (a real visible wall) -------
   const t = ((document.body && document.body.innerText) || '').toLowerCase();
   const phrases = ['verify you are human', 'verifying you are human',
     "i'm not a robot", 'are you a robot', 'checking your browser',
     'complete the captcha', 'press and hold', 'security check'];
-  for (const p of phrases) { if (t.includes(p)) { found.push('verification text: ' + p); break; } }
-  return found;
+  for (const p of phrases) {
+    if (t.includes(p)) { blocking.push('verification text: ' + p); break; }
+  }
+  return { blocking, warnings };
+}
+"""
+
+
+# JS run in each frame to find an email/OTP verification-code entry gate — the
+# 8-box code challenge Greenhouse throws on submit. Tags the code inputs with
+# data-jacode="0..n" (DOM order) so fill_verification_code can drive them, and
+# returns {count, mode}. `segmented` = N single-char boxes; `single` = one code
+# field. This is NOT a captcha — the agent can fetch the code from the inbox.
+_CODE_INPUTS_JS = r"""
+() => {
+  const inputs = Array.from(document.querySelectorAll('input')).filter(el => {
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden') return false;
+    const type = (el.getAttribute('type') || 'text').toLowerCase();
+    return !['hidden','submit','button','checkbox','radio','file','image','reset']
+      .includes(type);
+  });
+  const isSingle = (el) => {
+    const ml = el.getAttribute('maxlength');
+    return ml && parseInt(ml, 10) === 1;
+  };
+  const named = (el) => {
+    const s = ((el.name||'') + ' ' + (el.id||'') + ' '
+      + (el.getAttribute('aria-label')||'') + ' '
+      + (el.getAttribute('placeholder')||'') + ' '
+      + (el.getAttribute('autocomplete')||'')).toLowerCase();
+    return /(verif|one[- ]?time|otp|passcode|\bcode\b|security code)/.test(s);
+  };
+  let picked = [], mode = 'single';
+  const singles = inputs.filter(isSingle);
+  if (singles.length >= 4) { picked = singles; mode = 'segmented'; }
+  else {
+    const n = inputs.filter(named);
+    if (n.length) { picked = n.slice(0, 1); mode = 'single'; }
+  }
+  picked.forEach((el, i) => el.setAttribute('data-jacode', String(i)));
+  return { count: picked.length, mode };
 }
 """
 
@@ -492,33 +582,107 @@ class BrowserSession:
 
     async def detect_blockers(self) -> dict:
         """Scan the page + iframes for CAPTCHAs / verification / challenge walls.
-        Returns {blocked, signals, message}. Use it to decide when to hand the
-        browser to the user."""
+        Returns {blocked, signals, warnings, message}. Only a VISIBLE, human-
+        solvable challenge sets blocked=true; background anti-bot (reCAPTCHA v3,
+        invisible v2, the collapsed badge) is reported in `warnings` and does NOT
+        stop the flow. Use `blocked` to decide when to hand the browser over."""
         if self.page is None:
             raise RuntimeError("No page open.")
-        signals: list[str] = []
-        # Cross-origin CAPTCHA iframes: inspect frame URLs directly.
+        blocking: list[str] = []
+        warnings: list[str] = []
         for frame in self.page.frames:
-            u = (frame.url or "").lower()
-            if "recaptcha" in u:
-                signals.append("reCAPTCHA")
-            elif "hcaptcha" in u:
-                signals.append("hCaptcha")
-            elif "challenges.cloudflare.com" in u:
-                signals.append("Cloudflare Turnstile")
-        # DOM markers + body text in the main document.
+            try:
+                res = await frame.evaluate(_BLOCKER_JS)
+            except Exception:
+                continue
+            blocking.extend(res.get("blocking", []))
+            warnings.extend(res.get("warnings", []))
+        blocking = sorted(set(blocking))
+        warnings = sorted(set(warnings))
+        blocked = bool(blocking)
+        if blocked:
+            message = ("Human verification appears required (%s). Ask the user "
+                       "to complete it in the visible browser window, then "
+                       "continue." % ", ".join(blocking))
+        elif warnings:
+            message = ("Background anti-bot present but no visible challenge "
+                       "(%s) — safe to proceed; do NOT ask the user to solve a "
+                       "captcha." % ", ".join(warnings))
+        else:
+            message = "No CAPTCHA / verification wall detected."
+        return {"blocked": blocked, "signals": blocking, "warnings": warnings,
+                "message": message}
+
+    async def detect_verification_gate(self) -> dict:
+        """Detect an email/OTP verification-code gate (e.g. Greenhouse's 8-box
+        code challenge on submit). Returns {present, count, mode, text_hint,
+        message}. Unlike a CAPTCHA this is recoverable by the agent: fetch the
+        code from the applicant's inbox, then fill_verification_code + submit."""
+        if self.page is None:
+            raise RuntimeError("No page open.")
+        count, mode = 0, None
+        for frame in self.page.frames:
+            try:
+                info = await frame.evaluate(_CODE_INPUTS_JS)
+            except Exception:
+                continue
+            if info and info.get("count", 0) > count:
+                count, mode = info["count"], info.get("mode")
         try:
-            signals.extend(await self.page.main_frame.evaluate(_BLOCKER_JS))
+            body = " ".join((await self.page.inner_text("body")).split()).lower()
         except Exception:
-            pass
-        signals = sorted(set(signals))
-        blocked = bool(signals)
-        message = (
-            "Human verification appears required (%s). Ask the user to complete "
-            "it in the visible browser window, then continue." % ", ".join(signals)
-            if blocked else "No CAPTCHA / verification wall detected."
-        )
-        return {"blocked": blocked, "signals": signals, "message": message}
+            body = ""
+        phrases = ["verification code", "verify your email", "confirm your email",
+                   "we sent", "enter the code", "one-time code", "sent you a code",
+                   "check your email", "6-digit", "8-character", "enter the 8"]
+        hint = next((p for p in phrases if p in body), "")
+        present = count > 0 or bool(hint)
+        return {"present": present, "count": count, "mode": mode,
+                "text_hint": hint,
+                "message": ("Email verification-code gate detected — fetch the "
+                            "code from the applicant's inbox, then call "
+                            "fill_verification_code(code) and submit_application "
+                            "again." if present
+                            else "No verification-code gate detected.")}
+
+    async def fill_verification_code(self, code: str) -> dict:
+        """Fill a detected verification-code gate with `code`. Focuses the first
+        code box and types the whole code (segmented OTP components auto-advance;
+        a single field takes it directly), then leaves submission to the caller
+        (submit_application). Returns {status, mode, count}."""
+        if self.page is None:
+            raise RuntimeError("No page open.")
+        code = (code or "").strip()
+        if not code:
+            return {"status": "error", "note": "empty code"}
+        for frame in self.page.frames:
+            try:
+                info = await frame.evaluate(_CODE_INPUTS_JS)
+            except Exception:
+                continue
+            if not info or info.get("count", 0) <= 0:
+                continue
+            mode = info.get("mode")
+            if mode == "segmented":
+                # One char per box, in the tagged DOM order — deterministic and
+                # independent of whether the OTP widget auto-advances focus.
+                boxes = frame.locator("[data-jacode]")
+                cnt = await boxes.count()
+                for i in range(min(cnt, len(code))):
+                    box = boxes.nth(i)
+                    try:
+                        await box.fill(code[i])
+                    except Exception:
+                        await box.click()
+                        await self.page.keyboard.type(code[i])
+                    await self.page.wait_for_timeout(40)
+            else:
+                await frame.locator('[data-jacode="0"]').first.fill(code)
+            await self.page.wait_for_timeout(200)
+            return {"status": "filled", "mode": mode,
+                    "count": info["count"], "code_len": len(code)}
+        return {"status": "no_code_input",
+                "note": "no verification-code input detected on the page"}
 
     async def get_job_text(self) -> str:
         """Return the visible page text (for reading the job description)."""

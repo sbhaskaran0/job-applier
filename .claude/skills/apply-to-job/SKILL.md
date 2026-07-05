@@ -18,9 +18,12 @@ issue any genuinely independent calls together in a single message.
 
 1. **Open (one shot)** — call `open_job(url)`. The browser opens **visibly** so
    the user can watch. `open_job` already returns `intervention`
-   (`{blocked, signals, message}`) **and** `fields` — so you do **not** need a
-   separate `check_for_intervention` or `read_form` right after. Check
-   `intervention.blocked` first (see **Human intervention**). Each field has
+   (`{blocked, signals, warnings, message}`) **and** `fields` — so you do **not**
+   need a separate `check_for_intervention` or `read_form` right after. Check
+   `intervention.blocked` first (see **Human intervention**). Note: only a
+   **visible** challenge sets `blocked: true`; a `warnings` entry (e.g.
+   "reCAPTCHA v3/invisible") means background anti-bot with nothing to solve —
+   **proceed normally, do not mention a captcha to the user.** Each field has
    `index`, `kind` (text/select/radio/checkbox/file/combobox), `label`,
    `options`, `required`, `current_value`, `group`. Works on any ATS, no per-site
    rules. (If given pasted text instead of a URL, ask for the application URL.
@@ -90,27 +93,59 @@ issue any genuinely independent calls together in a single message.
    a `save_answer` was missed; EEO answers are never persisted), and logs the
    submission to `data/applications.json` **only when the submit is
    confirmed**. Trust the returned `status`: `"submitted"` is verified;
-   `"attempted"` means no confirmation was seen — screenshot, look for a
-   validation error or a verification gate (e.g. Greenhouse emails an
-   8-character code), hand off to the user if needed, and don't claim success.
-   Mention the `capture` summary in your wrap-up.
+   `"attempted"` means no confirmation was seen — first call
+   `detect_verification_gate` (see **Email verification-code gate**); otherwise
+   screenshot, look for a validation error, hand off to the user if needed, and
+   don't claim success. Mention the `capture` summary in your wrap-up.
+
+## Email verification-code gate (Greenhouse et al.)
+
+Some ATSes (notably Greenhouse) email an 8-character verification code after the
+first submit click, so `submit_application` comes back `status:"attempted"` with
+the form still present. This is **not** a CAPTCHA — you can complete it yourself:
+
+1. **Detect** — call `detect_verification_gate()`. If `present` is true you'll
+   get `count`/`mode` (a segmented N-box OTP or a single field).
+2. **Fetch the code** — search the applicant's inbox with the Gmail tools
+   (`search_threads` / `get_thread`) for the most recent verification email from
+   the employer / Greenhouse (subject/body mentions a code); extract the code.
+   Use the newest message — codes expire. If Gmail isn't connected, hand off to
+   the user for the code instead.
+3. **Fill + resubmit** — call `fill_verification_code(code)`, then
+   `submit_application(company=..., job_title=...)` again and check the returned
+   `status` is `"submitted"` (verified).
+4. **Log it** — the gated resubmit path may not auto-log. Once you have a
+   verified confirmation, call
+   `log_application(company, job_title, url, status="submitted")` to record it
+   in `data/applications.json` (deduped, so it's safe even if it was already
+   logged).
 
 ## Human intervention (CAPTCHAs, logins, "verify you are human")
 
 The browser is visible so the user can take over when the agent can't proceed.
 `open_job` returns the `intervention` check inline; use the standalone
-`check_for_intervention` (same `{blocked, signals, message}`) for later checks.
+`check_for_intervention` (same `{blocked, signals, warnings, message}`) for
+later checks.
 
 - **When to check:** `open_job` already checks on open — read its `intervention`
-  field. Re-check with `check_for_intervention` before `submit_application` and
-  any time a step behaves unexpectedly (empty `fields`, a navigation that didn't
-  land where expected, a fill that won't take).
-- **If `blocked` is true** (CAPTCHA, Cloudflare/Turnstile challenge, "verify you
-  are human", or a login wall): **stop and ask the user** to complete it in the
-  open browser window, and wait for them to confirm they're done. Do **not** try
-  to solve or click through a CAPTCHA yourself. Once they confirm, re-check with
-  `check_for_intervention`, then continue (re-run `read_form` if the page changed).
-- Never submit while a blocker is present.
+  field. Re-check with `check_for_intervention` any time a step behaves
+  unexpectedly (empty `fields`, a navigation that didn't land where expected, a
+  fill that won't take).
+- **`warnings` are not blockers.** Background anti-bot — reCAPTCHA **v3**,
+  invisible v2, the "protected by reCAPTCHA" badge — comes back `blocked: false`
+  with a `warnings` note. It runs silently and needs no interaction. **Proceed
+  normally and never tell the user to solve a captcha for these.** (Greenhouse
+  loads invisible v3 on every page; treating it as a block was a real past bug.)
+- **If `blocked` is true** — only a **visible, interactable** challenge (a
+  reCAPTCHA v2 checkbox, an open image challenge, a Turnstile/hCaptcha widget, a
+  "verify you are human" wall, or a login wall): **stop and ask the user** to
+  complete it in the open browser window, and wait for them to confirm. Do
+  **not** try to solve or click through a CAPTCHA yourself. Once they confirm,
+  re-check with `check_for_intervention`, then continue (re-run `read_form` if
+  the page changed).
+- An **email verification-code gate is not a blocker** — handle it yourself (see
+  **Email verification-code gate**), don't hand it to the user.
+- Never submit while a real (visible) blocker is present.
 
 ## Response style rules
 

@@ -92,9 +92,36 @@ async def screenshot(path: str = "") -> dict:
 async def check_for_intervention() -> dict:
     """Check whether the page is showing a CAPTCHA / 'verify you are human' /
     login or challenge wall that only the human user can clear. Returns
-    {blocked, signals, message}. If blocked, STOP and ask the user to complete
-    it in the visible browser window, then continue once they confirm."""
+    {blocked, signals, warnings, message}.
+
+    Only a VISIBLE, interactable challenge (a reCAPTCHA v2 checkbox, an open
+    image challenge, a Turnstile/hCaptcha widget) sets blocked=true — STOP and
+    ask the user to clear it. Background anti-bot that needs no interaction
+    (reCAPTCHA v3, invisible v2, the "protected by reCAPTCHA" badge) comes back
+    blocked=false with a note in `warnings`; proceed normally and do NOT ask the
+    user to solve anything. An email/OTP code gate is NOT reported here — use
+    detect_verification_gate for that."""
     return await browser.session.detect_blockers()
+
+
+@mcp.tool()
+async def detect_verification_gate() -> dict:
+    """Detect an email/one-time-code verification gate (e.g. Greenhouse's 8-box
+    code challenge that can appear after clicking submit). Returns {present,
+    count, mode, text_hint, message}. When present, this is recoverable WITHOUT
+    the user: fetch the latest verification code from the applicant's inbox (via
+    the Gmail tools), call fill_verification_code(code), then submit_application
+    again and verify the confirmation."""
+    return await browser.session.detect_verification_gate()
+
+
+@mcp.tool()
+async def fill_verification_code(code: str) -> dict:
+    """Fill a detected email/OTP verification-code gate with `code` (the code you
+    fetched from the applicant's inbox). Handles both a segmented N-box OTP and a
+    single code field. Does NOT submit — call submit_application afterward to
+    complete and verify the submission."""
+    return await browser.session.fill_verification_code(code)
 
 
 @mcp.tool()
@@ -228,6 +255,20 @@ def save_answer(question: str, answer: str, scope: str = "evergreen",
       - "conditional": depends on the role/location/moment (relocation,
         salary, start date, how-did-you-hear) → always gated for review."""
     return data.save_answer(question, answer, scope=scope, company=company)
+
+
+@mcp.tool()
+def log_application(company: str = "", job_title: str = "", url: str = "",
+                    status: str = "submitted") -> dict:
+    """Log a confirmed application to data/applications.json. Use this when a
+    submission was verified OUTSIDE a single submit_application call — after an
+    email verification-code gate, or to back-fill a confirmed-but-unlogged
+    application. Deduped on (company, job_title, url): logging the same job again
+    updates the record in place rather than duplicating it. Only call once you
+    have actually confirmed the submission (thank-you page), mirroring the
+    'trust only a verified result' rule."""
+    return data.log_application_record(company=company, job_title=job_title,
+                                       url=url, status=status)
 
 
 # --------------------------------------------------------------------------- #
