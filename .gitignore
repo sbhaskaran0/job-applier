@@ -12,6 +12,11 @@ venv/
 # Batch-apply queue prep files/sheets (transient, per-run)
 data/prep/
 
+# Local postings store + digest (cache of public ATS data; rebuilt by
+# `python -m src.refresh` — only first_seen history is lost on delete)
+data/postings.db*
+data/digest-latest.md
+
 # Transient browser artifacts / screenshots
 /*.png
 current_page.png

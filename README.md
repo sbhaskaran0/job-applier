@@ -29,6 +29,12 @@ Open this project in Claude Code and reload it (loads `.mcp.json`), then:
 Edit `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`, `resume.txt`
 (+ optional `resume.pdf`), and `context/` to make it yours.
 
+Optionally, keep the job corpus warm without a Claude session:
+
+```bash
+python -m src.refresh    # fetch all boards → data/postings.db + data/digest-latest.md
+```
+
 > **⚠️ EEO / self-identification data:** `user_profile.yaml` may contain
 > voluntary EEO self-identification values (gender, race/ethnicity,
 > Hispanic/Latino status, veteran status, disability status), each marked with
@@ -37,6 +43,32 @@ Edit `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`, `resume.txt`
 > *voluntary* self-ID sections on applications. Providing it is always
 > optional — delete the values to have those sections left blank instead. EEO
 > answers are never written to the answer history or the application log.
+
+## How jobs are discovered
+
+Discovery is split into a **deterministic, LLM-free ingest** (schedulable — it
+needs no Claude session) and a **semantic ranking layer** that Claude runs at
+`/find-jobs` time over the local store. Salary, years-of-experience, and
+seniority are extracted **once per posting at ingest**, so the strict baseline
+in `job_criteria.yaml` is enforced as a local query instead of per-search JD
+deep-reads.
+
+```mermaid
+flowchart TD
+    subgraph ING["python -m src.refresh — pure Python, no LLM, scheduler-friendly"]
+        B["~30 watchlist boards<br/>public Greenhouse/Lever/Ashby APIs"] --> N["normalize<br/>(ats, slug, job_id)"]
+        N --> X["extract once per posting:<br/>salary from JD text · min-years (advisory)<br/>· excluded-seniority flag"]
+        X --> DB[("data/postings.db<br/>first_seen · last_seen · removed_at<br/>(removals only from boards that fetched OK)")]
+        DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield per company"]
+    end
+    DB --> Q["list_watchlist_postings<br/>deterministic baseline filter<br/>+ already_applied · is_new<br/>(live-fetch fallback if store > 36h old)"]
+    Q --> R["/find-jobs: Claude ranks semantically,<br/>deep-reads finalists, returns apply URLs"]
+```
+
+The store is a cache of public data — delete `data/postings.db` and the next
+refresh rebuilds it. Schedule the refresh daily (Windows Task Scheduler via
+`scripts/refresh.cmd`, or cron/launchd) to get a standing digest of new
+matching roles; see the USER_GUIDE.
 
 ## How a field gets answered
 

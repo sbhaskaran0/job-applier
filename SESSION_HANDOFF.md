@@ -1,6 +1,6 @@
 # Session handoff — job-applier
 
-Paste this into a fresh Claude Code session to restore context. Last updated 2026-07-05 (session 6; first fully-autonomous batch run — Mercury + Databricks submitted, Greenhouse email-code gate cleared via Gmail, watchlist 20→30).
+Paste this into a fresh Claude Code session to restore context. Last updated 2026-07-05 (session 7; Phase 1 sourcing rework shipped — local postings store + scheduled refresh + ingest-time enrichment, JOB-27/28/29/30/31).
 
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
@@ -30,8 +30,19 @@ tech-strategy** roles. Repo: private GitHub `sbhaskaran0/job-applier`.
   `capture_submission` (submit-time structural capture), `log_application_record`
   (deduped application log for gated/manual submits + backfills).
 - `src/context.py` — `search_context` over `context/*.md|txt|pdf` + resume text.
-- `src/providers/watchlist.py` — fetch/normalize ATS boards, `list_postings`,
-  `get_posting(s)`, `add_company`.
+- `src/providers/watchlist.py` — fetch/normalize ATS boards (now incl. `job_id`
+  + `slug`), `list_postings` (live path), `get_posting(s)`, `add_company`.
+- `src/store.py` — **local postings store** (session 7): SQLite `data/postings.db`
+  (gitignored cache; PK `(ats, slug, job_id)`; `first_seen`/`last_seen`/
+  `removed_at` lifecycle; removals ONLY from boards that fetched OK),
+  `refresh_from_fetch`, `passes_baseline`, `list_postings_from_store`,
+  `yield_stats`.
+- `src/refresh.py` — `python -m src.refresh`: headless ingest (no LLM/browser)
+  → upsert + digest `data/digest-latest.md`. Scheduled daily 09:00 via Windows
+  Task Scheduler ("JobApplier Watchlist Refresh" → `scripts/refresh.cmd`).
+- `src/providers/extract.py` — ingest-time regex enrichment: salary-from-JD
+  (`salary_source: 'api'|'jd'`), advisory `min_years`, word-bounded
+  `seniority_flag`.
 - `src/config.py` — paths + loaders (profile, criteria, watchlist, resume, PDF,
   history, applications).
 - Config/data: `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`,
@@ -280,6 +291,41 @@ batch run after the JOB-16/17/24 fixes went live, then a watchlist expansion.
    UCLA MQE is in progress, expected Dec 2027). Prep agents caught and routed
    around it; the history entry itself still needs correcting.
 
+## What happened THIS session (session 7, chronological)
+Evaluated the sourcing pipeline, planned the rework in Linear, and **shipped
+Phase 1** (JOB-27 parent; sub-issues JOB-28..31). Phase 2 (JOB-32, local
+embeddings replacing the lexical `_matches_query`) is filed and blocked on
+JOB-27. Portability review filed as JOB-33 (code/data split — NOT executed,
+per user) and JOB-34 (env hardening — NOT executed).
+1. **Local postings store** (`src/store.py`, SQLite `data/postings.db`):
+   lifecycle-tracked cache of all watchlist postings, keyed `(ats, slug,
+   job_id)` — the fetchers now return `job_id` + `slug`. Removal safety: a
+   failed board fetch NEVER marks removals. Content-hash re-extraction;
+   `seniority_flag` recomputed every run (criteria can change).
+2. **Ingest-time enrichment** (`src/providers/extract.py`): salary regex from
+   JD text (Greenhouse went 0% → **60% salary coverage**, 2,164 roles priced),
+   advisory `min_years` (82% of Greenhouse), word-bounded seniority flags.
+   Session-3 offenders now flagged from stored fields alone (Stripe S&O
+   min_years=15, Airbnb Leads 12/10; Databricks CoS read 8 — advisory
+   imperfection). Lever: 0% salary (their descriptions genuinely omit it).
+3. **Store-backed `list_watchlist_postings`** (fresh < 36h, else live fallback
+   with a `note`): deterministic baseline filter (title/seniority/location/
+   salary-floor — disclosed-below-floor dropped, undisclosed kept +
+   `salary_listed:false`), plus `min_years`, `is_new`, `salary_source`, and
+   `already_applied` (matched all 5 logged applications live). Optional
+   `max_years` param. **Behavior change:** the tool now enforces location +
+   salary too, so `matched` dropped ~204 → 90 — the 90 are actually
+   qualifying. NEEDS MCP RESTART to go live.
+4. **Refresh + digest + scheduling** (`python -m src.refresh`, pure Python):
+   5,347 postings, ~40s, idempotent (verified: second run 0 new / 0 removed).
+   Digest `data/digest-latest.md` = new baseline-passing roles + board health
+   (dark ≥3 runs) + per-company yield (JOB-26 evidence: OpenAI 16 qualifying,
+   Plaid 12, Stripe 11...). Scheduled daily 09:00 via Task Scheduler
+   ("JobApplier Watchlist Refresh" → self-locating `scripts/refresh.cmd`).
+5. **Verification:** 50/50 direct-import tests (extract fixtures, store
+   lifecycle, removal safety, board-health consecutive counts, query filters,
+   staleness) + live triple-refresh + scheduled-task end-to-end run.
+
 ## Git state
 - Branch: **`main`** — `fix/ashby-button-group-and-linkedin` was fast-forward
   merged into `main` and **pushed to GitHub** (2026-07-05, session 6;
@@ -317,8 +363,12 @@ batch run after the JOB-16/17/24 fixes went live, then a watchlist expansion.
    `0e6e0c6`)** reCAPTCHA-v3 false positive — fix is ATS-agnostic (covers
    Ashby); verify live after a restart. **JOB-17 (code done in `0e6e0c6`; live Gmail
    auto-fetch PROVEN in session 6** on the Mercury submit — detect → Gmail →
-   fill → resubmit → verified**)** — only the Scale AI backfill remains. JOB-18 (seniority surfacing), JOB-19
-   (Greenhouse salary + corpus breadth) still open. JOB-22/JOB-20 (queue
+   fill → resubmit → verified**)** — only the Scale AI backfill remains.
+   **Session 7:** JOB-27/28/29/30/31 (postings store Phase 1) **Done**;
+   JOB-18 closed by JOB-29; JOB-19 part 1 closed by JOB-29, part 2 → **JOB-32**
+   (Phase 2 embeddings, blocked on JOB-27). **JOB-26** (watchlist S&O supply)
+   still open — use the digest's yield table as its evidence base. JOB-33/34
+   (portability) filed, deliberately NOT executed. JOB-22/JOB-20 (queue
    executor/parent) stay open on JOB-24 + a park-path verification.
 7. **Remaining shortlist:** Anthropic Product Ops Mgr (Feedback Loops) —
    Greenhouse, best queued after JOB-16/17/24 land.
@@ -355,6 +405,17 @@ the hard executor cases).
 - **Windows 11**, PowerShell primary + a Bash (Git Bash/POSIX) tool. `.env` never
   committed. For `git commit -m` with multi-line messages in the **Bash** tool use
   a heredoc (`-F - <<'EOF'`), NOT PowerShell `@'…'@`.
+- **Task Scheduler on a laptop** (session 7): `schtasks /Create` defaults to
+  "start only on AC power" (task sits **Queued** on battery) and loses quoting
+  on paths with spaces (0x80070002 file-not-found). The registered task was
+  fixed via `Set-ScheduledTask` (`-AllowStartIfOnBatteries
+  -DontStopIfGoingOnBatteries -StartWhenAvailable` + a proper
+  `New-ScheduledTaskAction`). Console output from scheduled runs is **cp1252**
+  — `src/refresh.py` prints ASCII only.
+- **Postings store staleness**: `list_watchlist_postings` serves the store when
+  the last refresh is < 36h old, else falls back to a live fetch and says so.
+  The store never proves a role is still open — the apply flow re-verifies via
+  `get_posting`/`open_job`.
 - **MCP server staleness**: code edits under `src/` need a Claude Code restart to
   take effect; verify meanwhile via `PYTHONPATH="<repo>" python -c …` or the
   scratchpad direct-import test scripts.

@@ -60,7 +60,8 @@ async def _fetch_greenhouse(client: httpx.AsyncClient, company: dict) -> list[di
         loc = (j.get("location") or {}).get("name", "") or ""
         desc = _clean_html(j.get("content", ""))
         out.append({
-            "company": company["name"], "ats": "greenhouse",
+            "company": company["name"], "ats": "greenhouse", "slug": slug,
+            "job_id": str(j.get("id") or ""),
             "title": j.get("title", ""), "location": loc,
             "remote": _is_remote_text(loc),
             "salary_min": None, "salary_max": None,  # not structured on Greenhouse
@@ -92,7 +93,8 @@ async def _fetch_ashby(client: httpx.AsyncClient, company: dict) -> list[dict]:
             continue
         smin, smax = _ashby_salary(j)
         out.append({
-            "company": company["name"], "ats": "ashby",
+            "company": company["name"], "ats": "ashby", "slug": slug,
+            "job_id": str(j.get("id") or ""),
             "title": j.get("title", ""), "location": j.get("location", "") or "",
             "remote": bool(j.get("isRemote")),
             "salary_min": smin, "salary_max": smax,
@@ -113,7 +115,8 @@ async def _fetch_lever(client: httpx.AsyncClient, company: dict) -> list[dict]:
         cats = j.get("categories") or {}
         loc = cats.get("location", "") or ""
         out.append({
-            "company": company["name"], "ats": "lever",
+            "company": company["name"], "ats": "lever", "slug": slug,
+            "job_id": str(j.get("id") or ""),
             "title": j.get("text", ""), "location": loc,
             "remote": _is_remote_text(loc) or (cats.get("commitment", "") or "").lower() == "remote",
             "salary_min": None, "salary_max": None,

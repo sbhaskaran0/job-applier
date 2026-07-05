@@ -7,7 +7,7 @@ and the memory. Run via:  python -m src.mcp_server   (stdio transport).
 
 from mcp.server.fastmcp import FastMCP
 
-from . import browser, config, context, data
+from . import browser, config, context, data, store
 from .providers import watchlist as wl
 
 mcp = FastMCP("job-applier")
@@ -299,23 +299,40 @@ def get_search_criteria() -> dict:
 # --------------------------------------------------------------------------- #
 # Watchlist discovery (curated companies via public ATS board APIs)
 # --------------------------------------------------------------------------- #
-@mcp.tool()
-async def list_watchlist_postings(query: str = "", limit: int = 0) -> dict:
-    """Pull live product/strategy roles across all watchlist companies (public
-    Greenhouse/Lever/Ashby APIs), pre-filtered to the acceptable titles and
-    seniority from job_criteria.yaml and deduped by (company, title). Returns
-    {postings:[{company,title,location,remote,salary_min,salary_max,url,snippet}],
-    total_scanned, matched, returned, companies_failed}.
+_STORE_MAX_AGE_HOURS = 36
 
-    Pass `query` (natural-language keywords, e.g. "fintech product strategy") to
-    narrow the corpus and `limit` (e.g. 40) to cap the payload so you can rank it
-    inline without a subagent. `matched` = all roles that passed the strict
-    filter; `returned` = after query/limit. Deep-read finalists with
-    get_postings (batch) or get_posting (single)."""
+
+@mcp.tool()
+async def list_watchlist_postings(query: str = "", limit: int = 0,
+                                  max_years: int = 0) -> dict:
+    """Product/strategy roles across all watchlist companies, served from the
+    LOCAL POSTINGS STORE (data/postings.db, refreshed by `python -m src.refresh`)
+    when it's fresh (< 36h), else fetched live from the public ATS APIs.
+
+    Store-backed results are pre-filtered DETERMINISTICALLY against the
+    job_criteria.yaml baseline (titles, excluded seniority, location/remote,
+    salary floor — a disclosed range whose top end is below the floor is
+    dropped; undisclosed is kept with salary_listed:false) and deduped by
+    (company, title). Each posting adds: salary_source ('api'|'jd'|null),
+    min_years (ADVISORY — regex from the JD, confirm on finalists), first_seen,
+    is_new (appeared in the latest refresh), already_applied (matches
+    applications.json). Check `source` ('store'|'live') and `last_refresh`.
+
+    Pass `query` (natural-language keywords) to narrow, `limit` (e.g. 40) to cap
+    the payload for inline ranking, and optionally `max_years` to also drop rows
+    whose advisory min_years exceeds it. Deep-read finalists with get_postings."""
+    if (store.store_age_hours() or 1e9) <= _STORE_MAX_AGE_HOURS:
+        return store.list_postings_from_store(query=query or None,
+                                              limit=limit or None,
+                                              max_years=max_years or None)
     base = config.load_search_criteria().get("baseline", {})
-    return await wl.list_postings(base.get("acceptable_titles"),
+    live = await wl.list_postings(base.get("acceptable_titles"),
                                   base.get("excluded_seniority"),
                                   query=query or None, limit=limit or None)
+    live["source"] = "live"
+    live["note"] = ("postings store missing or older than 36h — served a live "
+                    "fetch instead; run `python -m src.refresh` to rebuild it")
+    return live
 
 
 @mcp.tool()
