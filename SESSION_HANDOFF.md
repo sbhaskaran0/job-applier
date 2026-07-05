@@ -1,6 +1,6 @@
 # Session handoff — job-applier
 
-Paste this into a fresh Claude Code session to restore context. Last updated 2026-07-04 (session 4; JOB-16/17 code fixes reconciled).
+Paste this into a fresh Claude Code session to restore context. Last updated 2026-07-05 (session 5; JOB-24 submit-verification fix + /commit skill).
 
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
@@ -37,7 +37,9 @@ tech-strategy** roles. Repo: private GitHub `sbhaskaran0/job-applier`.
 - Config/data: `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`,
   `resume.txt` (+ `resume.pdf`), `context/`, `data/history.json`,
   `data/applications.json`.
-- Skills: `.claude/skills/{find-jobs,apply-to-job,apply-batch}/SKILL.md`.
+- Skills: `.claude/skills/{find-jobs,apply-to-job,apply-batch}/SKILL.md` +
+  `commit/SKILL.md` (dev: commit with mandatory README/USER_GUIDE/handoff +
+  Mermaid hygiene, then notify).
 - Docs: `README.md` (now has an answer-resolution **mermaid diagram**),
   `USER_GUIDE.md`. Evaluation: `C:\Users\siddh\.claude\plans\i-want-to-make-abstract-cat.md`.
 
@@ -200,6 +202,43 @@ the next restart. Verified headless **17/17**.
   apply-to-job skill documents the gate flow (detect → Gmail fetch → fill →
   resubmit → log). **Remaining:** live Gmail auto-fetch unproven end-to-end;
   Scale AI backfill still needs the real posting URL.
+
+## What happened THIS session (session 5, chronological)
+Executed **JOB-24** (the `src/browser.py` submit-verification fix) and added a
+`/commit` hygiene skill.
+1. **Fixed the Ashby spam-rejection false positive (JOB-24, In Progress).**
+   `submit_application` no longer treats a vanished form as success. New
+   `src/browser.py` `_submission_confirmed` returns a **status string** —
+   `submitted` / `rejected_spam` / `attempted` — classified from **page text**
+   (class-level `_SUCCESS_RE` / `_FAILURE_RE`; failure checked first; Ashby
+   "successfully submitted" + "flagged as possible spam" covered), with a
+   **settle re-read** (2× / 1.5s) so the rejection banner renders before we
+   conclude. `mcp_server.submit_application` already gates logging on
+   `status == "submitted"`, so `rejected_spam`/`attempted` never log.
+2. **Fixed the dedupe bug (JOB-24 part 2).** `src/data._application_key` now
+   keys on **(company, role)** — URL used only when the title is missing (new
+   `_normalize_url` strips query/fragment/trailing-slash). The submit-vs-retry
+   URL drift had split one application into duplicate `applications.json`
+   records; a retry now **updates in place**.
+3. **Verified** by fresh-process direct import (MCP server NOT restarted, so not
+   live yet): classification 5/5, dedupe-key cases, and a full retry simulation
+   through `log_application_record` (1 record not 2). All modules import clean.
+4. **Added the `/commit` skill** (`.claude/skills/commit/SKILL.md`): every commit
+   must update README + USER_GUIDE + SESSION_HANDOFF, add/refresh a Mermaid
+   diagram when a new process/workflow appears, then notify the user. Updated the
+   README submit-outcome mermaid to the 3-state flow and the USER_GUIDE
+   `submit_application` entry.
+
+### JOB-24 submit-outcome classification (session 5)
+```mermaid
+flowchart TD
+    C["submit_application clicks submit"] --> R["read page text (retry 2× / 1.5s)"]
+    R --> F{"_FAILURE_RE?<br/>'flagged as possible spam'"}
+    F -- yes --> RS["status: rejected_spam<br/>leave form filled · NO log · no auto-retry"]
+    F -- no --> S{"_SUCCESS_RE?<br/>explicit success text"}
+    S -- yes --> SB["status: submitted<br/>log to applications.json<br/>(dedupe on company+role)"]
+    S -- "no (even if form vanished)" --> AT["status: attempted<br/>screenshot-audit · NO log"]
+```
 
 ## Git state
 - Branch: **`fix/ashby-button-group-and-linkedin`** (off `main`). NOT merged, NOT pushed.

@@ -721,29 +721,59 @@ class BrowserSession:
                     return cand
         return None
 
-    async def _submission_confirmed(self, fields_before: int) -> tuple[bool, str]:
-        """Decide whether the submit actually went through: confirmation text
-        on the page, or the form largely disappearing. Anything else is only
-        an *attempt* — the click may have hit validation, a verification gate,
-        or the wrong control."""
-        try:
-            body = " ".join((await self.page.inner_text("body")).split()).lower()
-        except Exception:
-            return False, "could not read the page after the click"
-        m = re.search(
-            r"thank you for (applying|submitting)"
-            r"|application (has been |was )?(received|submitted)"
-            r"|we('ve| have) received your application", body)
-        if m:
-            return True, f'confirmation text: "{m.group(0)}"'
+    # Explicit post-submit signals. Success is only ever concluded from
+    # positive success text — a spam rejection (Ashby, invisible reCAPTCHA v3)
+    # transiently removes the form too, so field-count disappearance ALONE is
+    # NOT a reliable "submitted" signal (JOB-24).
+    _SUCCESS_RE = re.compile(
+        r"thank you for (applying|submitting)"
+        r"|application (has been |was )?(received|submitted)"
+        r"|we('ve| have) received your application"
+        r"|your application (was|has been) successfully submitted"
+        r"|application was successfully submitted"
+        r"|successfully submitted your application", re.I)
+    _FAILURE_RE = re.compile(
+        r"we (couldn't|could not|were unable to) submit your application"
+        r"|(flagged|detected) as (possible )?spam"
+        r"|submission was flagged"
+        r"|please submit your application again", re.I)
+
+    async def _submission_confirmed(self, fields_before: int) -> tuple[str, str]:
+        """Classify the page after a submit click as one of:
+          - "submitted"     — explicit success text is present.
+          - "rejected_spam" — explicit failure/spam-rejection text is present
+            (Ashby: "flagged as possible spam"). The caller must NOT log this.
+          - "attempted"     — neither; the click may have hit validation, a
+            verification gate, a spam flag mid-re-render, or the wrong control.
+        Field-count disappearance is reported as evidence but never on its own
+        upgrades to "submitted" — the rejection flow removes the form too, then
+        re-renders it with an error banner, so we re-read a couple of times to
+        let that banner settle before concluding."""
+        body = ""
+        for attempt in range(2):
+            try:
+                body = " ".join((await self.page.inner_text("body")).split())
+            except Exception:
+                body = ""
+            fm = self._FAILURE_RE.search(body)
+            if fm:
+                return "rejected_spam", f'rejection text: "{fm.group(0)}"'
+            sm = self._SUCCESS_RE.search(body)
+            if sm:
+                return "submitted", f'confirmation text: "{sm.group(0)}"'
+            if attempt == 0:
+                # let a spam-rejection banner re-render before the final read
+                await self.page.wait_for_timeout(1500)
         try:
             after = len(await self.read_form())
         except Exception:
             after = fields_before
         if fields_before >= 4 and after <= fields_before // 4:
-            return True, f"form fields went from {fields_before} to {after}"
-        return False, (f"form still present ({after} fields, was "
-                       f"{fields_before}); no confirmation text found")
+            return "attempted", (
+                f"form fields went from {fields_before} to {after} but no "
+                f"success/failure text found — screenshot-audit before trusting")
+        return "attempted", (f"form still present ({after} fields, was "
+                             f"{fields_before}); no confirmation text found")
 
     async def submit_application(self, index: int | None = None) -> dict:
         """Click the submit control. DESTRUCTIVE — the caller (skill) must
@@ -754,8 +784,9 @@ class BrowserSession:
         Snapshots the form (labels + current values) just before clicking and
         returns it as `form_snapshot` so the caller can persist what was
         actually submitted, then verifies the submission landed: `status` is
-        "submitted" only when the page shows confirmation (or the form is
-        gone); otherwise "attempted" with the evidence in `confirmation`."""
+        "submitted" only when the page shows explicit success text;
+        "rejected_spam" when it shows a spam/submission-failure banner (do NOT
+        log); "attempted" when neither is seen. Evidence is in `confirmation`."""
         if self.page is None:
             raise RuntimeError("No page open.")
         try:
@@ -774,8 +805,8 @@ class BrowserSession:
                                 "user to submit manually"}
         await loc.click()
         await self.page.wait_for_timeout(3000)
-        confirmed, evidence = await self._submission_confirmed(len(form_snapshot))
-        return {"status": "submitted" if confirmed else "attempted",
+        status, evidence = await self._submission_confirmed(len(form_snapshot))
+        return {"status": status,
                 "confirmation": evidence, "current_url": self.page.url,
                 "form_snapshot": form_snapshot}
 

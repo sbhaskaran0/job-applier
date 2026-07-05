@@ -66,9 +66,12 @@ flowchart TD
     HH --> REV
     FM --> REV
 
-    REV --> S["submit_application<br/>status verified:<br/>submitted vs attempted"]
-    S -- "form snapshot<br/>(EEO never persisted)" --> HIST[("history.json<br/>normalized dedupe,<br/>scope + company + date")]
-    S -- "confirmed submits only" --> APPS[("applications.json<br/>tracker")]
+    REV --> S{"submit_application<br/>verify from page TEXT"}
+    S -- "explicit success text" --> SS["submitted"]
+    S -- "'flagged as possible spam'" --> SR["rejected_spam<br/>leave form for manual click"]
+    S -- "neither (vanished form ≠ success)" --> SA["attempted<br/>screenshot-audit"]
+    SS -- "form snapshot<br/>(EEO never persisted)" --> HIST[("history.json<br/>normalized dedupe,<br/>scope + company + date")]
+    SS -- "confirmed submits only<br/>(deduped on company+role)" --> APPS[("applications.json<br/>tracker")]
 
     HIST -. "reused on the<br/>next application" .-> H
 ```

@@ -139,15 +139,17 @@ async def submit_application(index: int = -1, company: str = "",
     submit button is located automatically (across frames, never a
     "Quick Apply" button).
 
-    The result's `status` is VERIFIED: "submitted" only when the page confirms
-    (thank-you text or the form disappearing); "attempted" means the click
-    happened but no confirmation was seen — inspect (screenshot /
-    check_for_intervention) and hand off to the user if a verification gate is
-    blocking. Pass `company` and `job_title` (from the posting): the form is
-    snapshotted just before the click and every filled answer is auto-captured
-    into history (conservatively scoped; EEO fields never persisted); the
-    application is logged to data/applications.json only on a CONFIRMED
-    submit. The `capture` field summarizes what was persisted."""
+    The result's `status` is VERIFIED from the page text: "submitted" only when
+    an explicit success message shows; "rejected_spam" when a spam/submission-
+    failure banner shows (Ashby invisible-reCAPTCHA scoring — leave the filled
+    form for the user to submit manually, do NOT auto-retry); "attempted" when
+    neither is seen — inspect (screenshot / check_for_intervention) and hand off
+    to the user if a verification gate is blocking. A vanished form alone is NOT
+    treated as success. Pass `company` and `job_title` (from the posting): the
+    form is snapshotted just before the click and every filled answer is auto-
+    captured into history (conservatively scoped; EEO fields never persisted);
+    the application is logged to data/applications.json only on a CONFIRMED
+    "submitted". The `capture` field summarizes what was persisted."""
     result = await browser.session.submit_application(index if index >= 0 else None)
     snapshot = result.pop("form_snapshot", [])
     try:

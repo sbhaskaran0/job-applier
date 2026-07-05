@@ -227,7 +227,11 @@ upfront, per job. Only verified submits are logged as `submitted` in
   challenge blocks (invisible reCAPTCHA v3 comes back as a non-blocking warning).
 - `detect_verification_gate()` — spot an email/OTP code gate after a submit.
 - `fill_verification_code(code)` — fill a detected code gate, then re-submit.
-- `submit_application([index])` — **gated**; only on your explicit go-ahead.
+- `submit_application([index])` — **gated**; only on your explicit go-ahead. The
+  result is verified from the page **text**: `submitted` (explicit success
+  message), `rejected_spam` (a "flagged as possible spam" banner — left for you
+  to submit manually, never auto-retried), or `attempted` (neither — a vanished
+  form alone is **not** treated as success). Only `submitted` is logged.
 
 **Answers / memory**
 - `resolve_fields([{index,label}])` — **resolve many fields in one call**
@@ -311,5 +315,6 @@ Job Applier/
 └─ .claude/skills/
    ├─ find-jobs/SKILL.md         # /find-jobs
    ├─ apply-to-job/SKILL.md      # /apply-to-job
-   └─ apply-batch/SKILL.md       # /apply-batch (queue mode)
+   ├─ apply-batch/SKILL.md       # /apply-batch (queue mode)
+   └─ commit/SKILL.md            # /commit (dev: commit + docs/diagram hygiene)
 ```

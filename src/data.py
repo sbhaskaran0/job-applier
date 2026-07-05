@@ -265,8 +265,26 @@ def capture_submission(fields: list[dict], company: str = "",
     return result
 
 
+def _normalize_url(url: str) -> str:
+    """Strip the volatile parts of an application URL so the same posting keys
+    identically across loads: drop the query string and fragment (tracking
+    params like ?gh_src, react-router hashes) and any trailing slash."""
+    u = (url or "").strip().lower()
+    u = u.split("#", 1)[0].split("?", 1)[0]
+    return u.rstrip("/")
+
+
 def _application_key(company: str, job_title: str, url: str) -> tuple:
-    return (_normalize(company), _normalize(job_title), (url or "").strip())
+    """Dedupe identity for applications.json. An application's identity is
+    (company, role): the URL is only a fallback locator when the title is
+    missing. The submit URL and the retry/success URL differ (embed vs.
+    canonical, tracking params, a post-submit redirect), so including the raw
+    URL in the key split one application into duplicate records on a retry
+    (JOB-24) — hence the URL is used only when (company, title) is incomplete."""
+    c, t = _normalize(company), _normalize(job_title)
+    if c and t:
+        return (c, t, "")
+    return (c, t, _normalize_url(url))
 
 
 def log_application_record(company: str = "", job_title: str = "", url: str = "",
