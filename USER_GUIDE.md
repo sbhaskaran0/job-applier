@@ -65,7 +65,7 @@ Then, in Claude Code, **open this project and reload it** so it loads
 | **`resume.pdf`** (add to project root) | The actual file **uploaded** to forms (preferred over `.txt`). On each apply, its text is auto-synced into `resume.txt`. |
 | [context/](context/) | Your "knowledge base" — `background.md`, `stories.md`, `preferences.md`, and any `.md` / `.txt` / **`.pdf`** you add. Searched when crafting open-ended answers. |
 | [job_criteria.yaml](job_criteria.yaml) | The strict bar for `/find-jobs`: acceptable titles, seniority, locations/remote, and `salary_floor`. |
-| [watchlist.yaml](watchlist.yaml) | The ~20 companies searched by `/find-jobs`. |
+| [watchlist.yaml](watchlist.yaml) | The ~30 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04). |
 | [data/history.json](data/history.json) | Past Q&A answers. Grows automatically as you approve crafted answers. |
 
 **To update your resume:** drop `resume.pdf` in the project root. From then on it's
@@ -296,7 +296,7 @@ Job Applier/
 ├─ .mcp.json                     # registers the job-applier server for Claude Code
 ├─ user_profile.yaml             # your exact facts
 ├─ job_criteria.yaml             # strict search bar (titles/seniority/salary/location)
-├─ watchlist.yaml                # ~20 target companies
+├─ watchlist.yaml                # ~30 target companies
 ├─ resume.txt   (resume.pdf)     # reasoning text  (uploaded file)
 ├─ requirements.txt
 ├─ context/                      # knowledge base (md/txt/pdf) for crafting answers

@@ -70,3 +70,37 @@ companies:
   - name: Snowflake
     ats: ashby
     slug: snowflake
+
+  # --- Series B+ startups: LA-HQ / SoCal (added 2026-07-04) ---
+  - name: Boulevard        # salon/spa SaaS, Series C, Los Angeles
+    ats: greenhouse
+    slug: boulevard
+  - name: Rula             # mental-health marketplace, Series C, LA; hires S&O (remote)
+    ats: ashby
+    slug: rula
+  - name: FloQast          # accounting-automation SaaS, Series E, LA
+    ats: lever
+    slug: floqast
+  - name: Tala             # global consumer fintech, Series E, Santa Monica
+    ats: lever
+    slug: tala
+  - name: GOAT Group       # sneaker/apparel marketplace, Series F, Culver City
+    ats: greenhouse
+    slug: goatgroup
+
+  # --- Series B+ startups: remote-first / US-remote (added 2026-07-04) ---
+  - name: Vercel           # dev infra, Series E, remote-friendly; lists Product Strategy & Operations
+    ats: greenhouse
+    slug: vercel
+  - name: Discord          # consumer platform, Series H, remote-friendly; lists Strategy & Operations Mgr
+    ats: greenhouse
+    slug: discord
+  - name: Carta            # cap-table/fintech, remote-friendly; lists CoS + GTM Strategy & Ops
+    ats: greenhouse
+    slug: carta
+  - name: Webflow          # no-code web platform, Series C, remote-first
+    ats: greenhouse
+    slug: webflow
+  - name: Grow Therapy     # mental-health marketplace, Series C, remote; lists Business Operations
+    ats: ashby
+    slug: grow-therapy

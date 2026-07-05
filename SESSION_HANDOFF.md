@@ -1,13 +1,13 @@
 # Session handoff — job-applier
 
-Paste this into a fresh Claude Code session to restore context. Last updated 2026-07-05 (session 5; JOB-24 submit-verification fix + /commit skill).
+Paste this into a fresh Claude Code session to restore context. Last updated 2026-07-05 (session 6; first fully-autonomous batch run — Mercury + Databricks submitted, Greenhouse email-code gate cleared via Gmail, watchlist 20→30).
 
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, launched via
 `.mcp.json` → `python -m src.mcp_server`) gives it a live Playwright browser plus
 the user's data. **No LLM API key** in the core flow. Three skills:
-- **`/find-jobs <query>`** — pulls live roles from a curated 20-company watchlist
+- **`/find-jobs <query>`** — pulls live roles from a curated 30-company watchlist
   via public ATS board APIs (Greenhouse/Lever/Ashby), ranks semantically, strict-
   filters by `job_criteria.yaml`.
 - **`/apply-to-job <url>`** — opens an application, fills it from
@@ -240,6 +240,46 @@ flowchart TD
     S -- "no (even if form vanished)" --> AT["status: attempted<br/>screenshot-audit · NO log"]
 ```
 
+## What happened THIS session (session 6, chronological)
+A **usage + data** session (no `src/` changes): the first fully-autonomous
+batch run after the JOB-16/17/24 fixes went live, then a watchlist expansion.
+1. **`/find-jobs` for mid-career BizOps in LA** — honest finding: only **2 clean
+   matches** in ~5,000 postings (watchlist skewed SF/NY + 7-15+ yr roles). User
+   chose to fill the queue with remote-US adjacent PM roles; Mercury Sr PM
+   Business Lending was **dropped at the gate** (honest "No" on its hard 7+ yr
+   PM screener — surfaced at the consolidated approval, user decided).
+2. **`/apply-batch` over 5 Greenhouse jobs** — stages A–D ran as designed:
+   5 snapshots, 5 parallel prep subagents (~257k tokens total), ONE approval
+   gate, serial fill/submit. **Zero mid-run prompts.**
+3. **Submitted + verified: Mercury Data Strategy & Operations Lead** — cleared
+   the **8-char Greenhouse email-code gate end-to-end autonomously**
+   (`detect_verification_gate` → Gmail `search_threads` → code `7dFMA3GS` →
+   `fill_verification_code` → resubmit → thank-you page). **JOB-17's last
+   unproven leg (live Gmail auto-fetch) is now proven live.**
+4. **Submitted + verified: Databricks Sr Manager GTM Strategy & Operations** —
+   no code gate; EEO auto-filled from profile; partner-experience screener
+   answered "No" per user's conservative choice at the gate.
+5. **Dedupe protection worked**: both Stripe roles in the queue were already
+   applied-to earlier that day — PM Payments found in `applications.json`, PM
+   Ecosystem Risk found via its Stripe confirmation email (was never logged) and
+   **back-filled** via `log_application`. Neither was re-submitted.
+6. **JOB-16 fix verified live all session** — invisible reCAPTCHA v3 reported as
+   non-blocking `warnings` on every Greenhouse `open_job`; no phantom-captcha
+   prompts.
+7. **Watchlist expanded 20→30** (`watchlist.yaml`): verified-live Series B+
+   boards — LA/SoCal: Boulevard, Rula, FloQast, Tala, GOAT Group; remote-first:
+   Vercel, Discord, Carta, Webflow, Grow Therapy. Every added slug confirmed
+   returning current jobs via its public ATS API; dead/unsupported slugs
+   (Whatnot, Grammarly, Zapier, Deel, Gusto, Included Health, Attentive) dropped.
+8. **Next application queued (user deferred):** Rula — Strategy & Operations
+   Manager, Remote-US, Ashby:
+   `https://jobs.ashbyhq.com/rula/3013fcdb-0e71-42f2-b3f1-7e8e3b3a2c44/application`
+   — the one clean mid-career (5+ yr) LA/remote BizOps fit on the new boards.
+9. **Known data wart:** a history entry claims "most recent school = UCLA" for
+   the *degree obtained* — `background.md`/resume say **UC Santa Barbara** (the
+   UCLA MQE is in progress, expected Dec 2027). Prep agents caught and routed
+   around it; the history entry itself still needs correcting.
+
 ## Git state
 - Branch: **`fix/ashby-button-group-and-linkedin`** (off `main`). NOT merged, NOT pushed.
 - Session 3 made **no code commits** (usage + Linear triage only).
@@ -272,9 +312,9 @@ flowchart TD
    text, not form-count — false "submitted" on Ashby spam-rejection, plus
    duplicate-log bug in `log_application_record`. **JOB-16 (Done, commit
    `0e6e0c6`)** reCAPTCHA-v3 false positive — fix is ATS-agnostic (covers
-   Ashby); verify live after a restart. **JOB-17 (In Progress, code done in
-   `0e6e0c6`)** — gate tools + `log_application` shipped; live Gmail auto-fetch
-   and the Scale AI backfill remain. JOB-18 (seniority surfacing), JOB-19
+   Ashby); verify live after a restart. **JOB-17 (code done in `0e6e0c6`; live Gmail
+   auto-fetch PROVEN in session 6** on the Mercury submit — detect → Gmail →
+   fill → resubmit → verified**)** — only the Scale AI backfill remains. JOB-18 (seniority surfacing), JOB-19
    (Greenhouse salary + corpus breadth) still open. JOB-22/JOB-20 (queue
    executor/parent) stay open on JOB-24 + a park-path verification.
 7. **Remaining shortlist:** Anthropic Product Ops Mgr (Feedback Loops) —
@@ -325,7 +365,7 @@ the hard executor cases).
   "reCAPTCHA" block is likely spurious — confirm before halting). Real submits
   may trigger an **8-char email verification code**: now handled by
   `detect_verification_gate` + `fill_verification_code` + a Gmail fetch in the
-  apply skill (**JOB-17**, code shipped; live Gmail fetch still to be proven).
+  apply skill (**JOB-17** — proven live end-to-end in session 6, Mercury submit).
 - **Ashby anti-bot (session 4)**: the same invisible-reCAPTCHA `open_job` false
   positive is covered by the ATS-agnostic JOB-16 fix (per-frame visibility
   classification) — verify after restart. **Separate and still open:** the low

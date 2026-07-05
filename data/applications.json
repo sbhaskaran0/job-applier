@@ -154,5 +154,131 @@
         "answer": "No"
       }
     ]
+  },
+  {
+    "company": "Mercury",
+    "job_title": "Revenue Technology - Data Strategy & Operations Lead",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=mercury&token=5806201004",
+    "date": "2026-07-04",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Will you now or at any time in the future require visa sponsorship?*",
+        "answer": "No"
+      },
+      {
+        "question": "From where do you intend to work?*",
+        "answer": "Los Angeles, CA, United States"
+      },
+      {
+        "question": "Security code",
+        "answer": "7"
+      },
+      {
+        "question": "security input 1",
+        "answer": "d"
+      },
+      {
+        "question": "security input 2",
+        "answer": "F"
+      },
+      {
+        "question": "security input 3",
+        "answer": "M"
+      },
+      {
+        "question": "security input 4",
+        "answer": "A"
+      },
+      {
+        "question": "security input 5",
+        "answer": "3"
+      },
+      {
+        "question": "security input 6",
+        "answer": "G"
+      },
+      {
+        "question": "security input 7",
+        "answer": "S"
+      }
+    ]
+  },
+  {
+    "company": "Databricks",
+    "job_title": "Senior Manager GTM Strategy & Operations (Partners)",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=databricks&token=8450207002",
+    "date": "2026-07-04",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Do you now or will you in the future need sponsorship for employment visa status in the country in which you are applying?*",
+        "answer": "No"
+      },
+      {
+        "question": "Do have experience working with ISV, Cloud or SI partners?*",
+        "answer": "No"
+      }
+    ]
+  },
+  {
+    "company": "Stripe",
+    "job_title": "Product Manager, Ecosystem Risk",
+    "url": "https://job-boards.greenhouse.io/embed/job_app?for=stripe&token=7984866",
+    "date": "2026-07-04",
+    "status": "submitted",
+    "fields": []
   }
 ]
