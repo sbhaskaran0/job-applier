@@ -173,11 +173,19 @@ one's prompts. It runs in stages:
    submitted with **zero further prompts**. Anything unexpected (a new
    required field, an unmatched dropdown, an unverified submit, a real
    CAPTCHA) **parks** that job — recorded with a reason, queue moves on.
-5. **Report** — "N submitted (verified) · M parked (why + URLs)".
+   If an ATS spam-flags an automated submit (reCAPTCHA v3 scoring), the job
+   is left **fully filled** and queued for you instead — by design, no
+   automated retries.
+5. **Screenshot audit + report** — every "submitted" job is re-verified
+   against its success page; anything unverified is handed to you. The report
+   reads "N submitted (verified) · K awaiting your manual submit · M parked
+   (why + URLs)", and the browser is parked on the first form waiting for
+   your click.
 
 The "never auto-submit" rule is unchanged — consent is just collected once,
-upfront, per job. Submits are verified against the page text and only
-verified submits are logged to `data/applications.json`.
+upfront, per job. Only verified submits are logged as `submitted` in
+`data/applications.json`; forms you submit yourself are logged as
+`manual_submission`, and unconfirmed clicks as `attempted`.
 
 ### Safety
 - **It never submits on its own.** `submit_application` runs only when you
@@ -253,10 +261,11 @@ one is present.
   your choice.
 - **Ashby spam flags:** Ashby scores submissions with invisible reCAPTCHA and
   may reject an automated submit with *"flagged as possible spam"* — your
-  answers are preserved on the page. The agent retries once after a delay;
-  if flagged again, it hands you the browser to click **Submit Application**
-  yourself (a real human click usually passes). A confirmation email from the
-  company is the ground truth that a submit landed.
+  answers are preserved on the page. **By design the agent does not retry:**
+  it leaves the form filled and presents it to you to click
+  **Submit Application** yourself (a real human click passes the scoring; the
+  application is then tracked as `manual_submission`). A confirmation email
+  from the company is the ground truth that a submit landed.
 - **A stale `OPENAI_API_KEY`** may still sit in [.env](.env) from the old version;
   it's unused now and safe to delete.
 

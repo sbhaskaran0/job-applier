@@ -98,12 +98,15 @@ issue any genuinely independent calls together in a single message.
    ("application was successfully submitted" / a thank-you page); **"We
    couldn't submit your application" / "flagged as possible spam"** means it
    did NOT go through, and a false success may have been auto-logged — correct
-   `data/applications.json`. On a spam rejection the filled form is restored:
-   retry once **after a delay** (an immediate retry re-flags; a ~10-minute gap
-   worked), and if flagged again hand the user the visible browser to click
-   Submit themselves — a real human click passes the reCAPTCHA v3 scoring. A
-   confirmation email in the applicant's inbox (Gmail tools) is the ground
-   truth either way. For `"attempted"`: first call `detect_verification_gate`
+   `data/applications.json`. **Spam rejection → manual submission (by
+   design).** Don't fight reCAPTCHA v3 with automated retries: the rejection
+   restores the filled form, so leave it filled and ask the user to click
+   **Submit Application** in the visible browser — a real human click passes
+   the v3 scoring (verified live). Then confirm the success page (screenshot)
+   and/or the confirmation email (Gmail tools — the ground truth either way),
+   and log it with `log_application(..., status="manual_submission")` so the
+   tracker distinguishes agent submits from human-clicked ones.
+   For `"attempted"`: first call `detect_verification_gate`
    (see **Email verification-code gate**); otherwise screenshot, look for a
    validation error, hand off to the user if needed, and don't claim success.
    Mention the `capture` summary in your wrap-up.

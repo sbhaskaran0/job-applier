@@ -169,6 +169,13 @@ Executed **JOB-20** (batch-apply queue mode) and its sub-tasks from Linear.
    JOB-24 + park-path verification) · JOB-24 filed Urgent · new-data comments
    on JOB-16 (Ashby trips the invisible-reCAPTCHA false positive too — the
    fix must be ATS-agnostic).
+7. **User clicked Submit on CS S&O manually — it landed** (success banner +
+   confirmation email 01:25Z), so **both Notion applications are in**. On the
+   user's direction, "manual submission" became a first-class design outcome:
+   no automated retries against spam flags; unsubmitted jobs are presented to
+   the user with the form left filled; every "complete" application is
+   screenshot-audited; new `manual_submission` status in `applications.json`.
+   Encoded in both apply skills + USER_GUIDE + this file.
 
 ## Git state
 - Branch: **`fix/ashby-button-group-and-linkedin`** (off `main`). NOT merged, NOT pushed.
@@ -193,11 +200,9 @@ Executed **JOB-20** (batch-apply queue mode) and its sub-tasks from Linear.
 4. **Backfill the Scale AI submit into `applications.json`** (session 3) — it was
    confirmed live but completed through the email-code gate outside
    `submit_application`, so it's unlogged. Tracked in **JOB-17**.
-5. **URGENT — Notion CS S&O Manager is NOT submitted.** Spam-rejected twice;
-   the filled form was left open in the browser for the user to click
-   Submit Application manually. Once they confirm (or a
-   recruiting-no-reply@makenotion.com email for that role arrives), flip its
-   `data/applications.json` record from `attempted` to `submitted`.
+5. **RESOLVED — Notion CS S&O Manager submitted manually by the user**
+   (verified: success-page screenshot + confirmation email 01:25Z). Tracked
+   as the first `manual_submission` record in `data/applications.json`.
 6. **Open issues:** **JOB-24 (Urgent)** submit verification must read page
    text, not form-count — false "submitted" on Ashby spam-rejection, plus
    duplicate-log bug in `log_application_record`. JOB-16 (reCAPTCHA-v3 false
@@ -258,11 +263,18 @@ the hard executor cases).
   **"flagged as possible spam"**, and `submit_application`'s form-count
   verification **reads that rejection page as a verified submit** (JOB-24,
   Urgent). NEVER trust `status:"submitted"` on Ashby without `get_job_text()`
-  showing "successfully submitted"; the rejection restores the filled form, so
-  the recovery is one **delayed** retry (~10 min gap worked), then hand the
-  user the visible browser to click Submit manually. False successes also
-  **auto-log to `applications.json`** (and retries duplicate records) — audit
-  it after any Ashby submit until JOB-24 lands.
+  showing "successfully submitted". False successes also **auto-log to
+  `applications.json`** (and retries duplicate records) — audit it after any
+  Ashby submit until JOB-24 lands.
+- **Spam rejection → manual submission (DESIGN CHOICE, session 4):** don't
+  fight reCAPTCHA v3 with automated retries. The rejection restores the
+  filled form; leave it filled, present it to the user to click Submit (a
+  real human click passed the scoring live on Notion CS S&O), verify via the
+  success page/confirmation email, and log status **`"manual_submission"`**.
+  `applications.json` status vocabulary: `submitted` (agent, verified) ·
+  `manual_submission` (agent filled, human clicked) · `attempted` (click
+  unconfirmed). Both apply skills + USER_GUIDE encode this; end-of-run rule:
+  screenshot-audit every "complete" application before reporting it.
 - **Gmail MCP connector works for submit verification** — Ashby/Notion
   confirmations arrive from `recruiting-no-reply@makenotion.com` to the
   profile email; `search_threads` on the connected account sees them. The

@@ -118,7 +118,8 @@
     "job_title": "Customer Success Strategy & Operations Manager",
     "url": "https://jobs.ashbyhq.com/notion/cfacf665-602d-43b2-9d92-7dfda3bb19a2/application",
     "date": "2026-07-04",
-    "status": "attempted",
+    "status": "manual_submission",
+    "note": "Automated submit spam-flagged twice (reCAPTCHA v3); agent filled the form, user clicked Submit manually. Verified: success banner (screenshot) + confirmation email from recruiting-no-reply@makenotion.com 2026-07-05T01:25Z.",
     "fields": [
       {
         "question": "Full Name",

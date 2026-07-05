@@ -143,12 +143,14 @@ For each approved job, in order:
    heuristic reads Ashby's spam-rejection page as success). Always confirm
    with `get_job_text()`: success text ("application was successfully
    submitted" / thank-you) → real submit; "We couldn't submit your
-   application" / "flagged as possible spam" → NOT submitted. A spam
-   rejection gets **one** retry, deferred to the end of the queue (a ~10 min
-   gap succeeded where an immediate pattern failed); a second rejection →
-   **park** for a manual human click (real mouse input feeds the reCAPTCHA v3
-   score). If the tool auto-logged a false success, correct
-   `data/applications.json` before the final report.
+   application" / "flagged as possible spam" → NOT submitted.
+   **Spam rejection → manual submission (by design).** Automated retries
+   against reCAPTCHA v3 are a losing game (and repeated flags may hurt the
+   applicant's standing), so an intentional design choice: do NOT auto-retry.
+   The rejection page restores the filled form — leave it filled, correct any
+   false-success auto-log, record the job with status `"manual_submission"`,
+   and continue the queue. These jobs are handed to the user at Stage E for a
+   real human click (human input passes the v3 scoring — verified live).
 8. On verified `status:"submitted"`: `save_answer` each approved
    crafted/adapted answer with its `scope` (+ `company` when company-scoped).
    Serial stage — writes are safe here.
@@ -156,18 +158,36 @@ For each approved job, in order:
 **Park-don't-ask:** parking = record `{url, company, stage, reason}`, leave
 the job unsubmitted, move on. Never prompt, never guess at an answer that
 wasn't approved, never submit a parked job. Parked jobs must NOT be logged to
-`applications.json` (only a verified submit auto-logs via
-`capture_submission` — trust only `status:"submitted"`).
+`applications.json` as submitted (only a text-verified submit counts;
+spam-rejected jobs are logged as `"manual_submission"` and handed to the
+user at Stage E).
 
-## Stage E — Final report
+## Stage E — Screenshot audit + final report
 
-One summary: **"N submitted (verified) · M parked"** with
+**Audit every "complete" job before reporting.** For each job the run claims
+submitted, re-verify visually: `screenshot()` / `get_job_text()` must show
+the explicit success page. Any job without that proof is NOT submitted —
+reclassify it as `"manual_submission"`.
 
-- per submitted job: company, role, capture summary;
-- per parked job: company, role, **stage + reason**, and its URL for manual
-  follow-up;
-- which answers were `save_answer`'d;
-- leave the browser on the last parked job (or say so if none).
+**Present the manual-submission queue.** For every unsubmitted job (spam
+rejections, unverified submits): its form is left fully filled — give the
+user the list (company, role, URL, why) and leave the browser on the first
+one so they can click **Submit Application** themselves, navigating through
+the rest. After their clicks, verify each (success page via screenshot, or
+the confirmation email via the Gmail tools) and log it with status
+`"manual_submission"` in `data/applications.json` (keep the note of why).
+
+Then one summary: **"N submitted (verified) · K awaiting your manual submit ·
+M parked"** with
+
+- per submitted job: company, role, capture summary + the success proof;
+- per manual-submission job: company, role, URL, and the rejection reason;
+- per parked job: company, role, **stage + reason**, and its URL;
+- which answers were `save_answer`'d.
+
+`applications.json` status vocabulary: `"submitted"` (agent-submitted,
+text/screenshot-verified) · `"manual_submission"` (agent filled, human
+clicked submit) · `"attempted"` (clicked, never confirmed — needs follow-up).
 
 ## Queue-mode rules
 
