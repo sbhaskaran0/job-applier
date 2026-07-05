@@ -327,10 +327,11 @@ per user) and JOB-34 (env hardening — NOT executed).
    staleness) + live triple-refresh + scheduled-task end-to-end run.
 
 ## Git state
-- Branch: **`main`** — `fix/ashby-button-group-and-linkedin` was fast-forward
-  merged into `main` and **pushed to GitHub** (2026-07-05, session 6;
-  `674bc9b..b5fee67`). GitHub now reflects the full history incl. the README
-  answer-resolution section.
+- Branch: **`main`** — `feat/postings-store-phase1` was fast-forward merged
+  into `main` (2026-07-05, session 7; `2f6c08d..3dcf8d4` + a docs reconcile
+  commit). **Push to GitHub pending** (`git push origin main`, main is 2
+  ahead). Newest commits: **`3dcf8d4` postings store Phase 1 (JOB-27..31)** ·
+  `2f6c08d` session-6 handoff reconcile · `b5fee67` session-6 data.
 - Session 3 made **no code commits** (usage + Linear triage only).
 - Commits on it (newest first): `89c4f3b` manual-submission outcome · `4b569ec`
   session-4 data reconcile (pronouns, Notion answers) · `8b30100` session-4 docs
