@@ -139,6 +139,16 @@ For each approved job, in order:
 7. `submit_application(company=..., job_title=...)` — only for jobs with
    Stage C submit consent. `status:"attempted"` → **park** (do NOT retry the
    click blindly; note the URL for manual follow-up).
+   **Do not trust the returned status alone** (JOB-24: the form-disappearance
+   heuristic reads Ashby's spam-rejection page as success). Always confirm
+   with `get_job_text()`: success text ("application was successfully
+   submitted" / thank-you) → real submit; "We couldn't submit your
+   application" / "flagged as possible spam" → NOT submitted. A spam
+   rejection gets **one** retry, deferred to the end of the queue (a ~10 min
+   gap succeeded where an immediate pattern failed); a second rejection →
+   **park** for a manual human click (real mouse input feeds the reCAPTCHA v3
+   score). If the tool auto-logged a false success, correct
+   `data/applications.json` before the final report.
 8. On verified `status:"submitted"`: `save_answer` each approved
    crafted/adapted answer with its `scope` (+ `company` when company-scoped).
    Serial stage — writes are safe here.
