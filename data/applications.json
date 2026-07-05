@@ -71,5 +71,87 @@
         "answer": "Bachelor's Degree"
       }
     ]
+  },
+  {
+    "company": "Notion",
+    "job_title": "Product Operations Manager",
+    "url": "https://jobs.ashbyhq.com/notion/8b82e596-e828-45db-94d5-b76acc89e749/application",
+    "date": "2026-07-04",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Full Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "How did you hear about this opportunity? (select all that apply)",
+        "answer": "Notion Website"
+      },
+      {
+        "question": "We work from our offices on Mondays, Tuesdays, and Thursdays (Anchor Days). If you need an accommodation, we’ll partner with you and explore reasonable options consistent with applicable law. Are you able to commit to working from one of our offices on Anchor Days each week?",
+        "answer": "Yes"
+      },
+      {
+        "question": "Will you now or in the future require Notion to sponsor an immigration case in order to employ you?",
+        "answer": "No"
+      }
+    ]
+  },
+  {
+    "company": "Notion",
+    "job_title": "Customer Success Strategy & Operations Manager",
+    "url": "https://jobs.ashbyhq.com/notion/cfacf665-602d-43b2-9d92-7dfda3bb19a2/application",
+    "date": "2026-07-04",
+    "status": "attempted",
+    "fields": [
+      {
+        "question": "Full Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "How did you hear about this opportunity? (select all that apply)",
+        "answer": "Notion Website"
+      },
+      {
+        "question": "We work from our offices on Mondays, Tuesdays, and Thursdays (Anchor Days). If you need an accommodation, we’ll partner with you and explore reasonable options consistent with applicable law. Are you able to commit to working from one of our offices on Anchor Days each week?",
+        "answer": "Yes"
+      },
+      {
+        "question": "Will you now or in the future require Notion to sponsor an immigration case in order to employ you?",
+        "answer": "No"
+      }
+    ]
   }
 ]

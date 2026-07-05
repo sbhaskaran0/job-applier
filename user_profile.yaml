@@ -39,7 +39,7 @@ notice_period: ""
 gender:
   value: "Male"
   eeo: true
-pronouns: ""
+pronouns: "He/Him"
 race_ethnicity:
   value: "Asian"
   eeo: true
