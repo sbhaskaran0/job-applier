@@ -92,11 +92,21 @@ issue any genuinely independent calls together in a single message.
    auto-captures every filled answer into history (so nothing is lost even if
    a `save_answer` was missed; EEO answers are never persisted), and logs the
    submission to `data/applications.json` **only when the submit is
-   confirmed**. Trust the returned `status`: `"submitted"` is verified;
-   `"attempted"` means no confirmation was seen — first call
-   `detect_verification_gate` (see **Email verification-code gate**); otherwise
-   screenshot, look for a validation error, hand off to the user if needed, and
-   don't claim success. Mention the `capture` summary in your wrap-up.
+   confirmed**. Do NOT trust a returned `status:"submitted"` alone (JOB-24):
+   the form-disappearance check reads Ashby's spam-rejection page as success.
+   **Confirm with `get_job_text()`** — real success shows explicit text
+   ("application was successfully submitted" / a thank-you page); **"We
+   couldn't submit your application" / "flagged as possible spam"** means it
+   did NOT go through, and a false success may have been auto-logged — correct
+   `data/applications.json`. On a spam rejection the filled form is restored:
+   retry once **after a delay** (an immediate retry re-flags; a ~10-minute gap
+   worked), and if flagged again hand the user the visible browser to click
+   Submit themselves — a real human click passes the reCAPTCHA v3 scoring. A
+   confirmation email in the applicant's inbox (Gmail tools) is the ground
+   truth either way. For `"attempted"`: first call `detect_verification_gate`
+   (see **Email verification-code gate**); otherwise screenshot, look for a
+   validation error, hand off to the user if needed, and don't claim success.
+   Mention the `capture` summary in your wrap-up.
 
 ## Email verification-code gate (Greenhouse et al.)
 

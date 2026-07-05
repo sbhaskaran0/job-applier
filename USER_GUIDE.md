@@ -12,12 +12,13 @@ without your say-so.
 Claude Code is the brain. A local **MCP server** (`job-applier`) gives it hands and
 memory: it drives a real Chrome browser (via Playwright), reads your profile /
 history / knowledge base, and pulls live jobs from company career boards. You
-interact through two skills:
+interact through three skills:
 
 | Command | What it does |
 |---|---|
 | `/find-jobs <query>` | Search your company watchlist for matching roles, ranked semantically and filtered by your criteria. |
 | `/apply-to-job <url>` | Open an application form and fill it from your profile/history/context, pausing only when unsure. |
+| `/apply-batch <urls>` | Queue several applications: parallel answer prep, **one** upfront approval (incl. per-job submit consent), then serial fill/submit with zero mid-run prompts. |
 
 There is **no OpenAI/Anthropic API key** and **no cost** in the core flow — Claude
 Code is the reasoner, and job discovery uses free public ATS APIs.
@@ -151,6 +152,33 @@ read with `get_field_options` so it picks a real option instead of guessing.
 At the end it screenshots the filled form and summarizes what it filled and what it
 left for you.
 
+### Batch mode — `/apply-batch`
+
+```
+/apply-batch https://jobs.ashbyhq.com/notion/…/application https://jobs.ashbyhq.com/notion/…/application
+```
+
+For applying to several roles in one sitting without sitting through each
+one's prompts. It runs in stages:
+
+1. **Snapshot** — each form is opened briefly and saved (fields + job
+   description) to `data/prep/` (gitignored).
+2. **Parallel prep** — one read-only subagent per job resolves every field
+   through the same profile → history → context cascade and drafts anything
+   open-ended.
+3. **One consolidated review** — you approve/edit all gated answers for the
+   whole queue **and give per-job submit consent** ("submit both", "fill #2
+   but don't submit"…). This is the only interaction.
+4. **Serial fill + submit** — each approved job is filled, verified, and
+   submitted with **zero further prompts**. Anything unexpected (a new
+   required field, an unmatched dropdown, an unverified submit, a real
+   CAPTCHA) **parks** that job — recorded with a reason, queue moves on.
+5. **Report** — "N submitted (verified) · M parked (why + URLs)".
+
+The "never auto-submit" rule is unchanged — consent is just collected once,
+upfront, per job. Submits are verified against the page text and only
+verified submits are logged to `data/applications.json`.
+
 ### Safety
 - **It never submits on its own.** `submit_application` runs only when you
   explicitly say to submit.
@@ -223,6 +251,12 @@ one is present.
   description. Roles with no posted salary are shown flagged, not dropped.
 - **EEO / self-ID fields** are left blank unless you fill them in your profile —
   your choice.
+- **Ashby spam flags:** Ashby scores submissions with invisible reCAPTCHA and
+  may reject an automated submit with *"flagged as possible spam"* — your
+  answers are preserved on the page. The agent retries once after a delay;
+  if flagged again, it hands you the browser to click **Submit Application**
+  yourself (a real human click usually passes). A confirmation email from the
+  company is the ground truth that a submit landed.
 - **A stale `OPENAI_API_KEY`** may still sit in [.env](.env) from the old version;
   it's unused now and safe to delete.
 
@@ -240,6 +274,8 @@ Job Applier/
 ├─ requirements.txt
 ├─ context/                      # knowledge base (md/txt/pdf) for crafting answers
 ├─ data/history.json             # learned answers
+├─ data/applications.json        # application tracker (verified submits)
+├─ data/prep/                    # batch-mode prep files/sheets (gitignored)
 ├─ src/
 │  ├─ mcp_server.py              # the 21 tools
 │  ├─ browser.py                 # ATS-agnostic form reading/filling
@@ -251,5 +287,6 @@ Job Applier/
 │     └─ watchlist.py            # ATS board fetch/normalize + watchlist mgmt
 └─ .claude/skills/
    ├─ find-jobs/SKILL.md         # /find-jobs
-   └─ apply-to-job/SKILL.md      # /apply-to-job
+   ├─ apply-to-job/SKILL.md      # /apply-to-job
+   └─ apply-batch/SKILL.md       # /apply-batch (queue mode)
 ```

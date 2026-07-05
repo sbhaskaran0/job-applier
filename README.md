@@ -20,6 +20,11 @@ Open this project in Claude Code and reload it (loads `.mcp.json`), then:
 
 - `/find-jobs fintech product strategy` — search your watchlist, ranked & filtered.
 - `/apply-to-job <url>` — open an application and fill it from your data.
+- `/apply-batch <url> <url> …` — queue several applications: answers are
+  prepared in parallel, you approve everything (including per-job submit
+  consent) in **one** upfront review, then the queue fills and submits
+  serially with zero further prompts — anything unexpected is parked with a
+  reason instead of interrupting you.
 
 Edit `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`, `resume.txt`
 (+ optional `resume.pdf`), and `context/` to make it yours.
