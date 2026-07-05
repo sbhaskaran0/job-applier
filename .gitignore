@@ -9,6 +9,9 @@ __pycache__/
 .venv/
 venv/
 
+# Batch-apply queue prep files/sheets (transient, per-run)
+data/prep/
+
 # Transient browser artifacts / screenshots
 /*.png
 current_page.png
