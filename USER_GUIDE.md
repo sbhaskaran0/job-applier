@@ -207,8 +207,12 @@ answers as you would.
 behind an "Attach" widget. **Custom dropdowns** ("How did you hear about us?") are
 read with `get_field_options` so it picks a real option instead of guessing.
 
-At the end it screenshots the filled form and summarizes what it filled and what it
-left for you.
+At the end it verifies each field by re-reading the form and summarizes what it
+filled and what it left for you. If a field looks wrong or won't commit (a
+finicky custom dropdown, a multi-select that won't take a single value), it makes
+**one** corrective attempt and then **flags that field for you to set manually**
+rather than fighting the widget with retries — the browser stays open on the
+filled form so you can fix the flagged field and submit yourself.
 
 ### Batch mode — `/apply-batch`
 

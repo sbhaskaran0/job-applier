@@ -58,11 +58,17 @@ issue any genuinely independent calls together in a single message.
      about us?", a consent dropdown), call `get_field_options(index)` first, then
      include the exact option label in the `fill_many` batch. Yes/No and
      free-type comboboxes can be filled directly.
-   - **Check every fill result.** A combobox row may come back `unmatched` with
-     the widget's real `options` (e.g. the list says `US`, not
-     "United States") — refill those indexes with the matching option text in
-     one follow-up `fill_many`. `uncommitted` means the click didn't stick —
-     verify visually and retry.
+   - **Check every fill result — one corrective pass, then flag.** A combobox
+     row may come back `unmatched` with the widget's real `options` (e.g. the
+     list says `US`, not "United States"). That is a **deterministic** fix — the
+     tool handed you the exact labels — so refill those indexes with the correct
+     option text in **one** follow-up `fill_many`. `uncommitted` means the click
+     didn't stick — try **one** re-fill. If a field is still `unmatched` /
+     `uncommitted` after that single corrective pass, or a widget behaves
+     erratically (e.g. a multi-select that won't commit a single value), **do
+     not keep fighting it** — leave it and flag it for the user at the Review
+     step (see step 6). Looping retries and screenshots against a stubborn
+     widget burns round-trips and rarely wins.
    - **Resume/CV:** first call `get_job_artifacts(company, job_title, url)` to
      see whether a **tailored** resume/cover letter was generated for this
      posting (via `/tailor-application`, JOB-6). Then call `upload_resume()` with
@@ -91,13 +97,26 @@ issue any genuinely independent calls together in a single message.
      (stable fact, safe to auto-fill anywhere), `company` (tailored to this
      employer — pass `company`), `conditional` (role/location/time-dependent —
      always re-reviewed).
-6. **Review** — verify cheaply by re-reading the DOM: call
-   `read_form(values_only=True)` (lean payload — just `{index, kind, label,
-   current_value}`, no option lists to re-send) and confirm each field's
-   `current_value` is set as intended (prefer this over a screenshot). Take a
-   `screenshot()` only if a widget looks ambiguous or a fill didn't take.
-   Summarize what you filled and from which source, and list anything you
-   skipped or left for the user.
+6. **Review — verify cheaply, and flag what looks wrong instead of fixing it.**
+   Re-read the DOM with `read_form(values_only=True)` (lean payload — just
+   `{index, kind, label, current_value}`, no option lists to re-send) and
+   confirm each field's `current_value` is set as intended; prefer this over a
+   screenshot. **When a field looks wrong** (empty where it should be set, the
+   wrong option, a multi-select showing extra values, or a `current_value` the
+   DOM can't read back), you get **one** cheap corrective attempt: a single
+   `fill_many` / `fill_field` refill with the exact option text, or at most
+   **one** `screenshot()` to disambiguate a widget the DOM reads oddly. If that
+   doesn't resolve it, **stop and flag the field for manual intervention** —
+   call it out explicitly in your wrap-up (the field label, what you intended,
+   what's actually there) and leave it for the user to set in the open browser.
+   Do **not** loop retries or take repeated screenshots to force a stubborn
+   widget; that burns tokens and round-trips for little gain (a react-select
+   multi-select that wouldn't commit a single Gender value, then read back empty,
+   was a real case). One nuance: a widget can be **correctly set visually while
+   `read_form` fails to read its value back** — if a single screenshot confirms
+   it looks right, say it's set but couldn't be verified in the DOM, and still
+   ask the user to glance at it. Then summarize what you filled and from which
+   source, and list everything you skipped or flagged.
 7. **Submit** — call `submit_application(company=..., job_title=...)` **only
    after the user explicitly says to submit.** Never auto-submit; this is
    destructive and always gated, regardless of confidence. Pass the employer
@@ -220,6 +239,15 @@ add new rules here.)
    "Dark chocolate almonds." — not a sentence explaining what they do for your
    problem-solving. Keep it short and unpolished, and don't gate these for
    approval unless the value is sensitive.
+6. **Punctuation and voice — write like Siddharth, not like an AI.** Avoid em
+   dashes (—) as a default connector; leaning on them is a strong AI tell and
+   the applicant dislikes it. Prefer a period, comma, or colon, and use at most
+   one em dash in a long answer (often none). More broadly, match Siddharth's
+   own writing voice from his past cover letters and application answers in
+   `context/` (the same corpus `get_cover_letter_examples` surfaces): mirror his
+   sentence rhythm, plain word choices, and directness instead of defaulting to
+   uniform, over-polished "assistant" prose. Keep answers first-person,
+   concrete, and varied in sentence length; cut throat-clearing.
 
 ## Rules
 - Prefer stored truth over invention: profile → history → context, in that order.

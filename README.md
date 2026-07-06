@@ -98,11 +98,12 @@ flowchart TD
     U --> FM["fill_many"]
     U -- "save_answer<br/>(question, answer, scope)" --> HIST
 
-    PV --> REV["Review: verify current_value,<br/>user explicitly says submit"]
+    PV --> REV["Review: verify current_value<br/>(1 corrective pass, else flag)"]
     HH --> REV
     FM --> REV
 
-    REV --> S{"submit_application<br/>verify from page TEXT"}
+    REV -- "field won't commit/verify<br/>after one fix" --> RF["Flag for manual intervention<br/>left set in the open browser"]
+    REV -- "all fields verified,<br/>user explicitly says submit" --> S{"submit_application<br/>verify from page TEXT"}
     S -- "explicit success text" --> SS["submitted"]
     S -- "'flagged as possible spam'" --> SR["rejected_spam<br/>leave form for manual click"]
     S -- "neither (vanished form ≠ success)" --> SA["attempted<br/>screenshot-audit"]
