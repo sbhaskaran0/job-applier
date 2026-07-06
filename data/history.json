@@ -108,8 +108,8 @@
     "question": "Start typing...",
     "answer": "Los Angeles, California, United States",
     "scope": "evergreen",
-    "company": "",
-    "date": "2026-07-04"
+    "company": "Rula",
+    "date": "2026-07-05"
   },
   {
     "question": "Notion Website",
@@ -141,59 +141,59 @@
   },
   {
     "question": "Security code",
-    "answer": "7",
+    "answer": "n",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-05"
   },
   {
     "question": "security input 1",
-    "answer": "d",
+    "answer": "4",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-05"
   },
   {
     "question": "security input 2",
-    "answer": "F",
+    "answer": "q",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-05"
   },
   {
     "question": "security input 3",
-    "answer": "M",
+    "answer": "D",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-05"
   },
   {
     "question": "security input 4",
-    "answer": "A",
-    "scope": "evergreen",
-    "company": "",
-    "date": "2026-07-04"
-  },
-  {
-    "question": "security input 5",
     "answer": "3",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-05"
+  },
+  {
+    "question": "security input 5",
+    "answer": "c",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
   },
   {
     "question": "security input 6",
-    "answer": "G",
+    "answer": "X",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-05"
   },
   {
     "question": "security input 7",
-    "answer": "S",
+    "answer": "d",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-05"
   },
   {
     "question": "Do have experience working with ISV, Cloud or SI partners?*",
@@ -201,5 +201,348 @@
     "scope": "evergreen",
     "company": "",
     "date": "2026-07-04"
+  },
+  {
+    "question": "Name",
+    "answer": "Siddharth Bhaskaran",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Middle Name",
+    "answer": "N/A",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "What snack fuels your best ideas?",
+    "answer": "Dark chocolate almonds.",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Have you led a data-driven initiative that resulted in measurable improvements in operations or quality?",
+    "answer": "Yes",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Search schools...",
+    "answer": "University of California, Santa Barbara",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Degree",
+    "answer": "Bachelor's Degree",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Field of Study",
+    "answer": "Economics",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Current/Last Company",
+    "answer": "M Science",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Plaid's Mission",
+    "answer": "on",
+    "scope": "company",
+    "company": "Plaid",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Passion for Fintech Industry",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Plaid's Products & Technical Innovation",
+    "answer": "on",
+    "scope": "company",
+    "company": "Plaid",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Ability to Use and Build AI Products",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "N/A - Not enough information on Plaid's AI work to say",
+    "answer": "on",
+    "scope": "company",
+    "company": "Plaid",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Have you ever been previously employed by Plaid, Quovo or Cognito?",
+    "answer": "No",
+    "scope": "company",
+    "company": "Plaid",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Anything else you'd like to tell us?",
+    "answer": "As the first Business Operations & Strategy hire, you're looking for a generalist who can own pricing, strategic planning, and financial modeling while standing up new functions from scratch — which is exactly the work I've been doing. At M Science I led a cross-functional overhaul of our pricing and packaging model and stood up a pricing desk that drove a ~35% ARR increase in its first quarter, then built the financial and data infrastructure to make it repeatable. I'm drawn to Hang because it lets me do that end-to-end, working directly with the CEO on a consumer-brand platform I'd genuinely enjoy helping build.",
+    "scope": "company",
+    "company": "Hang",
+    "date": "2026-07-04"
+  },
+  {
+    "question": "Why are you interested in joining Tailscale? Thoughtful responses are encouraged.*",
+    "answer": "What draws me to Tailscale is the shape of the BizOps & Strategy mandate: being the embedded operator for the cross-functional problems that don't have a natural owner, and owning them from diagnosis through a durable, handed-off solution. That is exactly how I have worked. At M Science I led a cross-functional overhaul of our packaging and pricing model — aligning data science, sales, and research, standing up a pricing desk, and driving a ~35% ARR increase the quarter after launch — then built the infrastructure to make it stick: a Salesforce master-data system that unified our product metadata and automated entitlements, serving as the semantic layer behind our analytics and customer portal. I like building those structures early so they can be handed off as a company scales.\n\nThe specific problems in this role map directly to my experience — pricing and packaging strategy, maturing GTM systems alongside RevOps, reducing rework in business systems, and doing my own data analysis in SQL and Python rather than waiting on someone else. I am also genuinely excited by a PLG, developer-facing company: earning adoption bottom-up rewards exactly the kind of quantitative, first-principles operator I try to be. The written, async culture and high tolerance for ambiguity suit how I work best — I do my sharpest thinking when I get to define the problem, not just answer a scoped one. Tailscale's next chapter, from international/APAC expansion to cross-company AI adoption, is full of the ambiguous, high-leverage problems I want to spend my time on.",
+    "scope": "company",
+    "company": "Tailscale",
+    "date": "2026-07-04"
+  },
+  {
+    "question": "We're always curious - have you used Tailscale before?*",
+    "answer": "I haven’t used it, but I’m excited to learn more!",
+    "scope": "company",
+    "company": "Tailscale",
+    "date": "2026-07-04"
+  },
+  {
+    "question": "I have read and understand Tailscale's \"Candidate Privacy Policy\" and \"AI Guidelines\" regarding the collection and use of my personal information and use of AI tools in the hiring and interviewing process. These can also be reviewed on the Tailscale career site. *",
+    "answer": "Yes",
+    "scope": "company",
+    "company": "Tailscale",
+    "date": "2026-07-04"
+  },
+  {
+    "question": "Please note the target compensation for this role in the job description above. Are you aligned with this compensation?*",
+    "answer": "Yes",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-04"
+  },
+  {
+    "question": "Processing of Personal Data*",
+    "answer": "Acknowledge/Confirm",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "What is the zip code of your primary residence?*",
+    "answer": "90036",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "What is the highest level of education you have completed?*",
+    "answer": "Bachelor’s",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Samsara will not provide relocation assistance for this role. Do you require relocation assistance?*",
+    "answer": "No",
+    "scope": "company",
+    "company": "Samsara",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Do you accept the listed salary range for this position?*",
+    "answer": "Yes",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "AI Policy for Interviewers*",
+    "answer": "Yes",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Have you previously worked at Samsara?*",
+    "answer": "No",
+    "scope": "company",
+    "company": "Samsara",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "What is your postal code? (required)",
+    "answer": "90036",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Please enter your validation code:",
+    "answer": "TLA08",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "How would you rate your proficiency in SQL on a scale of 1-5?",
+    "answer": "4",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Company name*",
+    "answer": "M Science",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Title*",
+    "answer": "Product Manager, Systematic Data",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Start date month*",
+    "answer": "April",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Start date year*",
+    "answer": "2023",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "School*",
+    "answer": "University of California - Santa Barbara",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Discipline*",
+    "answer": "Economics",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Are you at least 18 years of age?*",
+    "answer": "Yes",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Please confirm receipt of the above linked Global Data Privacy Notice and US Arbitration Agreement.*",
+    "answer": "Confirmed",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "I understand that Coinbase may use AI tools to assist in the application and interview process. *",
+    "answer": "Yes",
+    "scope": "company",
+    "company": "Coinbase",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Which of the following best describes how you use AI tools today?*",
+    "answer": "I design or automate workflows with AI tools (e.g., building agents, integrating AI into team processes).",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Are you a current government official or were you a government official in the last five years (e.g., employee of a government agency or a government owned/controlled company, holder of public office or a civil service position)?*",
+    "answer": "No, I am not a current or former Government Official",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Are you a close relative of a government official (i.e., child/step-child, spouse/partner, parent/guardian, aunt/uncle, first cousin, in-law)?*",
+    "answer": "No, I am not a relative of a government official.",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "To your knowledge, do you or a close relative currently hold a role, have a significant financial interest in, or maintain a close personal relationship with a senior leader at a company connected to Coinbase that could create an actual or perceived conflict of interest?*",
+    "answer": "No",
+    "scope": "company",
+    "company": "Coinbase",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "To your knowledge, were you referred to this position by a senior leader or decision‑maker at a current or prospective institutional client, business partner, or vendor of Coinbase?*",
+    "answer": "No",
+    "scope": "company",
+    "company": "Coinbase",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Which OpEx categories have you directly owned? Feel free to be brief. *",
+    "answer": "Closest to product operations: I own the unit-economics model for M Science's KPI API product line, weighing operational and tooling spend against ARR, and I partner with sales and marketing leadership on go-to-market spend decisions. I have not formally owned a headcount or marketing OpEx budget line in a dedicated FP&A capacity.",
+    "scope": "company",
+    "company": "Coinbase",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "What’s one useful thing you built / improved with AI recently? Feel free to be brief. *",
+    "answer": "I built an automated data-QA layer for our KPI API product using an OCR/LLM pipeline plus ML anomaly detection, which cut the product's annual data error rate from over 2% to near zero.",
+    "scope": "company",
+    "company": "Coinbase",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "What's one useful thing you built / improved with AI recently?",
+    "answer": "I built an automated data-QA layer for our KPI API product using an OCR/LLM pipeline plus ML anomaly detection, which cut the product's annual data error rate from over 2% to near zero.",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "Which OpEx categories have you directly owned?",
+    "answer": "Closest to product operations: I own the unit-economics model for M Science's KPI API product line, weighing operational and tooling spend against ARR, and I partner with sales and marketing leadership on go-to-market spend decisions. I have not formally owned a headcount or marketing OpEx budget line in a dedicated FP&A capacity.",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "No - I do not consent to receiving text messages",
+    "answer": "notGiven",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
+  },
+  {
+    "question": "3 - Above average",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-05"
   }
 ]
