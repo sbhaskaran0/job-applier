@@ -17,3 +17,15 @@ Pending work for this project is tracked in **Linear**, team **Job Applier Task 
 **Scope:** this applies to substantive units of work (a feature, fix, or discrete backlog item), not trivial intermediate steps. When in doubt about whether a completed change warrants a Linear update, err toward updating it.
 
 If the Linear MCP tools are unavailable (server not connected in the current session), note that the Linear update is pending rather than silently skipping it.
+
+## Knowledge base — fold new context material into the curated stores
+
+When the user adds new material to `context/` (pasted application answers, cover letters, writing samples, notes) or shares durable new facts in conversation, **proactively fold it into the curated knowledge stores** — this does **not** happen automatically:
+
+- **`context/background.md`** — the canonical career narrative (roles, dates, metrics, tense). Add any new concrete facts/metrics (e.g. a new adoption number, a project detail). Keep the career-timeline/tense rules intact.
+- **`context/stories.md`** — reusable situation→action→result talking points and positioning. Enrich existing stories or add new ones for open-ended questions ("hardest thing", "describe a product", operating style).
+- **`data/history.json`** — reusable Q&A. Add via `mcp__job-applier__save_answer` (keeps normalized dedupe/date). Scope honestly: `evergreen` (short stable facts), `company` (essays/tailored — use empty company for a generic essay so it surfaces but stays gated for adaptation, or the real company name to auto-reuse there), `conditional` (situation-dependent).
+
+**What IS automatic (no fold-in needed):** `search_context` and the tailoring voice corpus (`get_cover_letter_examples`) both scan `context/` **live** on every call, so a newly-added file is immediately searchable for crafting answers and available as cover-letter voice. The fold-in above is specifically to keep the *curated* narrative (`background.md`/`stories.md`) and the *reusable-answer* store (`history.json`) current — those are hand-maintained, not regenerated.
+
+**Ground truth, never fabricate.** Only fold in what the material or the user actually states; get role recency/tense right per `background.md` (M Science is current; Audare AI ended Nov 2025). Lightly fix typos/grammar when adapting the user's prose into a reusable answer; don't invent metrics or details.

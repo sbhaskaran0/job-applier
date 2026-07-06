@@ -163,7 +163,12 @@ For each approved job, in order:
    Combobox rows returning `status:"unmatched"` with real options: one retry
    with the exact option text if the intended answer clearly matches one;
    otherwise **park**.
-4. `upload_resume()` (no index).
+4. **Resume/cover letter** — call `get_job_artifacts(company, job_title, url)`.
+   If `resume_is_tailored` (a `/tailor-application` artifact exists for this
+   job), `upload_resume(path=<resume_path>)`; else `upload_resume()` (no index,
+   default resume). When `has_cover_letter`, upload `cover_letter_path` into a
+   cover-letter file input and/or paste `cover_letter_text` into a free-text
+   cover-letter field.
 5. Verify via `read_form(values_only=True)` — the lean payload
    (`{index, kind, label, current_value}`, no option lists) is all a
    verification pass needs; confirm every intended `current_value` is set.

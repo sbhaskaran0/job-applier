@@ -25,6 +25,10 @@ Open this project in Claude Code and reload it (loads `.mcp.json`), then:
   consent) in **one** upfront review, then the queue fills and submits
   serially with zero further prompts — anything unexpected is parked with a
   reason instead of interrupting you.
+- `/tailor-application <url>` — **on demand**, generate a bespoke resume +
+  cover letter for one posting: it re-emphasizes/reorders bullets in your
+  `resume.docx` (formatting preserved) and drafts a cover letter in **your own
+  writing voice**, saved for the apply flow to pick up automatically.
 
 Edit `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`, `resume.txt`
 (+ optional `resume.pdf`), and `context/` to make it yours.
@@ -118,5 +122,43 @@ flowchart TD
   keyword overlap; Claude writes from the snippets and pauses for approval.
   The resume text is just another retrieval source here — it has no special
   priority over `context/` files.
+
+## Tailoring a resume + cover letter (on demand)
+
+Response rate — not just apply speed — is the highest-leverage lever, so
+`/tailor-application <url>` produces a **bespoke resume and cover letter for one
+posting**. It is explicitly invoked, never part of the normal apply flow, and
+follows the same "Claude reasons, tools are hands" split: Python reads the base
+`.docx`, applies the edits Claude decides, exports the PDF, and gathers your own
+past cover letters as voice exemplars — **no LLM API key**.
+
+```mermaid
+flowchart TD
+    JD["Job posting<br/>get_posting / paste"] --> PLAN
+    DOCX["resume.docx<br/>(your base template)"] --> RT["read_resume_template<br/>indexed paragraphs"]
+    RT --> PLAN{"Claude plans edits:<br/>reorder · re-emphasize ·<br/>trim bullets · sharpen summary<br/>(truthful, grounded in background.md)"}
+    PLAN --> TR["tailor_resume(edits)<br/>edit .docx COPY in place<br/>→ export PDF (MS Word)"]
+    TR --> STORE[("resumes/&lt;job-slug&gt;/<br/>resume.docx + resume.pdf")]
+
+    EX["context/ cover letters<br/>+ writing samples"] --> GCE["get_cover_letter_examples<br/>full-text voice exemplars"]
+    GCE --> DRAFT{"Claude drafts cover letter:<br/>YOUR voice + JD substance<br/>(gated for your approval)"}
+    JD --> DRAFT
+    DRAFT --> SCL["save_cover_letter(text)"]
+    SCL --> STORE2[("resumes/&lt;job-slug&gt;/<br/>cover_letter.txt + .pdf")]
+
+    STORE -.-> GJA["get_job_artifacts<br/>(at apply time)"]
+    STORE2 -.-> GJA
+    GJA -->|"tailored exists"| USE["upload tailored resume<br/>+ cover letter"]
+    GJA -->|"none"| DEF["fall back to<br/>default resume"]
+```
+
+The job folder is keyed off the **same `(company, role)` identity**
+`applications.json` dedupes on, so `/apply-to-job` and `/apply-batch`
+automatically use the tailored artifacts when they exist and the default resume
+otherwise. Drop a `resume.docx` in the project root to enable resume tailoring
+(the cover-letter half works from `context/` alone). PDF export is
+cross-platform: it uses Microsoft Word when present (Windows or macOS) and
+falls back to LibreOffice (`soffice`, any OS, no Word needed); if neither is
+installed the tailored `.docx` is still saved to export manually.
 
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**

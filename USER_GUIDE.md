@@ -20,6 +20,7 @@ interact through three skills:
 | `/find-jobs <query>`  | Search your company watchlist for matching roles, ranked semantically and filtered by your criteria.                                                          |
 | `/apply-to-job <url>` | Open an application form and fill it from your profile/history/context, pausing only when unsure.                                                             |
 | `/apply-batch <urls>` | Queue several applications: parallel answer prep, **one** upfront approval (incl. per-job submit consent), then serial fill/submit with zero mid-run prompts. |
+| `/tailor-application <url>` | **On demand:** generate a bespoke resume (edits your `resume.docx` in place, formatting preserved) + a cover letter in your own writing voice for one posting; saved for the apply flow to auto-use. |
 
 
 There is **no OpenAI/Anthropic API key** and **no cost** in the core flow — Claude
@@ -51,7 +52,7 @@ playwright install chromium          # the browser the agent drives
 
 Then, in Claude Code, **open this project and reload it** so it loads
 [.mcp.json](.mcp.json). Run `/mcp` — you should see the `job-applier` server with
-**24 tools**.
+**32 tools**.
 
 > Whenever you change code in `src/`, reload Claude Code so the MCP server
 > restarts with the new code.
@@ -267,9 +268,46 @@ submit. The agent detects the gate and, with Gmail connected, fetches the
 code, fills it, and re-submits on its own — no hand-off. Without Gmail it asks
 you for the code.
 
+### Tailoring a resume + cover letter — `/tailor-application`
+
+```
+/tailor-application https://jobs.ashbyhq.com/rula/…/application
+```
+
+For a role you care about, generate a **bespoke resume and cover letter** rather
+than sending the default. This is **on demand only** — the normal apply flow
+keeps using your default resume; nothing runs per-application unless you ask.
+
+What happens:
+
+1. It reads the posting and your base **`resume.docx`**, then re-emphasizes and
+  reorders bullets, trims the least-relevant ones, and sharpens the summary to
+   surface your most job-relevant experience — **editing the `.docx` in place so
+   your exact formatting/layout is preserved** (no regeneration from text), then
+   exports a PDF for upload.
+2. It drafts a cover letter primarily from **your own past cover letters** in
+  [context/](context/) so it matches **your writing voice** — sentence rhythm,
+   structure, tone — not a generic AI register. The job description supplies only
+   the substance. You approve or edit before it's saved.
+3. Both artifacts are stored under `resumes/<job-key>/` (gitignored). The next
+  `/apply-to-job` or `/apply-batch` for that exact posting **automatically**
+   uploads the tailored resume and attaches/pastes the cover letter; every other
+   job still uses the default resume.
+
+**To enable resume tailoring, drop a `resume.docx` in the project root** — the
+base template it edits. Without it, the resume half is skipped but the cover
+letter still works. DOCX→PDF export is cross-platform: it uses **Microsoft
+Word** when present (Windows via COM, macOS via AppleScript — Word is installed
+on this machine) and falls back to **LibreOffice** (`soffice`, works on
+Windows/macOS/Linux with no Word). If neither is installed, the tailored
+`.docx` is still saved for you to export manually.
+
+It never fabricates experience to match a JD — it only reorders, re-emphasizes,
+and trims what's already true in your resume and [context/](context/).
+
 ---
 
-## 8. The full tool set (24)
+## 8. The full tool set (32)
 
 **Browser / apply**
 
@@ -307,6 +345,23 @@ form alone is **not** treated as success). Only `submitted` is logged.
 - `log_application(company, job_title, url, status)` — record a confirmed
 submit (deduped); used for code-gated or manually-clicked submits and backfills.
 - `search_context(query)` — relevant snippets from your knowledge base.
+
+**Tailoring (JOB-6; on-demand, via `/tailor-application`)**
+
+- `read_resume_template()` — the base `resume.docx` as indexed paragraphs to
+plan edits from.
+- `tailor_resume(company, job_title, url, edits)` — apply reorder/re-emphasize/
+trim edits to a copy of the base, save `resumes/<job-slug>/resume.docx`, export
+`resume.pdf` (formatting preserved).
+- `get_cover_letter_examples()` — full text of your past cover letters + writing
+samples, as voice exemplars.
+- `save_cover_letter(company, job_title, url, text)` — persist the drafted cover
+letter (`cover_letter.txt` + `.pdf`).
+- `get_job_artifacts(company, job_title, url)` — at apply time, resolve the
+tailored resume/cover letter for a job, falling back to the default resume.
+
+(Plus the browser **tab** tools used by batch mode — `list_tabs`, `switch_tab`,
+`close_tab`.)
 
 **Criteria / discovery**
 
@@ -368,6 +423,8 @@ Job Applier/
 ├─ job_criteria.yaml             # strict search bar (titles/seniority/salary/location)
 ├─ watchlist.yaml                # ~30 target companies
 ├─ resume.txt   (resume.pdf)     # reasoning text  (uploaded file)
+├─ resume.docx                   # base template for /tailor-application (you add it)
+├─ resumes/                      # per-job tailored resume + cover letter (gitignored)
 ├─ requirements.txt
 ├─ context/                      # knowledge base (md/txt/pdf) for crafting answers
 ├─ data/history.json             # learned answers
@@ -377,10 +434,11 @@ Job Applier/
 ├─ data/prep/                    # batch-mode prep files/sheets (gitignored)
 ├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows)
 ├─ src/
-│  ├─ mcp_server.py              # the 24 tools
+│  ├─ mcp_server.py              # the 32 tools
 │  ├─ browser.py                 # ATS-agnostic form reading/filling
 │  ├─ data.py                    # profile lookup + history
 │  ├─ context.py                 # knowledge-base retrieval
+│  ├─ tailor.py                  # JOB-6 per-job resume/cover-letter tailoring
 │  ├─ config.py                  # paths + loaders
 │  ├─ store.py                   # SQLite postings store + baseline filter
 │  ├─ refresh.py                 # python -m src.refresh (headless ingest)
@@ -392,6 +450,7 @@ Job Applier/
    ├─ find-jobs/SKILL.md         # /find-jobs
    ├─ apply-to-job/SKILL.md      # /apply-to-job
    ├─ apply-batch/SKILL.md       # /apply-batch (queue mode)
+   ├─ tailor-application/SKILL.md # /tailor-application (per-job resume + cover letter)
    └─ commit/SKILL.md            # /commit (dev: commit + docs/diagram hygiene)
 ```
 

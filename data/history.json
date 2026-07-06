@@ -544,5 +544,33 @@
     "scope": "evergreen",
     "company": "",
     "date": "2026-07-05"
+  },
+  {
+    "question": "Describe a product you have managed or helped develop, ideally one with data-intensive or internal platform components. What was the core user problem, how did you identify it, and how did you work with your team to solve it?",
+    "answer": "In my current role I manage an API product that presents our investor clients with forecasts for critical KPIs across hundreds of companies. Through product discovery I identified two issues blocking adoption by quant investors: the API's structure caused data restatements that created look-ahead bias and invalidated their models, and clients lacked the semantic context to appropriately leverage the data. To address both, I collaborated with engineering to design a new API schema - introducing a point-in-time history methodology for restatements, working with our investment research team to create standardized dimension tables for company and metric metadata, and adding associations to standard industry datasets via external IDs. Ahead of the launch I worked with sales and marketing leadership to craft a GTM strategy for the updated product, which drove a steep increase in new-business deals.",
+    "scope": "company",
+    "company": "",
+    "date": "2026-07-06"
+  },
+  {
+    "question": "What is the hardest you have ever worked on something? What was it, and why?",
+    "answer": "The hardest I've ever worked was on a project to build a new entitlements system, where I was responsible for taking a manual process that took 40+ hours a week and building an automated process to power our customer entitlements. Though the work would save the company countless hours, building the system required a tremendous investment of manual validation and transformation to populate the data. To accomplish it, I first sought ways to cut down the scope - reaching out to data science and engineering colleagues to investigate automating or optimizing, then personally writing a Python script to do complex mapping and reduce the number of records to review. Once every avenue had been exhausted or implemented, I led a team of 3 through two weeks of dedicated manual validation, personally reviewing and correcting over 10,000 records. I believe operations professionals are most successful when they learn to identify which work can be simplified and automated and which requires doing difficult, undesirable work by hand - and, having determined this work was necessary to do manually, I did it.",
+    "scope": "company",
+    "company": "",
+    "date": "2026-07-06"
+  },
+  {
+    "question": "Why are you interested in working at Hive? (strategic problem solving)",
+    "answer": "As someone who has built my career on seeking out and solving big problems, I'm drawn to products that solve a real, tangible problem for their users. That's the point of any product - but where in my current role I'm solving a problem for institutional investors by optimizing a data product to squeeze the most they can out of trades, Hive directly addresses a real-world need for its target user. I'm looking for the opportunity to leverage what I've learned solving strategic problems in high-growth, highly technical environments to improve a product I can feel passionate about, and I'm confident Hive fits that bill.",
+    "scope": "company",
+    "company": "Hive",
+    "date": "2026-07-06"
+  },
+  {
+    "question": "Please share what you did day-to-day and what you created/built.",
+    "answer": "As a Product Strategy Associate at M Science I initiated, led, and executed high-value strategic projects and overhauled internal processes and systems. The day-to-day varied - my role was to be the ultimate generalist: breaking strategic goals into actionable, executable steps and delivering on them with whatever tools, resources, and collaborators I could muster while aligning stakeholders. One example was building a master-data system for product metadata. I had identified that a major source of internal friction was that the organization lacked a clear, shared definition of what our 'product' even was - different teams bucketed our output differently, which led to siloed work, confusing processes, and no ability to properly sell our work as M Science moved away from enterprise deals. I worked with key stakeholders to create a single source of truth on product definitions and our explicit offerings, and to associate our disparate systems into one interoperable platform - work then leveraged across key business systems including our customer portal, the semantic layer of our AI product, product entitlements, unit economics, and internal analytics, all of which I either built directly or built closely with stakeholders.",
+    "scope": "company",
+    "company": "",
+    "date": "2026-07-06"
   }
 ]

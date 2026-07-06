@@ -1,18 +1,22 @@
 # Session handoff — job-applier
 
 Paste this into a fresh Claude Code session to restore context. Last updated
-2026-07-05 (session 9 — JOB-36 token-cost pass: `read_form` collapses long
-native `<select>` lists + a `values_only` lean re-read, `get_posting` strips
-trailing EEO/privacy boilerplate, and batch Stage A now snapshots inside one
-serial subagent so form dumps stay out of the main context. Session 8 — JOB-26
-watchlist S&O rework: +4 mid-level sources, salary_floor 150k→130k, ops titles
-broadened; qualifying corpus 1→97. Handoff distilled to current state,
-per-session narratives dropped: see git log + Linear for history).
+2026-07-05 (session 10 — JOB-6 per-job resume & cover-letter tailoring:
+new `src/tailor.py` + 5 MCP tools + `/tailor-application` skill; on-demand,
+stores artifacts under `resumes/<job-slug>/`, apply flow auto-picks them up via
+`get_job_artifacts` with default fallback. Session 9 — JOB-36 token-cost pass:
+`read_form` collapses long native `<select>` lists + a `values_only` lean
+re-read, `get_posting` strips trailing EEO/privacy boilerplate, and batch Stage
+A now snapshots inside one serial subagent so form dumps stay out of the main
+context. Session 8 — JOB-26 watchlist S&O rework: +4 mid-level sources,
+salary_floor 150k→130k, ops titles broadened; qualifying corpus 1→97. Handoff
+distilled to current state, per-session narratives dropped: see git log +
+Linear for history).
 
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
-`python -m src.mcp_server`, **24 tools**) provides a live Playwright browser +
+`python -m src.mcp_server`, **32 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
 - **`/find-jobs <query>`** — roles across a curated 34-company watchlist
   (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
@@ -22,6 +26,13 @@ the user's data. **No LLM API key** in the core flow. Skills:
 - **`/apply-batch <urls>`** — N jobs: snapshots → parallel prep subagents
   (`data/prep/`, gitignored) → ONE consolidated approval (incl. per-job submit
   consent) → serial fill/submit with park-don't-ask → screenshot-audited report.
+- **`/tailor-application <url>`** (JOB-6) — on-demand bespoke resume + cover
+  letter for ONE posting. Edits the user's `resume.docx` in place (reorder/
+  re-emphasize/trim bullets, sharpen summary; formatting preserved), exports a
+  PDF, and drafts a cover letter matching the user's voice from their past
+  cover letters in `context/`. Saves to `resumes/<job-slug>/`; the apply flow
+  auto-picks it up. NOT run per-application — the normal flow uses the default
+  resume.
 - **`/commit`** (dev) — every commit must update README + USER_GUIDE + this
   file, and add/refresh a Mermaid diagram for any new workflow.
 
@@ -41,6 +52,17 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   (normalized question identity), `log_application_record` (deduped on
   **(company, role)**; URL only as fallback).
 - `src/context.py` — `search_context` over `context/*` + resume text.
+- `src/tailor.py` — **JOB-6 per-job tailoring** (mechanical only; Claude
+  reasons). `job_slug`/`job_dir` (shares `data._application_key`),
+  `read_resume_template` (indexed paragraphs, walks tables too),
+  `tailor_resume` (replace/delete ops on a copy of `resume.docx`, preserves
+  formatting), `cover_letter_examples` (voice corpus: `context/` cover letters +
+  writing samples + `responses` catch-all — past application answers & any other
+  free-form prose; excludes structured KB/reference files),
+  `save_cover_letter`, `job_artifacts` (apply-time lookup w/
+  default fallback), `_export_pdf` (cross-platform chain: Word COM via
+  `win32com` → docx2pdf → LibreOffice `soffice`; graceful if none, docx still
+  saved. Windows→Word; Mac/Linux without Word→LibreOffice).
 - `src/providers/watchlist.py` — fetch/normalize boards (incl. `job_id`+`slug`),
   live `list_postings`, `get_posting(s)`, `add_company`.
 - `src/store.py` — **postings store**: SQLite `data/postings.db` (gitignored
@@ -55,8 +77,10 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   (`salary_source: 'api'|'jd'`; Greenhouse ~60% coverage, Lever 0% — their
   descriptions omit ranges), advisory `min_years`, word-bounded `seniority_flag`.
 - `src/config.py` — paths + loaders. Config/data: `user_profile.yaml`,
-  `job_criteria.yaml`, `watchlist.yaml`, `resume.txt` (+`resume.pdf`),
-  `context/`, `data/history.json`, `data/applications.json`.
+  `job_criteria.yaml`, `watchlist.yaml`, `resume.txt` (+`resume.pdf`,
+  +`resume.docx` = JOB-6 base template), `context/`, `data/history.json`,
+  `data/applications.json`. `RESUMES_DIR`=`resumes/` (gitignored),
+  `base_resume_docx()`.
 - Docs: `README.md` (answer-cascade + discovery mermaids), `USER_GUIDE.md`.
 
 ## Core behaviors (settled design)
@@ -107,22 +131,28 @@ Queued (user deferred): **Rula — S&O Manager, Remote-US** (Ashby:
 Shortlist: Anthropic Product Ops Mgr (Feedback Loops), Greenhouse.
 
 ## Git state
-- Branch **`main`** ← **JOB-26 sourcing rework** (this session: `watchlist.yaml`
-  +4 companies, `job_criteria.yaml` floor 130k + broadened titles, docs) ←
-  `b479909` (docs reconcile) ← **`3dcf8d4` postings store Phase 1 (JOB-27..31)**.
-  **Push to GitHub pending** (main now ≥3 ahead; a prior push attempt was
-  permission-blocked — user's call). `data/{applications,history}.json` carry
-  another session's application-logging writes, intentionally left unstaged.
+- Branch **`main`** ← **JOB-6 per-job tailoring** (this session: `src/tailor.py`,
+  5 MCP tools, `/tailor-application` skill, cross-platform PDF export, apply-flow
+  wiring; broadened cover-letter voice corpus; KB fold-in to
+  `background.md`/`stories.md`/`history.json`; new CLAUDE.md "fold new context"
+  convention) ← JOB-26 sourcing rework ← postings store Phase 1 (JOB-27..31).
+  Committed on the `siddharth99ram/job-6-…` branch and merged to `main`; pushed
+  to `origin/main`. `data/applications.json` left as-is (no changes this
+  session); `data/history.json` gained the folded-in reusable answers.
 - `.env` untracked/never committed; git identity set locally.
 
 ## OPEN ITEMS / next steps
-1. **Restart Claude Code** — the running MCP server predates the store-backed
-   `list_watchlist_postings` (and earlier browser fixes); nothing under `src/`
-   is live until restart.
-2. **Push `main` to GitHub** (2 commits ahead).
+1. **Restart Claude Code** — the running MCP server predates JOB-6's tailoring
+   tools (and the store-backed `list_watchlist_postings`); nothing under `src/`
+   is live until restart (the 5 new tailoring tools included).
 3. **User action: update `resume.pdf`** — still says "Audare AI … Ongoing";
    `resume.txt` is regenerated from it on every `open_job`, so the stale line
    out-ranks the corrected `background.md` in retrieval.
+3b. **User action (JOB-6): add `resume.docx`** — the base template
+   `/tailor-application` edits in place. Machinery is built + verified with a
+   synthetic docx; the resume-tailoring half is inert until the user drops a
+   real `resume.docx` in the project root. Cover-letter tailoring works now.
+   DOCX→PDF export needs MS Word (present on this machine).
 4. **Backfill Scale AI submit** into `applications.json` (JOB-17's remainder).
 5. **Data wart:** a history entry says "most recent school = UCLA"; correct is
    **UC Santa Barbara** (UCLA MQE in progress, expected Dec 2027). Prep agents
@@ -131,12 +161,13 @@ Shortlist: Anthropic Product Ops Mgr (Feedback Loops), Greenhouse.
    verify live) · JOB-32 (Phase 2 embeddings, unblocked) · JOB-19 (part 2 only →
    JOB-32) · JOB-22/20 (queue executor/parent — on JOB-24 + park-path verify) ·
    JOB-33/34 (portability — filed, deliberately NOT executed). Done: JOB-16,
-   JOB-18, JOB-21, JOB-26 (this session), JOB-27..31.
+   JOB-18, JOB-21, JOB-26, JOB-27..31, JOB-6 (this session — pending user's
+   `resume.docx` to exercise the resume half live).
 
 ## Proposed backlog (not built — bring back for approval)
 - **Data layer (recommended):** application tracker v2 (status transitions,
-  follow-ups) · per-job resume/cover-letter tailoring (M) · Phase 2 semantic
-  search = JOB-32.
+  follow-ups) · Phase 2 semantic search = JOB-32. (per-job resume/cover-letter
+  tailoring = JOB-6, now built.)
 - **Executor gaps (prefer Cowork/Chrome over building):** Workday wizard
   navigation · combobox probe-typing · non-English aliases · JS-only dropzones.
 - **Polish (P2):** screenshot downscaling · prompt-cache stable prefixes.

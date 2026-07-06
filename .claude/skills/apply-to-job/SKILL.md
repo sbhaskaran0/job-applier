@@ -63,9 +63,20 @@ issue any genuinely independent calls together in a single message.
      "United States") — refill those indexes with the matching option text in
      one follow-up `fill_many`. `uncommitted` means the click didn't stick —
      verify visually and retry.
-   - **Resume/CV:** call `upload_resume()` with **no index** — it finds the file
-     input even when hidden behind an "Attach"/dropzone widget, preferring resume
-     over cover-letter. (Uploads resume.pdf/.docx if present, else resume.txt.)
+   - **Resume/CV:** first call `get_job_artifacts(company, job_title, url)` to
+     see whether a **tailored** resume/cover letter was generated for this
+     posting (via `/tailor-application`, JOB-6). Then call `upload_resume()` with
+     **no index** — it finds the file input even when hidden behind an
+     "Attach"/dropzone widget, preferring resume over cover-letter. If
+     `resume_is_tailored` is true, pass the tailored file:
+     `upload_resume(path=<resume_path>)`; otherwise call `upload_resume()` with
+     no args (default resume.pdf/.docx, else resume.txt).
+   - **Cover letter (if tailored):** when `get_job_artifacts` returns
+     `has_cover_letter`, use it — upload `cover_letter_path` into a cover-letter
+     **file** input (`upload_resume(index=<that file field>, path=<cover_letter_path>)`),
+     and/or paste `cover_letter_text` into a free-text cover-letter field. If no
+     tailored cover letter exists, only fill a cover-letter field if the user
+     asks (the default flow doesn't require one).
 5. **Craft + gate the rest** — for `context` rows, `review`-confidence history
    rows, and anything uncertain:
    - **Auto-fill** (add to a `fill_many` batch) only factual, well-supported

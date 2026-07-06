@@ -3,3 +3,5 @@ playwright
 pyyaml
 pypdf
 httpx
+python-docx
+docx2pdf

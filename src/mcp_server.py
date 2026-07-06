@@ -7,7 +7,7 @@ and the memory. Run via:  python -m src.mcp_server   (stdio transport).
 
 from mcp.server.fastmcp import FastMCP
 
-from . import browser, config, context, data, store
+from . import browser, config, context, data, store, tailor
 from .providers import watchlist as wl
 
 mcp = FastMCP("job-applier")
@@ -322,6 +322,85 @@ def search_context(query: str, top_k: int = 5) -> list:
     resume. Use these to craft an answer when the profile and history don't
     already have one."""
     return context.search_context(query, top_k)
+
+
+# --------------------------------------------------------------------------- #
+# Per-job resume & cover-letter tailoring (JOB-6; on-demand, not per-apply)
+# --------------------------------------------------------------------------- #
+@mcp.tool()
+def read_resume_template() -> dict:
+    """Read the base resume.docx as an ordered, indexed list of paragraphs so you
+    can plan a per-job tailoring. Returns {base, paragraph_count, paragraphs:
+    [{index, text, style, is_bullet, is_empty}]}. `index` is the stable address
+    to pass back in `tailor_resume` edits. Errors clearly if the user hasn't
+    added a resume.docx base template yet (drop it in the project root). This is
+    step 1 of the /tailor-application flow."""
+    return tailor.read_resume_template()
+
+
+@mcp.tool()
+def tailor_resume(company: str = "", job_title: str = "", url: str = "",
+                  edits: list[dict] | None = None) -> dict:
+    """Apply `edits` to a COPY of the base resume.docx and save it as
+    resumes/<job-slug>/resume.docx, then export resume.pdf for upload (via MS
+    Word). Formatting/layout of the template is preserved — no text-to-PDF
+    regeneration.
+
+    `edits` addresses paragraph `index` from read_resume_template (the base is
+    re-read, so indices line up):
+      {"op": "replace", "index": N, "text": "..."} — rewrite a paragraph, keeping
+                                                      its formatting.
+      {"op": "delete",  "index": N}                — remove a paragraph.
+    Reorder/re-emphasize bullets to surface the most JD-relevant experience by
+    `replace`-ing their text in the desired order and `delete`-ing the least
+    relevant. Never fabricate experience the base resume doesn't contain.
+
+    Pass the SAME company/job_title/url you use elsewhere for this posting — the
+    folder key is shared with applications.json (data._application_key). Returns
+    {slug, dir, docx_path, pdf_path, pdf_exported, edits_applied, edit_errors,
+    note}."""
+    return tailor.tailor_resume(company=company, job_title=job_title, url=url,
+                                edits=edits or [])
+
+
+@mcp.tool()
+def get_cover_letter_examples() -> dict:
+    """Return the FULL text of the user's own writing from context/ as few-shot
+    exemplars — the voice, sentence rhythm, and structure to MATCH when drafting
+    a cover letter (not a generic LLM register). Returns three buckets:
+    {cover_letters:[{name,type,text}], writing_samples:[...], responses:[...],
+    count}. `cover_letters` is the primary style source; `writing_samples`
+    (essays/statements) secondary; `responses` are the user's own past answers to
+    application questions (e.g. product/behavioral prompts) — voice AND substance
+    — and the bucket auto-includes any other free-form prose the user drops into
+    context/. The JD supplies the substance; these supply the voice. (Structured
+    background/stories/preferences feed substance via search_context instead.)"""
+    return tailor.cover_letter_examples()
+
+
+@mcp.tool()
+def save_cover_letter(company: str = "", job_title: str = "", url: str = "",
+                      text: str = "") -> dict:
+    """Persist a drafted cover letter under resumes/<job-slug>/: cover_letter.txt
+    (for a free-text field) and cover_letter.pdf (a file for a file input). Call
+    this after drafting the letter in the user's voice from
+    get_cover_letter_examples. Same company/job_title/url identity as
+    tailor_resume. Returns {slug, dir, txt_path, pdf_path, pdf_exported, note}."""
+    return tailor.save_cover_letter(company=company, job_title=job_title,
+                                    url=url, text=text)
+
+
+@mcp.tool()
+def get_job_artifacts(company: str = "", job_title: str = "", url: str = "") -> dict:
+    """Resolve which resume / cover letter to use for a job at APPLY time. Checks
+    resumes/<job-slug>/ for tailored artifacts and FALLS BACK to the default
+    resume when none exist. Call this at the resume-upload step of apply-to-job /
+    apply-batch: pass the returned `resume_path` to upload_resume(path=...), and
+    if `has_cover_letter`, use `cover_letter_path` for a cover-letter file input
+    and/or `cover_letter_text` for a free-text field. Returns {slug, dir,
+    tailored, resume_path, resume_is_tailored, cover_letter_path,
+    cover_letter_text, has_cover_letter}. `resume_path` is always usable."""
+    return tailor.job_artifacts(company=company, job_title=job_title, url=url)
 
 
 # --------------------------------------------------------------------------- #

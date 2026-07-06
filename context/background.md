@@ -17,21 +17,37 @@ M Science.
 
 ## Current role — M Science (Apr 2023–Present), New York, NY
 - **Product Manager, Systematic Data:** owns the KPI API product end to end —
-  product strategy, client feedback, roadmap, backlog prioritization.
-- Partnered with engineering to launch a new API schema exposing additional
-  metadata endpoints, improving interoperability with industry-standard
-  datasets and increasing product ARR by ~80%.
+  product strategy, client feedback, roadmap, backlog prioritization. The
+  product delivers forecasts of critical KPIs for hundreds of companies to
+  institutional/quant investor clients.
+- Through product discovery, identified two adoption blockers for quant
+  investors: the API's restatement structure created **look-ahead bias** that
+  invalidated their models, and clients lacked the semantic context to leverage
+  the data. Partnered with engineering to launch a new API schema that fixed
+  both — a **point-in-time history** methodology for restatements, standardized
+  **dimension tables** for company/metric metadata (with the investment research
+  team), and associations to standard industry datasets via **external IDs** —
+  improving interoperability, **doubling the number of quant teams** using the
+  data, and increasing product ARR by ~80%.
 - Built ML anomaly detection plus OCR/LLM-based QA, cutting the annual error
   rate from over 2% to ~0%.
 - Drove GTM strategy for the systematic data offering with sales/marketing
   leadership, sharply increasing new-business deals.
 - **Earlier as Product Strategy Associate:** led the packaging & pricing model
   (cross-functional with data science, sales, research) and stood up a pricing
-  desk, driving a ~35% ARR increase in the first quarter after rollout. Built an
-  internal Salesforce master-data system acting as a semantic layer for AI
-  products, automating entitlements and powering the customer portal. Built
-  north-star metrics, data pipelines/governance in Databricks Unity Catalog, and
-  executive dashboards.
+  desk, driving a ~35% ARR increase in the first quarter after rollout.
+  Identified that the org lacked a shared definition of its "product" — teams
+  bucketed output differently, creating silos and blocking clean packaging as
+  M Science moved away from enterprise deals — and built an internal Salesforce
+  **master-data system** as the single source of truth for product definitions
+  and metadata: a semantic layer for AI products that powered the customer
+  portal, unit economics, and internal analytics. It also **automated customer
+  entitlements**, replacing a 40+ hour/week manual process — minimized scope by
+  working with data science/engineering to automate and by writing a **Python
+  mapping script**, then led a **3-person team** over two weeks to validate and
+  correct **10,000+ records** where automation couldn't reach. Built north-star
+  metrics, data pipelines/governance in Databricks Unity Catalog, and executive
+  dashboards.
 
 ## Fractional Product Manager — Audare AI (Mar 2025–Nov 2025, ended), Remote
 - PM for a B2B2C personal finance & literacy tool: product discovery, ICP and
