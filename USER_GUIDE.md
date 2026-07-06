@@ -276,8 +276,12 @@ you for the code.
 - `open_job(url)` — open a posting; syncs resume.pdf→txt; **one shot**: also
 returns the intervention check + the parsed form (no separate
 `check_for_intervention`/`read_form` needed right after).
-- `read_form()` — list every fillable field (any ATS, no per-site rules).
-- `get_field_options(index)` — real options for a dropdown/combobox.
+- `read_form()` — list every fillable field (any ATS, no per-site rules). Long
+native `<select>` lists are summarized (count + a few samples) to keep the
+payload small; pass `values_only=True` for a lean verification re-read (just
+index/kind/label/current_value).
+- `get_field_options(index)` — real options for a dropdown/combobox (also the
+way to expand a summarized `<select>` list).
 - `fill_field(index, value)` — fill one field (text/select/radio/checkbox/combobox).
 - `fill_many([{index,value}])` — **fill many fields in one call** (the fast path).
 - `upload_resume([index])` — attach the resume (auto-finds hidden file inputs).

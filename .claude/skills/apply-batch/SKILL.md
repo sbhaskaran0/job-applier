@@ -17,41 +17,70 @@ from `.claude/skills/apply-to-job/SKILL.md` — read it first and apply it
 throughout. Do not duplicate its logic; this file only defines what differs in
 queue mode.
 
-**Why serial browser use:** the MCP server holds a single Playwright page
-(module-level singleton in `src/browser.py`) with a shared field-index map,
-and history/applications JSON writes are non-atomic. So: browser stages (A, D)
-are strictly serial; only the read-only reasoning (B) is parallel.
+**Why serial browser use:** the MCP server drives one browser (module-level
+singleton in `src/browser.py`); field-index maps are **per-tab** and only valid
+after a `read_form` on the active tab, and history/applications JSON writes are
+non-atomic. So: browser stages (A, D) are strictly serial — fill/verify/submit
+one tab before touching the next. Multi-tab (Stage D) lets each job keep its
+own filled form so an unsubmittable one is never re-filled; it does **not** make
+the browser parallel. Only the read-only reasoning (B) is parallel.
 
-## Stage A — Snapshot pass (serial, browser)
+## Stage A — Snapshot pass (ONE serial subagent, browser)
 
-For each queued URL, in order:
+The snapshot pass reads every form's full field list (which for native
+`<select>`-heavy forms is thousands of lines of option dumps). To keep that
+payload **out of the main context**, run the entire pass inside **one
+snapshot subagent** — a single agent, spawned alone (never in parallel: it
+drives the shared singleton browser, so a second concurrent browser agent
+would collide). It opens each job, writes the prep files, and returns only a
+compact manifest. The big form dumps live and die in its disposable context.
 
-1. `open_job(url)` — returns `intervention` + `fields` in one shot. (It also
-   re-syncs `resume.txt` from `resume.pdf` — expected, harmless.)
-2. `get_job_text()` for the JD.
-3. Write a **prep file** `data/prep/<company>-<role-slug>.json`:
+Spawn one subagent with this prompt (fill in the bracketed parts):
 
-```json
-{
-  "url": "...",
-  "company": "...",
-  "job_title": "...",
-  "ats": "...",
-  "snapshot_at": "<ISO date>",
-  "fields": [
-    {"label": "...", "kind": "text|select|radio|checkbox|file|combobox",
-     "options": [...], "required": true, "group": "..."}
-  ],
-  "jd_text": "..."
-}
-```
+> You drive the shared browser to snapshot a queue of job applications. Work
+> the URLs **strictly in order, one at a time** (the browser is a singleton).
+> For each URL:
+> 1. `open_job(url)` — returns `intervention` + `fields` in one shot. (It also
+>    re-syncs `resume.txt` from `resume.pdf` — expected, harmless.)
+>    Snapshotting fills nothing, so reuse a single tab (the default
+>    `new_tab=False`).
+> 2. `get_job_text()` for the JD.
+> 3. Write a **prep file** `data/prep/<company>-<role-slug>.json`:
+>
+> ```json
+> {
+>   "url": "...",
+>   "company": "...",
+>   "job_title": "...",
+>   "ats": "...",
+>   "snapshot_at": "<ISO date>",
+>   "fields": [
+>     {"label": "...", "kind": "text|select|radio|checkbox|file|combobox",
+>      "options": [...], "required": true, "group": "..."}
+>   ],
+>   "jd_text": "..."
+> }
+> ```
+>
+> Store **labels, not indexes** (indexes are reassigned on every `read_form`).
+> If a field comes back with `options_count`/`options_sample` instead of a full
+> `options` list (read_form collapses long native `<select>` lists), record
+> what you have — `options_count` plus the sample is enough for prep; do NOT
+> call `get_field_options` here (that is a Stage D fill-time concern).
+> If `open_job` reports `intervention.blocked` or `fields` is empty, do NOT
+> snapshot — record the job as **parked at snapshot** with the reason and move
+> on. (Exception: a Greenhouse "recaptcha" signal with no visible challenge is
+> a known false positive until JOB-16 lands — take a `screenshot()` to confirm
+> nothing visible, note it, and proceed if the form is readable.)
+> Do NOT resolve answers, fill anything, or submit — snapshot only.
+> **Return only a compact manifest** (no field dumps): a JSON array with one
+> row per URL `{url, company, job_title, ats, prep_path, field_count,
+> required_count, status: "snapshotted"|"parked", park_reason}`.
 
-Store **labels, not indexes** (indexes are reassigned on every `read_form`).
-If `open_job` reports `intervention.blocked` or `fields` is empty, don't
-snapshot — mark the job **parked at snapshot** with the reason and continue to
-the next URL. (Exception: a Greenhouse "recaptcha" signal with no visible
-challenge is a known false positive until JOB-16 lands — take a `screenshot()`
-to confirm nothing visible, note it, and proceed if the form is readable.)
+When the subagent returns, you have the manifest but not the form payloads —
+exactly the point. Carry the manifest into Stage B. Any row with
+`status: "parked"` is **parked at snapshot**; surface it at Stage C and never
+snapshot/prep/submit it.
 
 ## Stage B — Parallel prep (read-only subagents)
 
@@ -123,7 +152,10 @@ filled and left open for manual review, never submitted.
 
 For each approved job, in order:
 
-1. `open_job(url)` → fresh `fields` with **fresh indexes**.
+1. `open_job(url, new_tab=True, company=...)` → opens this job in its **own
+   tab** so a job you can't submit stays fully filled instead of being
+   re-filled later, and returns fresh `fields` with **fresh indexes**. Note the
+   returned `tab_id`.
 2. Map prep-sheet answers to indexes by **normalized label** (same
    normalization). Unmatched sheet keys: try token-subset matching; a
    leftover **required** form field not covered by the sheet → **park**.
@@ -132,8 +164,10 @@ For each approved job, in order:
    with the exact option text if the intended answer clearly matches one;
    otherwise **park**.
 4. `upload_resume()` (no index).
-5. Verify via `read_form()` — every intended `current_value` set. Mismatch
-   after one refill attempt → **park**.
+5. Verify via `read_form(values_only=True)` — the lean payload
+   (`{index, kind, label, current_value}`, no option lists) is all a
+   verification pass needs; confirm every intended `current_value` is set.
+   Mismatch after one refill attempt → **park**.
 6. `check_for_intervention()` — real visible CAPTCHA / login wall → **park**
    (JOB-16 caveat above applies).
 7. `submit_application(company=..., job_title=...)` — only for jobs with
@@ -147,20 +181,29 @@ For each approved job, in order:
    **Spam rejection → manual submission (by design).** Automated retries
    against reCAPTCHA v3 are a losing game (and repeated flags may hurt the
    applicant's standing), so an intentional design choice: do NOT auto-retry.
-   The rejection page restores the filled form — leave it filled, correct any
-   false-success auto-log, record the job with status `"manual_submission"`,
-   and continue the queue. These jobs are handed to the user at Stage E for a
-   real human click (human input passes the v3 scoring — verified live).
+   The rejection page restores the filled form — **leave the tab open and
+   filled**, correct any false-success auto-log, record the job (with its
+   `tab_id`) as `"manual_submission"`, and continue the queue in a new tab. A
+   human click *in this automated browser* can still be rejected on strict
+   boards (the v3 score tracks the browser fingerprint, not who clicks —
+   observed live on Rula), so at Stage E the reliable path is the user's **own**
+   browser; the open tab is a filled reference to copy from. Lowering the score
+   before any resubmit matters: keep gimmick free-text answers short (style rule
+   5) and don't machine-gun submits.
 8. On verified `status:"submitted"`: `save_answer` each approved
-   crafted/adapted answer with its `scope` (+ `company` when company-scoped).
+   crafted/adapted answer with its `scope` (+ `company` when company-scoped),
+   then `close_tab(tab_id)` so the window narrows to just the unfinished jobs.
    Serial stage — writes are safe here.
 
-**Park-don't-ask:** parking = record `{url, company, stage, reason}`, leave
-the job unsubmitted, move on. Never prompt, never guess at an answer that
-wasn't approved, never submit a parked job. Parked jobs must NOT be logged to
-`applications.json` as submitted (only a text-verified submit counts;
-spam-rejected jobs are logged as `"manual_submission"` and handed to the
-user at Stage E).
+**Park-don't-ask:** parking = record `{tab_id, url, company, stage, reason}`,
+**leave the job's tab open with the form fully filled**, and move on to the
+next job (which opens in its own new tab). Never prompt, never guess at an
+answer that wasn't approved, never submit a parked job. Parked jobs must NOT be
+logged to `applications.json` as submitted (only a text-verified submit counts;
+spam-rejected and needs-a-human-click jobs are logged as `"manual_submission"`
+only after a confirmed submit at Stage E). Because each parked job lives in its
+own filled tab, the user finishes it later with a click or two — you never
+re-fill it.
 
 ## Stage E — Screenshot audit + final report
 
@@ -169,13 +212,25 @@ submitted, re-verify visually: `screenshot()` / `get_job_text()` must show
 the explicit success page. Any job without that proof is NOT submitted —
 reclassify it as `"manual_submission"`.
 
-**Present the manual-submission queue.** For every unsubmitted job (spam
-rejections, unverified submits): its form is left fully filled — give the
-user the list (company, role, URL, why) and leave the browser on the first
-one so they can click **Submit Application** themselves, navigating through
-the rest. After their clicks, verify each (success page via screenshot, or
-the confirmation email via the Gmail tools) and log it with status
-`"manual_submission"` in `data/applications.json` (keep the note of why).
+**Present the manual-submission queue — one tab per job.** Call `list_tabs()`:
+every open tab is one unsubmitted job, left fully filled. Give the user the
+list mapped to tabs (`tab_id`, company, role, URL, **why it parked**), then
+`switch_tab` to bring the first to the front so they can submit it themselves
+and move through the rest. Annotate each by blocker type so expectations are
+right:
+  - **Human-click-in-this-window jobs** (cookie-consent modal, custom submit
+    button, or an email-code gate that needs a human click): the click here
+    submits — after it, handle any email-code gate (`detect_verification_gate`
+    → fetch code → `fill_verification_code` → confirm), then verify.
+  - **Strict-reCAPTCHA jobs** (Ashby spam-rejections — e.g. Rula/Plaid): a
+    click *in this automated browser* will likely be rejected again (the v3
+    score tracks the browser fingerprint, not the click). Tell the user the
+    reliable path is their **own** browser; the open tab is a filled reference
+    to copy from. Do not claim the automated click will work.
+After each real submit, verify it (success page via screenshot, or the
+confirmation email via the Gmail tools — the ground truth), log it with status
+`"manual_submission"` in `data/applications.json` (keep the note of why), then
+`close_tab`.
 
 Then one summary: **"N submitted (verified) · K awaiting your manual submit ·
 M parked"** with

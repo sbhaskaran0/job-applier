@@ -1,10 +1,13 @@
 # Session handoff — job-applier
 
 Paste this into a fresh Claude Code session to restore context. Last updated
-2026-07-05 (session 8 — JOB-26 watchlist S&O rework executed: +4 mid-level
-sources, salary_floor 150k→130k, ops titles broadened; qualifying corpus 1→97.
-Handoff distilled to current state, per-session narratives dropped: see git log
-+ Linear for history).
+2026-07-05 (session 9 — JOB-36 token-cost pass: `read_form` collapses long
+native `<select>` lists + a `values_only` lean re-read, `get_posting` strips
+trailing EEO/privacy boilerplate, and batch Stage A now snapshots inside one
+serial subagent so form dumps stay out of the main context. Session 8 — JOB-26
+watchlist S&O rework: +4 mid-level sources, salary_floor 150k→130k, ops titles
+broadened; qualifying corpus 1→97. Handoff distilled to current state,
+per-session narratives dropped: see git log + Linear for history).
 
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the

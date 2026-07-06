@@ -47,6 +47,52 @@ def _is_remote_text(location: str) -> bool:
     return "remote" in (location or "").lower()
 
 
+# Trailing legal/EEO/privacy boilerplate that adds no ranking or fill signal.
+# Kept lowercase; matched case-insensitively against the description.
+_BOILERPLATE_MARKERS = (
+    "equal opportunity employer",
+    "equal employment opportunity",
+    "we are an equal opportunity",
+    "without regard to race",
+    "regardless of race",
+    "affirmative action",
+    "e-verify",
+    "fair chance",
+    "reasonable accommodation",
+    "pay transparency",
+    "pay range for this",
+    "consumer privacy act",
+    "ccpa",
+    "applicant privacy",
+    "privacy policy",
+    "how we use your personal",
+)
+
+# Never trim a description shorter than this, and only cut a marker that falls
+# in the back portion of the text (so an EEO phrase quoted inside the actual
+# job body can't gut the JD).
+_BOILERPLATE_FLOOR = 400
+_BOILERPLATE_MIN_POS = 0.5
+
+
+def _strip_boilerplate(text: str) -> str:
+    """Drop trailing EEO/privacy/pay-transparency legalese from a JD, but only
+    when it clearly sits in the tail — conservative by design (the store ingest
+    path still gets the FULL text, since its salary/years regexes need it)."""
+    if not text or len(text) < _BOILERPLATE_FLOOR:
+        return text
+    low = text.lower()
+    cut = None
+    threshold = int(len(text) * _BOILERPLATE_MIN_POS)
+    for marker in _BOILERPLATE_MARKERS:
+        pos = low.find(marker)
+        if pos >= threshold and (cut is None or pos < cut):
+            cut = pos
+    if cut is None or cut < _BOILERPLATE_FLOOR:
+        return text
+    return text[:cut].rstrip()
+
+
 # --------------------------------------------------------------------------- #
 # per-ATS fetch + normalize
 # --------------------------------------------------------------------------- #
@@ -263,7 +309,8 @@ async def get_posting(url: str) -> dict:
                 if r.status_code == 200:
                     j = r.json()
                     return {"url": url, "found": True, "title": j.get("title"),
-                            "description": _clean_html(j.get("content", ""))}
+                            "description": _strip_boilerplate(
+                                _clean_html(j.get("content", "")))}
         elif "ashbyhq" in host:
             parts = [p for p in parsed.path.split("/") if p]
             if len(parts) >= 2:
@@ -275,7 +322,8 @@ async def get_posting(url: str) -> dict:
                     for j in r.json().get("jobs", []):
                         if j.get("id") == jid:
                             return {"url": url, "found": True, "title": j.get("title"),
-                                    "description": j.get("descriptionPlain", "")}
+                                    "description": _strip_boilerplate(
+                                        j.get("descriptionPlain", ""))}
         elif "lever" in host:
             parts = [p for p in parsed.path.split("/") if p]
             if len(parts) >= 2:
@@ -285,8 +333,8 @@ async def get_posting(url: str) -> dict:
                 if r.status_code == 200:
                     j = r.json()
                     return {"url": url, "found": True, "title": j.get("text"),
-                            "description": _clean_html(
-                                j.get("descriptionPlain") or j.get("description", ""))}
+                            "description": _strip_boilerplate(_clean_html(
+                                j.get("descriptionPlain") or j.get("description", "")))}
     return {"url": url, "found": False,
             "note": "Could not resolve via ATS API; use open_job + get_job_text."}
 

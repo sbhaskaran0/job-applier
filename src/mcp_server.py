@@ -17,24 +17,64 @@ mcp = FastMCP("job-applier")
 # Browser tools (ATS-agnostic; act on the one live session)
 # --------------------------------------------------------------------------- #
 @mcp.tool()
-async def open_job(url: str) -> dict:
+async def open_job(url: str, new_tab: bool = False, company: str = "") -> dict:
     """Open a job posting / application page in the live browser (non-headless,
-    so the user can watch). One-shot: returns {title, detected_ats, resume_synced,
-    intervention:{blocked,signals,message}, fields:[...]} — i.e. it ALSO runs the
-    CAPTCHA/intervention check and reads the form, so you don't need separate
-    check_for_intervention / read_form calls right after opening. If
-    intervention.blocked is true, stop and ask the user to clear it. Re-call
+    so the user can watch). One-shot: returns {title, detected_ats, tab_id,
+    resume_synced, intervention:{blocked,signals,message}, fields:[...]} — i.e.
+    it ALSO runs the CAPTCHA/intervention check and reads the form, so you don't
+    need separate check_for_intervention / read_form calls right after opening.
+
+    Tabs: pass new_tab=True to open this job in its OWN tab, preserving any
+    already-filled forms in other tabs — batch mode uses this so a job you can't
+    submit can be left FILLED for a one-click manual submit instead of being
+    re-filled from scratch. Default (new_tab=False) reuses the active tab —
+    right for single-job apply, retries, and re-opening the same URL. Pass
+    `company` to label the tab in list_tabs. Manage tabs with list_tabs /
+    switch_tab / close_tab.
+
+    If intervention.blocked is true, stop and ask the user to clear it. Re-call
     read_form only if the page later navigates/changes."""
-    return await browser.session.open_job(url)
+    return await browser.session.open_job(url, new_tab=new_tab, company=company)
 
 
 @mcp.tool()
-async def read_form() -> list:
+async def list_tabs() -> list:
+    """List the open browser tabs. In batch mode each open tab is one job's
+    filled/loaded application, so at hand-off time this IS the manual-submit
+    queue. Returns [{tab_id, company, title, url, active, closed}]."""
+    return await browser.session.list_tabs()
+
+
+@mcp.tool()
+async def switch_tab(tab_id: int) -> dict:
+    """Make `tab_id` the active tab (all field/submit tools act on the active
+    tab), bring it to the front, and re-read its form — field indexes are
+    per-tab and only valid after a read on that page. Returns
+    {tab_id, url, title, company, fields}."""
+    return await browser.session.switch_tab(tab_id)
+
+
+@mcp.tool()
+async def close_tab(tab_id: int) -> dict:
+    """Close a browser tab — call after a job is verified submitted to keep the
+    window to just the unfinished jobs. Returns {status, tab_id, active_id}."""
+    return await browser.session.close_tab(tab_id)
+
+
+@mcp.tool()
+async def read_form(values_only: bool = False) -> list:
     """Read the live page and all iframes; return every fillable field as
     {index, kind, label, options, required, current_value, group}. Works on any
     ATS with no per-site rules. Re-call after navigation. Use the returned
-    index with fill_field / upload_resume / submit_application."""
-    return await browser.session.read_form()
+    index with fill_field / upload_resume / submit_application.
+
+    Pass values_only=True for a lean re-read — only {index, kind, label,
+    current_value} per field — when you just need to VERIFY that fills took
+    (not discover fields). Use it for post-fill verification passes to avoid
+    re-sending option lists and metadata you already have. Either way, long
+    native <select> lists are summarized (options_count / options_sample /
+    options_note); call get_field_options(index) for the full list."""
+    return await browser.session.read_form(values_only=values_only)
 
 
 @mcp.tool()

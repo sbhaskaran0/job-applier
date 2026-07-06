@@ -18,6 +18,12 @@ from . import config
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
+# Native <select> lists longer than this are summarized in read_form's payload
+# (count + a few sample labels) instead of enumerated inline — the full list is
+# one get_field_options(index) call away. Big lists (country, year, school
+# pickers) are the dominant source of read_form token bloat.
+_INLINE_OPTS_MAX = 25
+
 # JS run inside each frame: tags every fillable element with data-jaidx and
 # returns a descriptor for each. Label resolution walks the standard
 # accessibility fallbacks. Radios/checkboxes are reported individually with
@@ -312,9 +318,26 @@ class BrowserSession:
         self._pw = None
         self.browser = None
         self.context = None
-        self.page = None
-        # index -> {"frame": Frame, "kind": str}
-        self.fields: dict[int, dict] = {}
+        # Multi-tab: each queued job can get its own tab so a filled form is
+        # never destroyed by opening the next job. A tab is
+        # {"page": Page, "fields": {index -> {"frame","kind","native"}},
+        #  "company","title","url"}. All the field/submit methods act on the
+        # ACTIVE tab through the `page` / `fields` properties, so they needed no
+        # per-tab plumbing.
+        self.tabs: dict[int, dict] = {}
+        self.active_id: int | None = None
+        self._next_id = 0
+
+    @property
+    def page(self):
+        t = self.tabs.get(self.active_id)
+        return t["page"] if t else None
+
+    @property
+    def fields(self) -> dict:
+        # index -> {"frame": Frame, "kind": str} for the ACTIVE tab
+        t = self.tabs.get(self.active_id)
+        return t["fields"] if t else {}
 
     async def _ensure(self, headless: bool = False) -> None:
         # Default is a VISIBLE, maximized window so the user can watch and step
@@ -327,22 +350,41 @@ class BrowserSession:
                 headless=headless, args=["--start-maximized"])
             self.context = await self.browser.new_context(
                 user_agent=_UA, no_viewport=True)
-            self.page = await self.context.new_page()
 
-    async def open_job(self, url: str) -> dict:
+    async def _open_tab(self) -> int:
+        """Create a fresh tab, make it active, and return its id."""
+        page = await self.context.new_page()
+        tab_id = self._next_id
+        self._next_id += 1
+        self.tabs[tab_id] = {"page": page, "fields": {},
+                             "company": "", "title": "", "url": ""}
+        self.active_id = tab_id
+        return tab_id
+
+    async def open_job(self, url: str, new_tab: bool = False,
+                       company: str = "") -> dict:
         # Start of an apply session: refresh resume.txt from resume.pdf so the
         # reasoning text matches the document that gets uploaded.
         resume_synced = config.sync_resume_text_from_pdf()
         await self._ensure()
-        await self.page.goto(url, timeout=45000, wait_until="domcontentloaded")
-        await self.page.wait_for_timeout(2500)  # let JS-rendered forms settle
+        # Open in a NEW tab when asked (batch mode keeps every filled form
+        # alive) or when there is no usable active tab; otherwise reuse the
+        # active tab (single-job apply, retries, re-opening the same URL).
+        if new_tab or self.active_id not in self.tabs:
+            await self._open_tab()
+        page = self.page
+        await page.goto(url, timeout=45000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2500)  # let JS-rendered forms settle
         self.fields.clear()
         host = urlparse(url).hostname or ""
         ats = "greenhouse" if "greenhouse" in host else \
               "lever" if "lever" in host else \
               "ashby" if "ashby" in host else \
               "workday" if "workday" in host else "generic"
-        title = await self.page.title()
+        title = await page.title()
+        tab = self.tabs[self.active_id]
+        tab.update(url=url, title=title,
+                   company=company or tab.get("company", ""))
         # One-shot: also return the intervention check and the parsed form so the
         # common open path is a single round-trip instead of three. read_form()
         # populates self.fields as a side effect. If the page later changes,
@@ -350,17 +392,76 @@ class BrowserSession:
         intervention = await self.detect_blockers()
         fields = await self.read_form()
         return {"url": url, "title": title, "detected_ats": ats,
+                "tab_id": self.active_id,
                 "resume_synced": resume_synced,
                 "intervention": intervention, "fields": fields,
                 "note": ("intervention + fields are included — no need to call "
                          "check_for_intervention or read_form again unless the "
-                         "page navigates or changes.")}
+                         "page navigates or changes. Opened in "
+                         + ("a new tab" if new_tab else "the active tab")
+                         + "; manage tabs with list_tabs / switch_tab / "
+                         "close_tab.")}
 
-    async def read_form(self) -> list[dict]:
+    async def list_tabs(self) -> list[dict]:
+        """List open tabs — in batch mode each is one job's filled/loaded form."""
+        out = []
+        for tid, t in self.tabs.items():
+            page = t["page"]
+            try:
+                closed = page.is_closed()
+            except Exception:
+                closed = True
+            out.append({"tab_id": tid, "company": t.get("company", ""),
+                        "title": t.get("title", ""),
+                        "url": (page.url if not closed else t.get("url", "")),
+                        "active": tid == self.active_id, "closed": closed})
+        return out
+
+    async def switch_tab(self, tab_id: int) -> dict:
+        """Make `tab_id` the active tab, bring it to the front, and re-read its
+        form (field indexes are per-tab and only valid after a read on that
+        page)."""
+        t = self.tabs.get(tab_id)
+        if t is None:
+            raise ValueError(f"Unknown tab_id {tab_id}. Call list_tabs() first.")
+        self.active_id = tab_id
+        try:
+            await t["page"].bring_to_front()
+        except Exception:
+            pass
+        fields = await self.read_form()
+        return {"tab_id": tab_id, "url": t["page"].url,
+                "title": t.get("title", ""), "company": t.get("company", ""),
+                "fields": fields}
+
+    async def close_tab(self, tab_id: int) -> dict:
+        """Close a tab (e.g. after a job is verified submitted)."""
+        t = self.tabs.pop(tab_id, None)
+        if t is None:
+            return {"status": "unknown_tab", "tab_id": tab_id}
+        try:
+            await t["page"].close()
+        except Exception:
+            pass
+        if self.active_id == tab_id:
+            self.active_id = next(reversed(self.tabs), None) if self.tabs else None
+        return {"status": "closed", "tab_id": tab_id, "active_id": self.active_id}
+
+    async def read_form(self, values_only: bool = False) -> list[dict]:
         """Read the live page + all iframes; return a generic field list.
 
         Side effect: tags elements with data-jaidx so fill_field/upload_resume
         can act on them. Re-call after any navigation or page reload.
+
+        `values_only=True` returns a lean payload — only
+        `{index, kind, label, current_value}` per field — for cheap
+        verification re-reads (confirming a fill took) without re-sending
+        option lists and field metadata that a full first read already
+        supplied. Regardless of the flag, long native ``<select>`` option
+        lists (> `_INLINE_OPTS_MAX`) are collapsed to
+        `options_count`/`options_sample`/`options_note`; fetch the full list
+        with `get_field_options(index)`. `self.fields` is fully populated
+        either way, so `fill_field`/verification work on every index.
         """
         if self.page is None:
             raise RuntimeError("No page open. Call open_job(url) first.")
@@ -375,9 +476,27 @@ class BrowserSession:
             for d in descriptors:
                 self.fields[d["index"]] = {"frame": frame, "kind": d["kind"],
                                            "native": d.get("native", True)}
+                counter = max(counter, d["index"] + 1)
+                if values_only:
+                    lean = {"index": d["index"], "kind": d["kind"],
+                            "label": d.get("label"),
+                            "current_value": d.get("current_value", "")}
+                    all_fields.append({k: v for k, v in lean.items() if v is not None})
+                    continue
+                # Collapse long native <select> option lists — country/year/
+                # school pickers otherwise dominate the payload; the full list
+                # is a get_field_options(index) call away.
+                opts = d.get("options")
+                if opts and len(opts) > _INLINE_OPTS_MAX:
+                    labels = [o["label"] if isinstance(o, dict) else o for o in opts]
+                    d["options"] = None
+                    d["options_count"] = len(opts)
+                    d["options_sample"] = labels[:3] + ["…"] + labels[-1:]
+                    d["options_note"] = (
+                        f"long list summarized — call get_field_options({d['index']}) "
+                        f"for all {len(opts)} options")
                 # drop None/undefined keys for a clean payload
                 all_fields.append({k: v for k, v in d.items() if v is not None})
-                counter = max(counter, d["index"] + 1)
         return all_fields
 
     def _locator(self, index: int):
@@ -817,6 +936,8 @@ class BrowserSession:
         if self._pw is not None:
             await self._pw.stop()
             self._pw = None
+        self.tabs.clear()
+        self.active_id = None
 
 
 # module-level singleton used by the MCP server
