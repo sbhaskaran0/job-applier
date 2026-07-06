@@ -90,8 +90,10 @@ flowchart TD
 
     H -- "evergreen or<br/>same-company scope" --> HH["confidence: high<br/>adapt & fill"]
     H -- "other-company or<br/>conditional scope" --> HR["confidence: review<br/>adapt, then GATE"]
-    H -- "no strong match" --> C["3 · Context retrieval<br/>context/*.md·txt·pdf + resume text<br/>top-5 keyword-scored snippets"]
+    H -- "no match · closed-choice<br/>(combobox/select/radio/checkbox)" --> CH["source: choice<br/>pick from options<br/>(no essay corpus)"]
+    H -- "no match · open free-text" --> C["3 · Context retrieval<br/>context/*.md·txt·pdf + resume text<br/>clipped keyword-scored snippets"]
 
+    CH --> FM
     C --> CR["Claude crafts answer<br/>confidence: craft"]
     HR --> U{"User approves / edits"}
     CR --> U

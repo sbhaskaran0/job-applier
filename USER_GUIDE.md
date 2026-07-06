@@ -341,8 +341,13 @@ form alone is **not** treated as success). Only `submitted` is logged.
 
 **Answers / memory**
 
-- `resolve_fields([{index,label}])` — **resolve many fields in one call**
-(profile → history → context cascade), tagged by source. The fast path.
+- `resolve_fields([{index,label,kind}])` — **resolve many fields in one call**
+(profile → history → choice/context cascade), tagged by source. The fast path.
+Forwarding each field's `kind` lets closed-choice fields (dropdowns, radios)
+resolve to a `choice` (pick-an-option) result instead of dumping the
+cover-letter/essay corpus they can't use — the biggest per-application token
+saver. Open free-text fields still return clipped `context` snippets to craft
+from (pull full voice via `get_cover_letter_examples`).
 - `get_profile_field(label)` — exact value from your profile (single).
 - `search_history(question)` — closest past answers, scored.
 - `save_answer(question, answer)` — remember an approved answer.

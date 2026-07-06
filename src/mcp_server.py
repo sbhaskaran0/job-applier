@@ -213,11 +213,40 @@ def get_profile_field(question_or_key: str) -> dict:
     return data.get_profile_field(question_or_key)
 
 
+# Field kinds that are pick-from-a-list, not free prose. For these, a no-match
+# result should NOT dump the cover-letter/essay corpus — there is nothing to
+# "craft"; the answer is one of the widget's options.
+_CLOSED_KINDS = {"combobox", "select", "radio", "checkbox"}
+
+# Snippet caps for the genuinely-open craft path. resolve_fields is a triage
+# tool — it hands back enough to see WHICH source to craft from, not the full
+# corpus. Full text is one get_cover_letter_examples / search_context away.
+_CTX_SNIPPET_CHARS = 480
+_HIST_ANSWER_CHARS = 320
+
+
+def _clip(text: str, limit: int) -> str:
+    text = text or ""
+    return text if len(text) <= limit else text[:limit].rstrip() + " …[clipped]"
+
+
+def _clip_hist(rows: list) -> list:
+    out = []
+    for h in rows:
+        r = dict(h)
+        r["answer"] = _clip(r.get("answer", ""), _HIST_ANSWER_CHARS)
+        out.append(r)
+    return out
+
+
 @mcp.tool()
 def resolve_fields(fields: list[dict], company: str = "") -> list:
     """Batch-resolve MANY form fields in ONE call — the fast path that replaces
     the per-field get_profile_field → search_history → search_context loop.
-    `fields` is [{index, label}, ...]; pass `company` (the employer you're
+    `fields` is [{index, label}, ...]; also pass `kind` (and `options` when you
+    have them) from open_job/read_form for each field — closed-choice fields
+    (combobox/select/radio/checkbox) skip the essay corpus on a no-match, which
+    is the single biggest token saver. Pass `company` (the employer you're
     applying to) so company-scoped past answers can be reused safely. For each
     field, it runs the same source cascade and returns one row:
       - source "profile": an exact stored value → `value` (fill verbatim; still
@@ -230,15 +259,32 @@ def resolve_fields(fields: list[dict], company: str = "") -> list:
         company-scoped for a DIFFERENT company or conditional (role/location-
         dependent) → adapt `value` but GATE it for user approval like a crafted
         answer; never fill it silently.
-      - source "context": no stored value → `context` snippets (+ `history_top`)
-        to CRAFT from; these are the low-confidence ones to draft and gate for
-        user approval.
+      - source "choice": a closed-choice field with no stored value → pick from
+        `options` (fetch with get_field_options if empty). No essay corpus —
+        for Yes/No, consent, eligibility dropdowns the answer is an option, not
+        prose. `history_top` (clipped) is included when a past answer is close.
+      - source "context": an OPEN free-text field with no stored value →
+        `context` snippets (clipped) + `history_top` to CRAFT from; these are
+        the low-confidence ones to draft and gate for user approval. Snippets
+        are clipped for triage — pull full voice via get_cover_letter_examples.
     Fill the profile and confidence-"high" history rows with fill_many; craft/
     adapt the rest, get approval where needed, then fill_many those too."""
     comp = (company or "").strip().lower()
     out = []
     for f in fields:
         idx, label = f.get("index"), f.get("label", "")
+        kind = (f.get("kind") or "").strip().lower()
+        options = f.get("options") or []
+        # A blank-label field is almost always a react-select mirror / shadow
+        # input paired with a real combobox (Greenhouse renders these). It has
+        # nothing to resolve — never run a lookup (an empty label would search
+        # the whole corpus and dump snippets); just skip it cheaply.
+        if not (label or "").strip():
+            out.append({"index": idx, "label": label, "source": "skip",
+                        "note": "no label — likely a shadow/mirror input paired "
+                                "with a combobox; ignore unless a widget needs a "
+                                "typed value"})
+            continue
         pf = data.get_profile_field(label)
         if pf.get("value"):
             row = {"index": idx, "label": label, "source": "profile",
@@ -266,11 +312,28 @@ def resolve_fields(fields: list[dict], company: str = "") -> list:
                         "value": best["answer"], "score": best["score"],
                         "scope": best.get("scope"),
                         "company": best.get("company", ""),
-                        "confidence": "review", "alternatives": hist})
+                        "confidence": "review", "alternatives": _clip_hist(hist)})
             continue
+        # No stored value. A closed-choice field is answered by picking an
+        # option, not by crafting from prose — so skip search_context entirely
+        # (this is where the big cover-letter/essay dumps came from).
+        if kind in _CLOSED_KINDS or options:
+            row = {"index": idx, "label": label, "source": "choice",
+                   "confidence": "craft", "options": options,
+                   "history_top": _clip_hist(hist[:2])}
+            if not options:
+                row["note"] = ("closed-choice field — call get_field_options("
+                               f"{idx}) for the option list, then fill_many")
+            out.append(row)
+            continue
+        # Genuinely open free-text field: craft from clipped context snippets.
+        ctx = context.search_context(label, top_k=3)
+        for c in ctx:
+            if isinstance(c, dict) and "text" in c:
+                c["text"] = _clip(c["text"], _CTX_SNIPPET_CHARS)
         out.append({"index": idx, "label": label, "source": "context",
-                    "confidence": "craft", "history_top": hist[:2],
-                    "context": context.search_context(label, top_k=3)})
+                    "confidence": "craft", "history_top": _clip_hist(hist[:2]),
+                    "context": ctx})
     return out
 
 

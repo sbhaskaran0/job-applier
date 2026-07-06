@@ -32,10 +32,15 @@ issue any genuinely independent calls together in a single message.
    CAPTCHA/interstitial — treat as **Human intervention**.)
 2. **Understand the role (optional)** — `get_job_text()` to read the JD if you
    need it to tailor open-ended answers.
-3. **Resolve every field at once** — build `[{index, label}, ...]` for all
-   fillable fields and call **`resolve_fields(fields, company)` once** (pass
-   the employer name so company-scoped past answers are reused safely). Each
-   row comes back tagged by `source` and `confidence`:
+3. **Resolve every field at once** — build `[{index, label, kind}, ...]` for
+   all fillable fields (forward each field's `kind` straight from `open_job`/
+   `read_form`, and its `options` if you already have them) and call
+   **`resolve_fields(fields, company)` once** (pass the employer name so
+   company-scoped past answers are reused safely). Passing `kind` matters:
+   closed-choice fields (combobox/select/radio/checkbox) then skip the
+   cover-letter/essay corpus on a no-match — the single biggest token saver, so
+   a Yes/No or consent dropdown no longer dumps essays it can't use. Each row
+   comes back tagged by `source` and `confidence`:
    - `profile` → an exact `value`; fill it (apply the style rules below).
    - `history` / confidence `high` → a strong past answer (`score` ≥ 0.7)
      that is evergreen or tailored to THIS company; adapt it.
@@ -43,9 +48,16 @@ issue any genuinely independent calls together in a single message.
      **different** company or is conditional (relocation, salary, how-did-you-
      hear). Adapt it, but treat it like a crafted answer: **gate it for user
      approval** — never fill it silently.
-   - `context` → no stored value; use the returned `context` snippets (plus
-     `get_job_text`) to **craft** an answer in the `preferences.md` voice
-     (concise, specific, results-oriented, first person).
+   - `choice` → a **closed-choice** field (dropdown/radio) with no stored
+     value; the answer is one of `options` (call `get_field_options(index)` if
+     the row's `options` is empty), not a crafted essay. Pick the right option
+     and add it to a `fill_many` batch — Yes/No, consent, eligibility, "have you
+     worked here" all land here.
+   - `context` → an **open free-text** field with no stored value; use the
+     returned `context` snippets (clipped for triage — pull full voice with
+     `get_cover_letter_examples` when you actually draft) plus `get_job_text`
+     to **craft** an answer in the `preferences.md` voice (concise, specific,
+     results-oriented, first person).
 4. **Fill the confident ones in one call** — assemble `[{index, value}, ...]`
    for all `profile` and confidence-`high` `history` rows and call
    **`fill_many`** once.

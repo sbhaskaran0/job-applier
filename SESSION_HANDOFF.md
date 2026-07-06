@@ -1,14 +1,19 @@
 # Session handoff — job-applier
 
 Paste this into a fresh Claude Code session to restore context. Last updated
-2026-07-06 (session 11 — JOB-37 apply-skill verification refinement: at the
-Review step, a field that looks wrong or won't commit gets **one** corrective
-pass, then is **flagged for manual intervention** instead of being fought with
-retries + repeated screenshots. Motivated live by a DoorDash Greenhouse EEO
-Gender react-select that behaved as a multi-select and read back empty in
-`read_form` even when visually set — the retry/screenshot loop was token-heavy.
-Doc-only change to `.claude/skills/apply-to-job/SKILL.md` (also folded in a
-pre-existing style rule #6: voice/em-dash). Session 10 — JOB-6 per-job resume
+2026-07-06 (session 11 — two apply-skill changes. **JOB-44 `resolve_fields`
+token cut:** the tool now takes each field's `kind`/`options`; closed-choice
+fields (combobox/select/radio/checkbox) with no stored value resolve to a new
+`source:"choice"` (pick an option) instead of dumping the cover-letter/essay
+corpus, blank-label mirror inputs are skipped as `source:"skip"`, and history/
+context snippets are clipped for triage (full voice via
+`get_cover_letter_examples`). `src/mcp_server.py` + SKILL.md step 3. **JOB-37
+verification refinement:** at the Review step, a field that looks wrong or won't
+commit gets **one** corrective pass, then is **flagged for manual intervention**
+instead of being fought with retries + repeated screenshots. Motivated live by a
+DoorDash Greenhouse EEO Gender react-select that behaved as a multi-select and
+read back empty in `read_form` even when visually set. Also folded in a
+pre-existing style rule #6 (voice/em-dash). Session 10 — JOB-6 per-job resume
 & cover-letter tailoring:
 new `src/tailor.py` + 5 MCP tools + `/tailor-application` skill; on-demand,
 stores artifacts under `resumes/<job-slug>/`, apply flow auto-picks them up via
