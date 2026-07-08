@@ -29,6 +29,13 @@ Open this project in Claude Code and reload it (loads `.mcp.json`), then:
   cover letter for one posting: it re-emphasizes/reorders bullets in your
   `resume.docx` (formatting preserved) and drafts a cover letter in **your own
   writing voice**, saved for the apply flow to pick up automatically.
+- **`autonomous` prefix** — prefix the argument of `/find-jobs`,
+  `/apply-to-job`, or `/apply-batch` with `autonomous` (e.g.
+  `/apply-batch autonomous <url> <url>`) to run **without approval gates** and
+  **auto-submit where possible**. Jobs that still need a manual submit
+  (spam-reject, visible CAPTCHA, parked fields) are left filled for you. Opt-in
+  per run — nothing is ever autonomous unless you say so. See
+  [the autonomous flow](#autonomous-mode-hands-off-per-run) below.
 
 Edit `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`, `resume.txt`
 (+ optional `resume.pdf`), and `context/` to make it yours.
@@ -163,5 +170,42 @@ otherwise. Drop a `resume.docx` in the project root to enable resume tailoring
 cross-platform: it uses Microsoft Word when present (Windows or macOS) and
 falls back to LibreOffice (`soffice`, any OS, no Word needed); if neither is
 installed the tailored `.docx` is still saved to export manually.
+
+## Autonomous mode (hands-off, per run)
+
+By default the agent gates its answers and **never submits without your say-so**.
+Prefix any of the three commands' arguments with **`autonomous`** to opt that one
+run into full hands-off execution: it resolves and fills every answer without
+pausing, and **auto-submits where it safely can**. In autonomous `/find-jobs` it
+also **auto-selects the top finalists** (default 5, skipping already-applied) and
+chains straight into the batch apply — search to submit, end to end.
+
+Autonomous mode removes the **approval gates**, not the **guardrails**. It still
+won't fight a stubborn widget (one corrective pass, then park), won't
+force-submit past a spam-reject or a visible CAPTCHA, and never fabricates an
+answer — anything it can't complete cleanly is left **fully filled** in its tab
+for a one-click manual submit, exactly as in gated batch mode.
+
+```mermaid
+flowchart TD
+    KW["/find-jobs · /apply-to-job · /apply-batch<br/>with <b>autonomous</b> prefix"] --> FIND
+    subgraph FIND["find-jobs (autonomous)"]
+        RANK["rank + strict-filter"] --> PICK["auto-select top N finalists<br/>(default 5, skip already-applied)"]
+    end
+    PICK --> QUEUE["apply-batch (autonomous)"]
+    KWURL["autonomous URL(s) given directly"] --> QUEUE
+    QUEUE --> NOGATE["Stage C approval <b>skipped</b><br/>(one-line plan logged)"]
+    NOGATE --> FILL["fill every field<br/>profile → history → context<br/>(no pause; still save_answer)"]
+    FILL --> VERIFY{"verify + one<br/>corrective pass"}
+    VERIFY -->|"clean"| SUBMIT["auto-submit"]
+    VERIFY -->|"stubborn field / no honest answer"| PARK["park — leave filled"]
+    SUBMIT --> CHECK{"get_job_text<br/>success?"}
+    CHECK -->|"verified"| DONE["log submitted"]
+    CHECK -->|"spam-reject / unverified"| MANUAL["manual_submission<br/>leave tab filled"]
+    VISIBLE["visible CAPTCHA / login"] --> PARK
+    PARK --> REPORT["Report: N submitted ·<br/>K awaiting your manual submit · M parked"]
+    MANUAL --> REPORT
+    DONE --> REPORT
+```
 
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**

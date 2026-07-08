@@ -1,6 +1,6 @@
 ---
 name: apply-batch
-description: Batch-apply queue mode — apply to N queued jobs with parallel prep, one consolidated upfront approval, then serial fill/submit with zero mid-run prompts. Jobs that hit anything unexpected are parked (with a reason), never prompted on. Pass the queued job URLs (one per line or comma-separated) as the argument. Use apply-to-job for a single application.
+description: Batch-apply queue mode — apply to N queued jobs with parallel prep, one consolidated upfront approval, then serial fill/submit with zero mid-run prompts. Jobs that hit anything unexpected are parked (with a reason), never prompted on. Pass the queued job URLs (one per line or comma-separated) as the argument. Prefix the argument with `autonomous` to skip even the upfront approval and run fully unattended (auto-submit where possible; manual-submission jobs still left filled). Use apply-to-job for a single application.
 ---
 
 # Batch-apply queue
@@ -16,6 +16,22 @@ the **Response style rules**, and the **Human intervention** rules all come
 from `.claude/skills/apply-to-job/SKILL.md` — read it first and apply it
 throughout. Do not duplicate its logic; this file only defines what differs in
 queue mode.
+
+## Autonomous mode (opt-in per run)
+
+If the argument **begins with** a bare `autonomous` token (also `auto` /
+`--autonomous`), **strip it**, set an "autonomous run" flag, and treat the
+remainder as the normal queue of URLs. In an autonomous run the **single
+change** is: **Stage C is skipped** — there is no upfront approval, no submit
+consent to collect. Every `review` answer is auto-approved and every job is
+granted submit consent. Everything else is identical, because the queue is
+*already* built to run unattended after Stage C: park-don't-ask (Stages A/D),
+the JOB-24 submit verification, spam-reject → `manual_submission`, and the
+Stage E manual-submit hand-off all apply **unchanged**. Autonomous mode removes
+the *gate*, not the *guardrails*: it never fights a stubborn widget, never
+force-submits past a spam-reject or a visible CAPTCHA, and never fabricates an
+answer — those still park and are left for the user. See Stage C for the
+autonomous branch.
 
 **Why serial browser use:** the MCP server drives one browser (module-level
 singleton in `src/browser.py`); field-index maps are **per-tab** and only valid
@@ -134,6 +150,15 @@ Subagent prompt template (fill in the bracketed parts):
 > `answers` — never fabricate.
 
 ## Stage C — Consolidated approval (THE single gate)
+
+**Autonomous run:** skip this gate entirely. Do not stop or wait — auto-approve
+every `review` answer and grant submit consent to every job. Emit a brief
+**one-line-per-job plan** to the user (e.g. "Acme — PM: 14 auto-fill, 2 crafted,
+will submit · Beta — S&O: 11 auto-fill, 1 flag [salary], will submit") so the
+run stays legible, then proceed straight to Stage D. A job carrying a Stage B
+`flag` (a required field with no honest answer) is still filled as far as it
+honestly can be and **parked** at Stage D — never fabricated to clear the gate.
+(The rest of this section is the default, gated flow.)
 
 Present one review for the whole queue, then **stop and wait for the user**:
 

@@ -39,6 +39,16 @@ the user's data. **No LLM API key** in the core flow. Skills:
 - **`/apply-batch <urls>`** — N jobs: snapshots → parallel prep subagents
   (`data/prep/`, gitignored) → ONE consolidated approval (incl. per-job submit
   consent) → serial fill/submit with park-don't-ask → screenshot-audited report.
+- **Autonomous mode (per-run keyword)** — prefixing the argument of `/find-jobs`,
+  `/apply-to-job`, or `/apply-batch` with `autonomous` (also `auto`/
+  `--autonomous`) runs that one invocation with **no approval gates** and
+  **auto-submits where possible**. find-jobs then auto-selects the top finalists
+  (default 5, skip already-applied) and chains into autonomous apply-batch;
+  apply-batch skips Stage C; apply-to-job skips the step 3/5 answer gates and the
+  step 7 submit gate. **Prose-only** (all gates were already prose; no `src/`
+  change, no new tool). Guardrails preserved: one-corrective-pass-then-park,
+  auto-submit-not-force (spam-reject/unverified → `manual_submission`, left
+  filled), visible-CAPTCHA hard stop, no fabrication, EEO/tense/style rules.
 - **`/tailor-application <url>`** (JOB-6) — on-demand bespoke resume + cover
   letter for ONE posting. Edits the user's `resume.docx` in place (reorder/
   re-emphasize/trim bullets, sharpen summary; formatting preserved), exports a

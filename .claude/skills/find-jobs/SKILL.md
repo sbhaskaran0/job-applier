@@ -1,6 +1,6 @@
 ---
 name: find-jobs
-description: Find high-quality product/strategy roles across a curated company watchlist (their public ATS boards), ranked semantically against a natural-language query and filtered strictly by baseline criteria (titles/seniority, location/remote, salary floor). Returns only suitable listings, each with a direct apply URL. Pass a natural-language query as the argument (e.g. "fintech product strategy", "AI product, remote"). No argument = all product/strategy roles that pass the criteria.
+description: Find high-quality product/strategy roles across a curated company watchlist (their public ATS boards), ranked semantically against a natural-language query and filtered strictly by baseline criteria (titles/seniority, location/remote, salary floor). Returns only suitable listings, each with a direct apply URL. Pass a natural-language query as the argument (e.g. "fintech product strategy", "AI product, remote"). No argument = all product/strategy roles that pass the criteria. Prefix the query with `autonomous` to auto-select the top finalists and apply to them end to end (no manual pick, auto-submit where possible).
 ---
 
 # Find jobs (curated watchlist + semantic search)
@@ -11,6 +11,17 @@ via the **local postings store** (`data/postings.db`, refreshed by
 rank the survivors **semantically** against the user's query. The strict
 baseline bar is already enforced deterministically by the tool. Low volume,
 high quality.
+
+## Autonomous mode (opt-in per run)
+
+If the argument **begins with** a bare `autonomous` token (also `auto` /
+`--autonomous`), **strip it**, set an "autonomous run" flag, and use the
+remainder as the query (empty remainder = rank by overall profile fit, as
+usual). An autonomous run does not stop at a ranked list — it **auto-selects the
+finalists and applies to them end to end**. See Step 5 for the selection rule;
+the actual filling/submitting is delegated to `apply-batch` in *its* autonomous
+mode, so all of that skill's guardrails (park-don't-ask, auto-submit-not-force,
+manual-submission hand-off) apply. Steps 1–4 are unchanged.
 
 ## Workflow
 
@@ -52,6 +63,24 @@ high quality.
    **title · company · location/remote · salary (or "not listed") · one-line why
    it matches · apply URL** (mark `is_new` roles). If nothing passes, say so and
    name the most common blocker. Offer to run `/apply <url>`.
+
+   **(Autonomous run:** don't stop at the list. From the passing, ranked
+   finalists, **auto-select** the top ones to apply to and chain straight into
+   the apply flow:
+   - **Skip `already_applied`**; prefer `is_new`; drop anything the deep-read in
+     Step 4 revealed as a baseline violation. Never auto-select a role you
+     couldn't confirm passes the bar.
+   - **Safety cap: top 5** by default. Honor an explicit override in the query
+     (e.g. "autonomous top 10 fintech pm" → 10). If nothing passes, say so and
+     stop — do not widen the bar to hit the cap.
+   - **Report the selection first** (the same one-line-per-role list above, with
+     apply URLs) so the run is legible, then proceed **without pausing**.
+   - **Hand off to autonomous batch apply:** run the `apply-batch` flow in its
+     **autonomous** mode over the selected apply URLs (read
+     `.claude/skills/apply-batch/SKILL.md`; the `autonomous` flag carries
+     through — Stage C is skipped, jobs fill and auto-submit where possible, and
+     anything unsubmittable is parked/left for manual submission). A single
+     selected URL can go through `apply-to-job` in autonomous mode instead.)
 
 ## Digest
 

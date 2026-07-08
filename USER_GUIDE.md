@@ -21,6 +21,7 @@ interact through three skills:
 | `/apply-to-job <url>` | Open an application form and fill it from your profile/history/context, pausing only when unsure.                                                             |
 | `/apply-batch <urls>` | Queue several applications: parallel answer prep, **one** upfront approval (incl. per-job submit consent), then serial fill/submit with zero mid-run prompts. |
 | `/tailor-application <url>` | **On demand:** generate a bespoke resume (edits your `resume.docx` in place, formatting preserved) + a cover letter in your own writing voice for one posting; saved for the apply flow to auto-use. |
+| `… autonomous <arg>`  | **Opt-in per run.** Prefix the argument of `/find-jobs`, `/apply-to-job`, or `/apply-batch` with `autonomous` to run without any approval gates and **auto-submit where possible**. Jobs that still need a manual submit (spam-reject, visible CAPTCHA, parked fields) are left filled for you. See §7. |
 
 
 There is **no OpenAI/Anthropic API key** and **no cost** in the core flow — Claude
@@ -249,12 +250,50 @@ upfront, per job. Only verified submits are logged as `submitted` in
 `data/applications.json`; forms you submit yourself are logged as
 `manual_submission`, and unconfirmed clicks as `attempted`.
 
+### Autonomous mode — `autonomous <arg>`
+
+**Opt-in, per run.** Prefix the argument with `autonomous` on any of the three
+commands to run **without approval gates** and **auto-submit where possible**:
+
+```
+/find-jobs autonomous fintech product strategy      # find → auto-pick → apply → submit
+/apply-to-job autonomous <url>                       # one job, no prompts
+/apply-batch autonomous <url> <url>                  # queue, no upfront approval
+```
+
+- **`/apply-to-job autonomous`** — crafted and adapted answers are filled without
+  pausing (still saved to history), and it **submits on its own** once a form is
+  filled and verified.
+- **`/apply-batch autonomous`** — the one upfront review (Stage C) is **skipped**;
+  it logs a one-line plan per job and proceeds to fill + submit the whole queue.
+- **`/find-jobs autonomous`** — instead of just listing matches, it **auto-selects
+  the top finalists** (default **top 5**, skipping ones you've already applied to;
+  say "autonomous top 10 …" to raise the cap) and hands them to the autonomous
+  batch apply. It reports the selection first so you can see what it's doing.
+
+What autonomous mode **does not** change (the guardrails still hold):
+
+- **It doesn't fight errors.** Same "one corrective pass, then park/flag" rule —
+  no retry loops, no screenshot spam. It stays cheap per application.
+- **Auto-submit is not force-submit.** A submit it can't verify, or that an ATS
+  spam-rejects (reCAPTCHA v3), becomes a `manual_submission` — the form is left
+  **fully filled** in its tab for you to submit, exactly as in gated batch mode.
+- **Visible CAPTCHAs / login walls still stop it** and hand off to you.
+- It **never fabricates** an answer to fill a required field — an unanswerable
+  field is parked, not guessed.
+
+So an autonomous run ends the same way a batch run does: **"N submitted · K
+awaiting your manual submit · M parked"**, with every unsubmittable job left
+filled for a one- or two-click finish.
+
 ### Safety
 
-- **It never submits on its own.** `submit_application` runs only when you
-explicitly say to submit.
+- **By default it never submits on its own.** `submit_application` runs only when
+you explicitly say to submit — *unless* you opted into **autonomous mode** for
+that run (above), which submits where it safely can and leaves the rest for you.
 - The browser is **non-headless** — you can take over at any point.
-- Confidence gating applies to *answers*; submission is *always* your call.
+- Confidence gating applies to *answers*; in the default flow submission is
+*always* your call. Autonomous mode is the single, explicit, per-run opt-out.
 
 ### CAPTCHAs, verification codes, and login walls
 
