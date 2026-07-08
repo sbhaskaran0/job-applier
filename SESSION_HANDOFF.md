@@ -1,7 +1,25 @@
 # Session handoff — job-applier
 
 Paste this into a fresh Claude Code session to restore context. Last updated
-2026-07-06 (session 11 — two apply-skill changes. **JOB-44 `resolve_fields`
+2026-07-08 (session 12 — **startup discovery (YC + VC portfolio pulls).** New
+LLM-free `python -m src.discover`: enumerates candidate startups from the **YC
+company directory** (yc-oss mirror) and **Consider-powered VC portfolio boards**
+(a16z, USV — configured in new `discovery.yaml`), confirms each against the
+public Greenhouse/Ashby/Lever APIs, counts roles passing the `job_criteria`
+baseline (`store.count_board_baseline`, same filter as the watchlist), and
+records results in a new **`candidate_boards` ledger** in `postings.db`.
+Regenerates `data/discovery-latest.md` proposing watchlist additions ranked by
+qualifying-role count; nothing auto-adds — user `add_company`s the winners.
+Consider boards yield exact `(ats, slug)` from each job's applyUrl; YC companies
+are resolved by guess-probing slug variants from domain/name (~50% hit rate).
+Incremental + budgeted (`max_probes_per_run`, `reprobe_after_days`): exact
+Consider slugs probed before YC guesses, fresh entries skipped on re-run.
+Replaces the old rate-limited `site:` web-search sweep. New files: `src/
+discover.py`, `src/providers/discovery.py`, `discovery.yaml`; `store.py` gained
+the ledger + `count_board_baseline`; `config.py` gained discovery paths/loader.
+Verified live: 889 candidates, 250/run probed, 49 proposals incl. Harvey (10
+qualifying), Abridge (5), Cresta/Replit (4). Session 11 — two apply-skill
+changes. **JOB-44 `resolve_fields`
 token cut:** the tool now takes each field's `kind`/`options`; closed-choice
 fields (combobox/select/radio/checkbox) with no stored value resolve to a new
 `source:"choice"` (pick an option) instead of dumping the cover-letter/essay
@@ -87,11 +105,24 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `win32com` → docx2pdf → LibreOffice `soffice`; graceful if none, docx still
   saved. Windows→Word; Mac/Linux without Word→LibreOffice).
 - `src/providers/watchlist.py` — fetch/normalize boards (incl. `job_id`+`slug`),
-  live `list_postings`, `get_posting(s)`, `add_company`.
+  live `list_postings`, `get_posting(s)`, `add_company`, `detect_ats_slug`,
+  `_FETCHERS` (reused by discovery to probe candidate boards).
 - `src/store.py` — **postings store**: SQLite `data/postings.db` (gitignored
   cache; PK `(ats, slug, job_id)`; `first_seen`/`last_seen`/`removed_at`;
   removals ONLY from boards that fetched OK), `passes_baseline`,
-  `list_postings_from_store`, `yield_stats`.
+  `list_postings_from_store`, `yield_stats`. **Also** the discovery
+  `candidate_boards` ledger (PK `(source, source_key)`) + `count_board_baseline`
+  / `load_candidates` / `upsert_candidate`.
+- `src/providers/discovery.py` — **startup-discovery sources** (session 12):
+  `yc_candidates` (yc-oss directory, hiring/team-size filtered),
+  `consider_candidates` (page a Consider VC board, cursor via `meta.sequence`,
+  applyUrl→ats/slug), `gather_candidates` (dedupe by board), `probe_candidate`
+  (fetch board via `wl._FETCHERS` + count baseline; guess-probes slug variants
+  for unresolved YC), `board_url`.
+- `src/discover.py` — `python -m src.discover`: LLM-free discovery run.
+  Enumerate → incremental+budgeted select (`_select`: exact Consider first, then
+  YC; skip fresh) → probe concurrently → upsert ledger → `build_report` →
+  `data/discovery-latest.md`. Config: `discovery.yaml`.
 - `src/refresh.py` — `python -m src.refresh`: headless LLM-free ingest →
   digest `data/digest-latest.md` (new baseline-passing roles, boards dark ≥3
   runs, per-company yield). Scheduled daily 09:00 via Task Scheduler
@@ -100,7 +131,8 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   (`salary_source: 'api'|'jd'`; Greenhouse ~60% coverage, Lever 0% — their
   descriptions omit ranges), advisory `min_years`, word-bounded `seniority_flag`.
 - `src/config.py` — paths + loaders. Config/data: `user_profile.yaml`,
-  `job_criteria.yaml`, `watchlist.yaml`, `resume.txt` (+`resume.pdf`,
+  `job_criteria.yaml`, `watchlist.yaml`, `discovery.yaml` (+`load_discovery_config`,
+  `DISCOVERY_REPORT_PATH`), `resume.txt` (+`resume.pdf`,
   +`resume.docx` = JOB-6 base template), `context/`, `data/history.json`,
   `data/applications.json`. `RESUMES_DIR`=`resumes/` (gitignored),
   `base_resume_docx()`.

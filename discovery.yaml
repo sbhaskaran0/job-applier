@@ -1,0 +1,29 @@
+# Startup-discovery sources for `python -m src.discover` (see USER_GUIDE §5b).
+#
+# These feeds enumerate candidate companies; the discover run then confirms
+# each against the public Greenhouse/Ashby/Lever board APIs and counts roles
+# passing your job_criteria.yaml baseline. Results land in the candidate_boards
+# ledger (data/postings.db) and data/discovery-latest.md — nothing is added to
+# watchlist.yaml without your say-so (use add_company on the winners).
+
+yc:
+  enabled: true
+  hiring_only: true          # only companies flagged isHiring in the YC directory
+  min_team_size: 20          # skip tiny teams unlikely to have mid/senior S&O roles
+  statuses: [Active, Public] # skip Acquired / Inactive
+
+# VC portfolio job boards powered by Consider (api-boards/search-jobs).
+# Jobs on these boards link to the company's real ATS, so slugs come out exact.
+# To add a fund: find its portfolio jobs site, confirm the footer says
+# "Powered by Consider", and guess board_id from the fund's name.
+consider_boards:
+  - name: a16z
+    url: https://portfoliojobs.a16z.com
+    board_id: andreessen-horowitz
+  - name: usv
+    url: https://jobs.usv.com
+    board_id: union-square-ventures
+
+limits:
+  max_probes_per_run: 250    # companies probed per run; the rest stay queued
+  probe_concurrency: 8       # parallel board probes (matches refresh etiquette)

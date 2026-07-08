@@ -81,6 +81,40 @@ refresh rebuilds it. Schedule the refresh daily (Windows Task Scheduler via
 `scripts/refresh.cmd`, or cron/launchd) to get a standing digest of new
 matching roles; see the USER_GUIDE.
 
+## Growing the watchlist automatically
+
+The watchlist is curated and hand-approved, but you don't have to find the
+companies by hand. `python -m src.discover` (also LLM-free, config in
+`discovery.yaml`) enumerates candidate startups from **company-list feeds** —
+the **YC company directory** and **VC portfolio job boards** (a16z, USV, … any
+board powered by Consider) — and **confirms each against the public ATS APIs**,
+counting how many of its roles pass your `job_criteria.yaml` baseline. The
+search-engine path that used to rate-limit us is gone: Consider boards hand back
+each company's real ATS slug directly, and YC companies are resolved by probing
+slug guesses against the same Greenhouse/Ashby/Lever endpoints the refresh
+already hits.
+
+```mermaid
+flowchart TD
+    subgraph DISC["python -m src.discover — pure Python, no LLM, incremental"]
+        YC["YC directory<br/>(yc-oss mirror)<br/>hiring · team-size filtered"] --> GP["guess slug variants<br/>from domain / name"]
+        CB["Consider VC boards<br/>a16z · USV · …<br/>(applyUrl → real ATS)"] --> EX["exact (ats, slug)"]
+        GP --> PR["probe public ATS APIs<br/>Greenhouse · Ashby · Lever"]
+        EX --> PR
+        PR --> CNT["count roles passing<br/>the job_criteria baseline<br/>(same filter as the watchlist)"]
+        CNT --> LED[("candidate_boards ledger<br/>in data/postings.db<br/>status · qualifying · last_probed<br/>(re-runs skip fresh entries)")]
+        LED --> REP["data/discovery-latest.md<br/>proposed additions,<br/>ranked by qualifying roles"]
+    end
+    REP -.->|"you pick winners"| AC["add_company &lt;board url&gt;<br/>→ watchlist.yaml"]
+    AC -.-> RF["next refresh ingests them<br/>like any watchlist company"]
+```
+
+Every run probes up to `max_probes_per_run` candidates (exact Consider slugs
+first, then YC guess-probes) and queues the rest, so the cost is bounded and
+re-runs only touch new or stale boards. Nothing lands on the watchlist without
+your say-so — the report proposes, you `add_company` the ones you want. Full
+walkthrough in the USER_GUIDE.
+
 ## How a field gets answered
 
 Every form field runs through a strict source cascade — **profile → history →

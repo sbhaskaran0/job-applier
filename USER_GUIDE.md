@@ -162,6 +162,61 @@ re-verified via the ATS API before an application is prepped.
 
 ---
 
+## 5b. Discovering new companies to watch
+
+The watchlist is deliberately small and curated, but finding companies to add
+is automated. `python -m src.discover` (pure Python — like the refresh, no
+Claude session, no LLM, no browser) pulls **company-list feeds**, confirms each
+company against the public ATS APIs, and hands you a ranked list of ones worth
+adding — all without a rate-limited web search anywhere in the loop.
+
+**Sources** (configured in [discovery.yaml](discovery.yaml)):
+
+- **YC company directory** — every launched YC company (via the public yc-oss
+  mirror), filtered to ones currently hiring and above a team-size floor. YC
+  gives a name + website but no ATS slug, so the run **guesses slug variants
+  from the domain/name** and probes Greenhouse/Ashby/Lever (~50% resolve).
+- **Consider VC portfolio boards** — the job boards funds like **a16z** and
+  **USV** publish (any board "Powered by Consider"). Each listing links to the
+  company's real ATS, so the `(ats, slug)` comes out **exact** — no guessing.
+  Add a fund by dropping its board URL + id into `discovery.yaml`.
+
+**What a run does:**
+
+```bash
+python -m src.discover
+```
+
+1. Enumerates all candidates from the enabled sources (deduped by board).
+2. For each candidate it hasn't seen recently, **fetches that company's ATS
+   board and counts roles passing your `job_criteria.yaml` baseline** — the
+   exact same deterministic filter `/find-jobs` uses, so a candidate's
+   "qualifying" number is what it would really show once on the watchlist.
+3. Records every result in a **candidate ledger** inside `data/postings.db`
+   (`status`, qualifying count, `last_probed`), then regenerates
+   **`data/discovery-latest.md`** — a table of **proposed additions** (confirmed
+   boards with ≥1 qualifying role, not already on your watchlist), ranked by how
+   many qualifying roles they have.
+
+It's **incremental and bounded**: each run probes up to `max_probes_per_run`
+candidates (exact Consider slugs first, then YC guess-probes) and queues the
+rest; re-runs skip boards probed within `reprobe_after_days`. So the first few
+runs drain the backlog, and thereafter it just picks up newly-hiring companies.
+
+**Adopting a candidate is your call** — nothing touches `watchlist.yaml`
+automatically. Open the report, and for any company you like:
+
+```
+add_company https://jobs.ashbyhq.com/harvey     ← the Board URL from the report
+```
+
+From then on it's a normal watchlist company: the next refresh ingests its
+roles and `/find-jobs` ranks them. Schedule `src.discover` weekly (same
+mechanism as the daily refresh — Task Scheduler / cron / launchd) if you want a
+standing stream of fresh candidates.
+
+---
+
 ## 6. Managing your watchlist
 
 The watchlist is the universe `/find-jobs` searches — curated for quality.
@@ -470,6 +525,7 @@ Job Applier/
 ├─ user_profile.yaml             # your exact facts
 ├─ job_criteria.yaml             # strict search bar (titles/seniority/salary/location)
 ├─ watchlist.yaml                # ~30 target companies
+├─ discovery.yaml                # startup-discovery sources (YC + VC portfolio boards)
 ├─ resume.txt   (resume.pdf)     # reasoning text  (uploaded file)
 ├─ resume.docx                   # base template for /tailor-application (you add it)
 ├─ resumes/                      # per-job tailored resume + cover letter (gitignored)
@@ -488,11 +544,13 @@ Job Applier/
 │  ├─ context.py                 # knowledge-base retrieval
 │  ├─ tailor.py                  # JOB-6 per-job resume/cover-letter tailoring
 │  ├─ config.py                  # paths + loaders
-│  ├─ store.py                   # SQLite postings store + baseline filter
+│  ├─ store.py                   # SQLite postings store + baseline filter + candidate ledger
 │  ├─ refresh.py                 # python -m src.refresh (headless ingest)
+│  ├─ discover.py                # python -m src.discover (startup discovery → candidates)
 │  └─ providers/
 │     ├─ __init__.py             # provider seam (get_provider)
 │     ├─ watchlist.py            # ATS board fetch/normalize + watchlist mgmt
+│     ├─ discovery.py            # startup-discovery sources (YC + Consider) + slug probe
 │     └─ extract.py              # ingest-time salary/years/seniority extraction
 └─ .claude/skills/
    ├─ find-jobs/SKILL.md         # /find-jobs

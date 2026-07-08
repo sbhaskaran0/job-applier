@@ -41,6 +41,15 @@ CREATE TABLE IF NOT EXISTS refresh_runs (
   removed_count INTEGER, relisted_count INTEGER,
   companies_ok INTEGER, companies_failed TEXT
 );
+CREATE TABLE IF NOT EXISTS candidate_boards (
+  source TEXT NOT NULL, source_key TEXT NOT NULL,
+  company TEXT, ats TEXT, slug TEXT,
+  status TEXT NOT NULL,        -- confirmed | unresolved | dead
+  active_count INTEGER DEFAULT 0, title_matched INTEGER DEFAULT 0,
+  qualifying INTEGER DEFAULT 0, on_watchlist INTEGER DEFAULT 0,
+  first_seen TEXT NOT NULL, last_probed TEXT,
+  PRIMARY KEY (source, source_key)
+);
 """
 
 
@@ -311,6 +320,66 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         "dropped_over_max_years": dropped_years,
         "companies_failed": json.loads(run["companies_failed"]) if run else [],
     }
+
+
+# --------------------------------------------------------------------------- #
+# startup-discovery candidate ledger (JOB: YC + VC portfolio pulls)
+# --------------------------------------------------------------------------- #
+def count_board_baseline(postings: list[dict],
+                         baseline: dict | None = None) -> tuple[int, int, int]:
+    """(active, title_matched, qualifying) for a freshly-fetched board — the
+    same deterministic pipeline yield_stats runs on stored postings, so a
+    candidate's qualifying count matches what it would show once on the
+    watchlist. Enrichment (salary-from-JD, seniority flag) runs per posting."""
+    baseline = baseline if baseline is not None else \
+        config.load_search_criteria().get("baseline", {})
+    excluded = baseline.get("excluded_seniority") or []
+    active = len(postings)
+    title_matched = qualifying = 0
+    for p in postings:
+        if not _title_matches(p.get("title", ""), baseline.get("acceptable_titles")):
+            continue
+        title_matched += 1
+        row = {**p, **_enrich(p, excluded)}
+        if passes_baseline(row, baseline)[0]:
+            qualifying += 1
+    return active, title_matched, qualifying
+
+
+def load_candidates(conn: sqlite3.Connection | None = None) -> dict:
+    """Ledger keyed by (source, source_key) → row dict, for incremental probing."""
+    own = conn is None
+    conn = conn or connect()
+    try:
+        return {(r["source"], r["source_key"]): dict(r)
+                for r in conn.execute("SELECT * FROM candidate_boards")}
+    finally:
+        if own:
+            conn.close()
+
+
+def upsert_candidate(conn: sqlite3.Connection, cand: dict) -> None:
+    """Insert or update one candidate probe result. first_seen is preserved on
+    update; everything else reflects the latest probe."""
+    key = (cand["source"], cand["source_key"])
+    existing = conn.execute(
+        "SELECT first_seen FROM candidate_boards WHERE source=? AND source_key=?",
+        key).fetchone()
+    first_seen = existing["first_seen"] if existing else _now()
+    conn.execute(
+        "INSERT INTO candidate_boards (source, source_key, company, ats, slug, "
+        "status, active_count, title_matched, qualifying, on_watchlist, "
+        "first_seen, last_probed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(source, source_key) DO UPDATE SET "
+        "company=excluded.company, ats=excluded.ats, slug=excluded.slug, "
+        "status=excluded.status, active_count=excluded.active_count, "
+        "title_matched=excluded.title_matched, qualifying=excluded.qualifying, "
+        "on_watchlist=excluded.on_watchlist, last_probed=excluded.last_probed",
+        (cand["source"], cand["source_key"], cand.get("company"),
+         cand.get("ats"), cand.get("slug"), cand["status"],
+         cand.get("active_count", 0), cand.get("title_matched", 0),
+         cand.get("qualifying", 0), int(bool(cand.get("on_watchlist"))),
+         first_seen, cand.get("last_probed") or _now()))
 
 
 def yield_stats() -> list[dict]:
