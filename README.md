@@ -29,6 +29,13 @@ Open this project in Claude Code and reload it (loads `.mcp.json`), then:
   cover letter for one posting: it re-emphasizes/reorders bullets in your
   `resume.docx` (formatting preserved) and drafts a cover letter in **your own
   writing voice**, saved for the apply flow to pick up automatically.
+- **`autonomous` prefix** — prefix the argument of `/find-jobs`,
+  `/apply-to-job`, or `/apply-batch` with `autonomous` (e.g.
+  `/apply-batch autonomous <url> <url>`) to run **without approval gates** and
+  **auto-submit where possible**. Jobs that still need a manual submit
+  (spam-reject, visible CAPTCHA, parked fields) are left filled for you. Opt-in
+  per run — nothing is ever autonomous unless you say so. See
+  [the autonomous flow](#autonomous-mode-hands-off-per-run) below.
 
 Edit `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`, `resume.txt`
 (+ optional `resume.pdf`), and `context/` to make it yours.
@@ -73,6 +80,40 @@ The store is a cache of public data — delete `data/postings.db` and the next
 refresh rebuilds it. Schedule the refresh daily (Windows Task Scheduler via
 `scripts/refresh.cmd`, or cron/launchd) to get a standing digest of new
 matching roles; see the USER_GUIDE.
+
+## Growing the watchlist automatically
+
+The watchlist is curated and hand-approved, but you don't have to find the
+companies by hand. `python -m src.discover` (also LLM-free, config in
+`discovery.yaml`) enumerates candidate startups from **company-list feeds** —
+the **YC company directory** and **VC portfolio job boards** (a16z, USV, … any
+board powered by Consider) — and **confirms each against the public ATS APIs**,
+counting how many of its roles pass your `job_criteria.yaml` baseline. The
+search-engine path that used to rate-limit us is gone: Consider boards hand back
+each company's real ATS slug directly, and YC companies are resolved by probing
+slug guesses against the same Greenhouse/Ashby/Lever endpoints the refresh
+already hits.
+
+```mermaid
+flowchart TD
+    subgraph DISC["python -m src.discover — pure Python, no LLM, incremental"]
+        YC["YC directory<br/>(yc-oss mirror)<br/>hiring · team-size filtered"] --> GP["guess slug variants<br/>from domain / name"]
+        CB["Consider VC boards<br/>a16z · USV · …<br/>(applyUrl → real ATS)"] --> EX["exact (ats, slug)"]
+        GP --> PR["probe public ATS APIs<br/>Greenhouse · Ashby · Lever"]
+        EX --> PR
+        PR --> CNT["count roles passing<br/>the job_criteria baseline<br/>(same filter as the watchlist)"]
+        CNT --> LED[("candidate_boards ledger<br/>in data/postings.db<br/>status · qualifying · last_probed<br/>(re-runs skip fresh entries)")]
+        LED --> REP["data/discovery-latest.md<br/>proposed additions,<br/>ranked by qualifying roles"]
+    end
+    REP -.->|"you pick winners"| AC["add_company &lt;board url&gt;<br/>→ watchlist.yaml"]
+    AC -.-> RF["next refresh ingests them<br/>like any watchlist company"]
+```
+
+Every run probes up to `max_probes_per_run` candidates (exact Consider slugs
+first, then YC guess-probes) and queues the rest, so the cost is bounded and
+re-runs only touch new or stale boards. Nothing lands on the watchlist without
+your say-so — the report proposes, you `add_company` the ones you want. Full
+walkthrough in the USER_GUIDE.
 
 ## How a field gets answered
 
@@ -163,5 +204,42 @@ otherwise. Drop a `resume.docx` in the project root to enable resume tailoring
 cross-platform: it uses Microsoft Word when present (Windows or macOS) and
 falls back to LibreOffice (`soffice`, any OS, no Word needed); if neither is
 installed the tailored `.docx` is still saved to export manually.
+
+## Autonomous mode (hands-off, per run)
+
+By default the agent gates its answers and **never submits without your say-so**.
+Prefix any of the three commands' arguments with **`autonomous`** to opt that one
+run into full hands-off execution: it resolves and fills every answer without
+pausing, and **auto-submits where it safely can**. In autonomous `/find-jobs` it
+also **auto-selects the top finalists** (default 5, skipping already-applied) and
+chains straight into the batch apply — search to submit, end to end.
+
+Autonomous mode removes the **approval gates**, not the **guardrails**. It still
+won't fight a stubborn widget (one corrective pass, then park), won't
+force-submit past a spam-reject or a visible CAPTCHA, and never fabricates an
+answer — anything it can't complete cleanly is left **fully filled** in its tab
+for a one-click manual submit, exactly as in gated batch mode.
+
+```mermaid
+flowchart TD
+    KW["/find-jobs · /apply-to-job · /apply-batch<br/>with <b>autonomous</b> prefix"] --> FIND
+    subgraph FIND["find-jobs (autonomous)"]
+        RANK["rank + strict-filter"] --> PICK["auto-select top N finalists<br/>(default 5, skip already-applied)"]
+    end
+    PICK --> QUEUE["apply-batch (autonomous)"]
+    KWURL["autonomous URL(s) given directly"] --> QUEUE
+    QUEUE --> NOGATE["Stage C approval <b>skipped</b><br/>(one-line plan logged)"]
+    NOGATE --> FILL["fill every field<br/>profile → history → context<br/>(no pause; still save_answer)"]
+    FILL --> VERIFY{"verify + one<br/>corrective pass"}
+    VERIFY -->|"clean"| SUBMIT["auto-submit"]
+    VERIFY -->|"stubborn field / no honest answer"| PARK["park — leave filled"]
+    SUBMIT --> CHECK{"get_job_text<br/>success?"}
+    CHECK -->|"verified"| DONE["log submitted"]
+    CHECK -->|"spam-reject / unverified"| MANUAL["manual_submission<br/>leave tab filled"]
+    VISIBLE["visible CAPTCHA / login"] --> PARK
+    PARK --> REPORT["Report: N submitted ·<br/>K awaiting your manual submit · M parked"]
+    MANUAL --> REPORT
+    DONE --> REPORT
+```
 
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**

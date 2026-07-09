@@ -21,6 +21,7 @@ interact through three skills:
 | `/apply-to-job <url>` | Open an application form and fill it from your profile/history/context, pausing only when unsure.                                                             |
 | `/apply-batch <urls>` | Queue several applications: parallel answer prep, **one** upfront approval (incl. per-job submit consent), then serial fill/submit with zero mid-run prompts. |
 | `/tailor-application <url>` | **On demand:** generate a bespoke resume (edits your `resume.docx` in place, formatting preserved) + a cover letter in your own writing voice for one posting; saved for the apply flow to auto-use. |
+| `… autonomous <arg>`  | **Opt-in per run.** Prefix the argument of `/find-jobs`, `/apply-to-job`, or `/apply-batch` with `autonomous` to run without any approval gates and **auto-submit where possible**. Jobs that still need a manual submit (spam-reject, visible CAPTCHA, parked fields) are left filled for you. See §7. |
 
 
 There is **no OpenAI/Anthropic API key** and **no cost** in the core flow — Claude
@@ -161,6 +162,61 @@ re-verified via the ATS API before an application is prepped.
 
 ---
 
+## 5b. Discovering new companies to watch
+
+The watchlist is deliberately small and curated, but finding companies to add
+is automated. `python -m src.discover` (pure Python — like the refresh, no
+Claude session, no LLM, no browser) pulls **company-list feeds**, confirms each
+company against the public ATS APIs, and hands you a ranked list of ones worth
+adding — all without a rate-limited web search anywhere in the loop.
+
+**Sources** (configured in [discovery.yaml](discovery.yaml)):
+
+- **YC company directory** — every launched YC company (via the public yc-oss
+  mirror), filtered to ones currently hiring and above a team-size floor. YC
+  gives a name + website but no ATS slug, so the run **guesses slug variants
+  from the domain/name** and probes Greenhouse/Ashby/Lever (~50% resolve).
+- **Consider VC portfolio boards** — the job boards funds like **a16z** and
+  **USV** publish (any board "Powered by Consider"). Each listing links to the
+  company's real ATS, so the `(ats, slug)` comes out **exact** — no guessing.
+  Add a fund by dropping its board URL + id into `discovery.yaml`.
+
+**What a run does:**
+
+```bash
+python -m src.discover
+```
+
+1. Enumerates all candidates from the enabled sources (deduped by board).
+2. For each candidate it hasn't seen recently, **fetches that company's ATS
+   board and counts roles passing your `job_criteria.yaml` baseline** — the
+   exact same deterministic filter `/find-jobs` uses, so a candidate's
+   "qualifying" number is what it would really show once on the watchlist.
+3. Records every result in a **candidate ledger** inside `data/postings.db`
+   (`status`, qualifying count, `last_probed`), then regenerates
+   **`data/discovery-latest.md`** — a table of **proposed additions** (confirmed
+   boards with ≥1 qualifying role, not already on your watchlist), ranked by how
+   many qualifying roles they have.
+
+It's **incremental and bounded**: each run probes up to `max_probes_per_run`
+candidates (exact Consider slugs first, then YC guess-probes) and queues the
+rest; re-runs skip boards probed within `reprobe_after_days`. So the first few
+runs drain the backlog, and thereafter it just picks up newly-hiring companies.
+
+**Adopting a candidate is your call** — nothing touches `watchlist.yaml`
+automatically. Open the report, and for any company you like:
+
+```
+add_company https://jobs.ashbyhq.com/harvey     ← the Board URL from the report
+```
+
+From then on it's a normal watchlist company: the next refresh ingests its
+roles and `/find-jobs` ranks them. Schedule `src.discover` weekly (same
+mechanism as the daily refresh — Task Scheduler / cron / launchd) if you want a
+standing stream of fresh candidates.
+
+---
+
 ## 6. Managing your watchlist
 
 The watchlist is the universe `/find-jobs` searches — curated for quality.
@@ -225,9 +281,12 @@ one's prompts. It runs in stages:
 
 1. **Snapshot** — each form is opened briefly and saved (fields + job
   description) to `data/prep/` (gitignored).
-2. **Parallel prep** — one read-only subagent per job resolves every field
-  through the same profile → history → context cascade and drafts anything
-   open-ended.
+2. **Parallel prep** — read-only subagents resolve every field through the same
+  profile → history → context cascade and draft anything open-ended. Jobs are
+   **chunked ~4–6 per subagent** (not one agent per job) so each agent's fixed
+   context overhead is amortized across several jobs, and all-profile forms with
+   nothing to craft are resolved inline with no subagent at all — keeping the
+   per-application token cost low.
 3. **One consolidated review** — you approve/edit all gated answers for the
   whole queue **and give per-job submit consent** ("submit both", "fill #2
    but don't submit"…). This is the only interaction.
@@ -249,12 +308,50 @@ upfront, per job. Only verified submits are logged as `submitted` in
 `data/applications.json`; forms you submit yourself are logged as
 `manual_submission`, and unconfirmed clicks as `attempted`.
 
+### Autonomous mode — `autonomous <arg>`
+
+**Opt-in, per run.** Prefix the argument with `autonomous` on any of the three
+commands to run **without approval gates** and **auto-submit where possible**:
+
+```
+/find-jobs autonomous fintech product strategy      # find → auto-pick → apply → submit
+/apply-to-job autonomous <url>                       # one job, no prompts
+/apply-batch autonomous <url> <url>                  # queue, no upfront approval
+```
+
+- **`/apply-to-job autonomous`** — crafted and adapted answers are filled without
+  pausing (still saved to history), and it **submits on its own** once a form is
+  filled and verified.
+- **`/apply-batch autonomous`** — the one upfront review (Stage C) is **skipped**;
+  it logs a one-line plan per job and proceeds to fill + submit the whole queue.
+- **`/find-jobs autonomous`** — instead of just listing matches, it **auto-selects
+  the top finalists** (default **top 5**, skipping ones you've already applied to;
+  say "autonomous top 10 …" to raise the cap) and hands them to the autonomous
+  batch apply. It reports the selection first so you can see what it's doing.
+
+What autonomous mode **does not** change (the guardrails still hold):
+
+- **It doesn't fight errors.** Same "one corrective pass, then park/flag" rule —
+  no retry loops, no screenshot spam. It stays cheap per application.
+- **Auto-submit is not force-submit.** A submit it can't verify, or that an ATS
+  spam-rejects (reCAPTCHA v3), becomes a `manual_submission` — the form is left
+  **fully filled** in its tab for you to submit, exactly as in gated batch mode.
+- **Visible CAPTCHAs / login walls still stop it** and hand off to you.
+- It **never fabricates** an answer to fill a required field — an unanswerable
+  field is parked, not guessed.
+
+So an autonomous run ends the same way a batch run does: **"N submitted · K
+awaiting your manual submit · M parked"**, with every unsubmittable job left
+filled for a one- or two-click finish.
+
 ### Safety
 
-- **It never submits on its own.** `submit_application` runs only when you
-explicitly say to submit.
+- **By default it never submits on its own.** `submit_application` runs only when
+you explicitly say to submit — *unless* you opted into **autonomous mode** for
+that run (above), which submits where it safely can and leaves the rest for you.
 - The browser is **non-headless** — you can take over at any point.
-- Confidence gating applies to *answers*; submission is *always* your call.
+- Confidence gating applies to *answers*; in the default flow submission is
+*always* your call. Autonomous mode is the single, explicit, per-run opt-out.
 
 ### CAPTCHAs, verification codes, and login walls
 
@@ -431,6 +528,7 @@ Job Applier/
 ├─ user_profile.yaml             # your exact facts
 ├─ job_criteria.yaml             # strict search bar (titles/seniority/salary/location)
 ├─ watchlist.yaml                # ~30 target companies
+├─ discovery.yaml                # startup-discovery sources (YC + VC portfolio boards)
 ├─ resume.txt   (resume.pdf)     # reasoning text  (uploaded file)
 ├─ resume.docx                   # base template for /tailor-application (you add it)
 ├─ resumes/                      # per-job tailored resume + cover letter (gitignored)
@@ -449,11 +547,13 @@ Job Applier/
 │  ├─ context.py                 # knowledge-base retrieval
 │  ├─ tailor.py                  # JOB-6 per-job resume/cover-letter tailoring
 │  ├─ config.py                  # paths + loaders
-│  ├─ store.py                   # SQLite postings store + baseline filter
+│  ├─ store.py                   # SQLite postings store + baseline filter + candidate ledger
 │  ├─ refresh.py                 # python -m src.refresh (headless ingest)
+│  ├─ discover.py                # python -m src.discover (startup discovery → candidates)
 │  └─ providers/
 │     ├─ __init__.py             # provider seam (get_provider)
 │     ├─ watchlist.py            # ATS board fetch/normalize + watchlist mgmt
+│     ├─ discovery.py            # startup-discovery sources (YC + Consider) + slug probe
 │     └─ extract.py              # ingest-time salary/years/seniority extraction
 └─ .claude/skills/
    ├─ find-jobs/SKILL.md         # /find-jobs

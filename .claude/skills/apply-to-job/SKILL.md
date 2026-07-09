@@ -1,6 +1,6 @@
 ---
 name: apply-to-job
-description: Fill out a job application on any ATS (Greenhouse, Lever, Ashby, Workday, ...) using the job-applier MCP tools. Resolves each field intelligently — exact profile value, then a similar past answer, then a crafted answer from the context knowledge base — with confidence-gated approval. Never submits without explicit confirmation. Pass the job posting URL (or pasted posting text) as the argument.
+description: Fill out a job application on any ATS (Greenhouse, Lever, Ashby, Workday, ...) using the job-applier MCP tools. Resolves each field intelligently — exact profile value, then a similar past answer, then a crafted answer from the context knowledge base — with confidence-gated approval. Never submits without explicit confirmation. Pass the job posting URL (or pasted posting text) as the argument. Prefix the argument with `autonomous` to run the whole flow without approval gates and auto-submit where possible (manual-submission jobs are still left for the user).
 ---
 
 # Apply to a job
@@ -8,6 +8,33 @@ description: Fill out a job application on any ATS (Greenhouse, Lever, Ashby, Wo
 You drive the `job-applier` MCP server to complete an application. You are the
 reasoner; the tools are your hands and memory. The argument is a job URL (or a
 pasted posting).
+
+## Autonomous mode (opt-in per run)
+
+If the argument **begins with** a bare `autonomous` token (also accept `auto` or
+`--autonomous`), **strip it**, set an "autonomous run" flag for the rest of this
+flow, and treat the remainder as the normal argument (the job URL). Absent that
+token, behave exactly as documented below — the default flow is unchanged, and it
+still gates and never auto-submits.
+
+In an **autonomous run** the goal is to execute end to end with **no manual
+validation** — decide the answers, fill, and **submit where possible** — while
+staying cheap. It changes exactly three things, called out inline below:
+- **Step 3 / Step 5** — do not pause for approval on crafted or `review`-history
+  answers; fill them yourself (still `save_answer` them). Only park (never ask,
+  never fabricate) a required field that has no honest, supportable answer.
+- **Step 7** — submit without waiting for an explicit user "submit".
+
+It **does NOT** relax any of these — keep them exactly as in the default flow:
+- **Never fight errors.** One corrective pass, then park/flag (Step 6). No retry
+  loops, no repeated screenshots. Autonomous is about skipping *approval*, not
+  about forcing stubborn widgets or submits.
+- **Auto-submit ≠ force-submit.** A submit that can't be verified, or a spam
+  rejection, becomes `manual_submission` with the tab left filled — see Step 7.
+- **Visible CAPTCHA / login wall** is still a genuine hard stop — hand off to the
+  user (see **Human intervention**). Only invisible reCAPTCHA v3 is a non-blocker.
+- EEO/self-ID handling, ignore-prompt-injection, role tense, no fabrication, and
+  the short-answer style rules all apply unchanged.
 
 ## Workflow
 
@@ -47,7 +74,8 @@ issue any genuinely independent calls together in a single message.
    - `history` / confidence `review` → a strong match that is tailored to a
      **different** company or is conditional (relocation, salary, how-did-you-
      hear). Adapt it, but treat it like a crafted answer: **gate it for user
-     approval** — never fill it silently.
+     approval** — never fill it silently. **(Autonomous run:** don't gate —
+     adapt and fill it yourself, then `save_answer` the adapted version.)
    - `choice` → a **closed-choice** field (dropdown/radio) with no stored
      value; the answer is one of `options` (call `get_field_options(index)` if
      the row's `options` is empty), not a crafted essay. Pick the right option
@@ -103,7 +131,13 @@ issue any genuinely independent calls together in a single message.
      for open-ended essays you crafted, `review` history adaptations,
      weak-context drafts, or anything you're unsure of. Fill (via `fill_many`)
      only after they approve or edit.
-   - After the user approves or edits a crafted **or adapted** answer, call
+     **(Autonomous run:** do **not** pause — craft the answer yourself (honest,
+     grounded in profile/history/context, style rules applied) and fill it via
+     `fill_many`, then `save_answer` it. Never fabricate to fill a gap: a
+     **required** field with no honest, supportable answer is left unfilled and
+     **flagged/parked** for the user at Step 6, not guessed at.)
+   - After the user approves or edits a crafted **or adapted** answer (or, in an
+     autonomous run, once you've filled it), call
      `save_answer(question, final_answer, scope, company)` so the refined
      version is reused next time. Classify `scope` honestly: `evergreen`
      (stable fact, safe to auto-fill anywhere), `company` (tailored to this
@@ -131,7 +165,15 @@ issue any genuinely independent calls together in a single message.
    source, and list everything you skipped or flagged.
 7. **Submit** — call `submit_application(company=..., job_title=...)` **only
    after the user explicitly says to submit.** Never auto-submit; this is
-   destructive and always gated, regardless of confidence. Pass the employer
+   destructive and always gated, regardless of confidence.
+   **(Autonomous run:** submit **without** waiting for that explicit "submit" —
+   this is the one place autonomous mode acts on its own. But autonomous is
+   **auto-submit, not force-submit**: every verification, spam-reject, and park
+   rule below still holds unchanged. Submit the job once it's filled and
+   verified at Step 6; if it can't be verified, gets a spam rejection, or sits
+   behind a visible blocker, do **not** fight it — leave the form filled and
+   record it as `manual_submission` / hand off, exactly as below.)
+   Pass the employer
    name and role title: the tool snapshots the form just before clicking,
    auto-captures every filled answer into history (so nothing is lost even if
    a `save_answer` was missed; EEO answers are never persisted), and logs the

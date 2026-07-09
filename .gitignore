@@ -19,6 +19,7 @@ resumes/
 # `python -m src.refresh` — only first_seen history is lost on delete)
 data/postings.db*
 data/digest-latest.md
+data/discovery-latest.md
 
 # Transient browser artifacts / screenshots
 /*.png
