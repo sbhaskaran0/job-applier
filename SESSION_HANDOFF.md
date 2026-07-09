@@ -1,7 +1,20 @@
 # Session handoff — job-applier
 
 Paste this into a fresh Claude Code session to restore context. Last updated
-2026-07-08 (session 12 — **startup discovery (YC + VC portfolio pulls).** New
+2026-07-09 (session 13 — **apply-batch Stage B token cut (JOB-51).** Batch prep
+was spending ~40k tokens per subagent as a *fixed floor* (measured: an
+all-profile job with zero crafted answers still cost ~42k), paid once per job
+because Stage B spawned one subagent per job. Reworked `.claude/skills/apply-
+batch/SKILL.md` Stage B to: **chunk 4–6 jobs per subagent** (17-job queue → ~3
+agents, amortizing the floor); **stop reading the 21 KB `apply-to-job/SKILL.md`
+in each agent** in favor of an inline condensed "Prep digest" (cascade + all six
+style rules); **mandate forwarding `kind` to `resolve_fields`** (closed-choice
+fields skip the essay corpus) and gate `get_cover_letter_examples` to
+essay-bearing jobs; and add an **inline fast-path** that resolves all-profile
+forms in the main context with no subagent. Expected 17-job Stage B: ~1.5M →
+~200–350k. `USER_GUIDE.md` Stage-2 description updated to match. Stage A/D
+unchanged. Motivated by a live 20-job autonomous run whose Stage B dominated
+cost. Session 12 — **startup discovery (YC + VC portfolio pulls).** New
 LLM-free `python -m src.discover`: enumerates candidate startups from the **YC
 company directory** (yc-oss mirror) and **Consider-powered VC portfolio boards**
 (a16z, USV — configured in new `discovery.yaml`), confirms each against the

@@ -281,9 +281,12 @@ one's prompts. It runs in stages:
 
 1. **Snapshot** — each form is opened briefly and saved (fields + job
   description) to `data/prep/` (gitignored).
-2. **Parallel prep** — one read-only subagent per job resolves every field
-  through the same profile → history → context cascade and drafts anything
-   open-ended.
+2. **Parallel prep** — read-only subagents resolve every field through the same
+  profile → history → context cascade and draft anything open-ended. Jobs are
+   **chunked ~4–6 per subagent** (not one agent per job) so each agent's fixed
+   context overhead is amortized across several jobs, and all-profile forms with
+   nothing to craft are resolved inline with no subagent at all — keeping the
+   per-application token cost low.
 3. **One consolidated review** — you approve/edit all gated answers for the
   whole queue **and give per-job submit consent** ("submit both", "fill #2
    but don't submit"…). This is the only interaction.
