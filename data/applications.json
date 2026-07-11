@@ -331,7 +331,7 @@
     "company": "Ladder",
     "job_title": "Business Operations Manager",
     "url": "https://job-boards.greenhouse.io/ladder33/jobs/7950494/confirmation",
-    "date": "2026-07-04",
+    "date": "2026-07-10",
     "status": "submitted",
     "fields": [
       {
@@ -368,7 +368,7 @@
       },
       {
         "question": "How did you hear about this job?*",
-        "answer": "Company careers page"
+        "answer": "Company careers page / professional network"
       },
       {
         "question": "Please note the target compensation for this role in the job description above. Are you aligned with this compensation?*",
@@ -377,38 +377,6 @@
       {
         "question": "Do you currently live in one of the following States? AZ, CA, CO, CT, FL, GA, KS, MA, MD, MN, NC, NH, NJ, NV, NY, OH, OR, PA, TX, VA, WA, WI",
         "answer": "Yes"
-      },
-      {
-        "question": "Security code",
-        "answer": "7"
-      },
-      {
-        "question": "security input 1",
-        "answer": "G"
-      },
-      {
-        "question": "security input 2",
-        "answer": "k"
-      },
-      {
-        "question": "security input 3",
-        "answer": "9"
-      },
-      {
-        "question": "security input 4",
-        "answer": "J"
-      },
-      {
-        "question": "security input 5",
-        "answer": "0"
-      },
-      {
-        "question": "security input 6",
-        "answer": "b"
-      },
-      {
-        "question": "security input 7",
-        "answer": "J"
       }
     ]
   },
@@ -868,5 +836,1274 @@
     "date": "2026-07-05",
     "status": "manual_submission",
     "fields": []
+  },
+  {
+    "company": "Plaid",
+    "job_title": "Product Manager",
+    "url": "https://jobs.ashbyhq.com/plaid/64642463-8ee8-4453-b166-449711f61cd0/application",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "No - I do not consent to receiving text messages",
+        "answer": "notGiven"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Search schools...",
+        "answer": "University of California, Santa Barbara"
+      },
+      {
+        "question": "Degree",
+        "answer": "Bachelor's Degree"
+      },
+      {
+        "question": "Field of Study",
+        "answer": "Economics"
+      },
+      {
+        "question": "New York City Office",
+        "answer": "on"
+      },
+      {
+        "question": "Current/Last Company",
+        "answer": "M Science"
+      },
+      {
+        "question": "LinkedIn",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Plaid's Mission",
+        "answer": "on"
+      },
+      {
+        "question": "Plaid's Products & Technical Innovation",
+        "answer": "on"
+      },
+      {
+        "question": "Ability to Use and Build AI Products",
+        "answer": "on"
+      },
+      {
+        "question": "N/A - Not enough information on Plaid's AI work to say",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Plaid",
+    "job_title": "Senior Product Manager",
+    "url": "https://jobs.ashbyhq.com/plaid/aef4ef62-ea67-4c9c-98f4-6a81a4dc1f09/application",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "No - I do not consent to receiving text messages",
+        "answer": "notGiven"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles,CA,US"
+      },
+      {
+        "question": "Search schools...",
+        "answer": "University of California-Los Angeles"
+      },
+      {
+        "question": "Degree",
+        "answer": "Master's Degree"
+      },
+      {
+        "question": "Field of Study",
+        "answer": "Quantitative Economics"
+      },
+      {
+        "question": "Search schools...",
+        "answer": "University of California-Santa Barbara"
+      },
+      {
+        "question": "Degree",
+        "answer": "Bachelor's Degree"
+      },
+      {
+        "question": "Field of Study",
+        "answer": "Economics"
+      },
+      {
+        "question": "San Francisco HQ",
+        "answer": "on"
+      },
+      {
+        "question": "Current/Last Company",
+        "answer": "M Science"
+      },
+      {
+        "question": "LinkedIn",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Plaid's Mission",
+        "answer": "on"
+      },
+      {
+        "question": "Passion for Fintech Industry",
+        "answer": "on"
+      },
+      {
+        "question": "Plaid's Products & Technical Innovation",
+        "answer": "on"
+      },
+      {
+        "question": "Ability to Use and Build AI Products",
+        "answer": "on"
+      },
+      {
+        "question": "N/A - Not enough information on Plaid's AI work to say",
+        "answer": "on"
+      },
+      {
+        "question": "Have you ever been previously employed by Plaid, Quovo or Cognito?",
+        "answer": "No"
+      },
+      {
+        "question": "Will you now or in the future require Plaid to provide immigration-related support or sponsorship in order to employ you?",
+        "answer": "No"
+      },
+      {
+        "question": "Teams and roles based in our San Francisco HQ, New York, or Seattle offices may require a hybrid working arrangement with in office expectations. Are you able to come into the office to work at least 2x's a week, with or without a reasonable accommodation?",
+        "answer": "Yes"
+      }
+    ]
+  },
+  {
+    "company": "Plaid",
+    "job_title": "Product Manager, Fraud Data",
+    "url": "https://jobs.ashbyhq.com/plaid/bda0f40d-5ac5-4ea4-aaab-3e5e013c0a26/application",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "No - I do not consent to receiving text messages",
+        "answer": "notGiven"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Search schools...",
+        "answer": "University of California, Santa Barbara"
+      },
+      {
+        "question": "Degree",
+        "answer": "Bachelor's Degree"
+      },
+      {
+        "question": "Field of Study",
+        "answer": "Economics"
+      },
+      {
+        "question": "San Francisco HQ",
+        "answer": "on"
+      },
+      {
+        "question": "Current/Last Company",
+        "answer": "M Science"
+      },
+      {
+        "question": "LinkedIn",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Passion for Fintech Industry",
+        "answer": "on"
+      },
+      {
+        "question": "Plaid's Products & Technical Innovation",
+        "answer": "on"
+      },
+      {
+        "question": "Ability to Use and Build AI Products",
+        "answer": "on"
+      },
+      {
+        "question": "N/A - Not enough information on Plaid's AI work to say",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Plaid",
+    "job_title": "Senior Product Manager - Consumer",
+    "url": "https://jobs.ashbyhq.com/plaid/ecfa7ea5-8849-4666-9bed-8fe9f57f20cf/application",
+    "date": "2026-07-09",
+    "status": "manual_submission",
+    "fields": []
+  },
+  {
+    "company": "OpenAI",
+    "job_title": "Product Operations Manager",
+    "url": "https://jobs.ashbyhq.com/openai/0dc614c9-4eec-475f-b215-5480fe41317a/application",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Legal Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Preferred Name (if applicable)",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles,CA,US"
+      },
+      {
+        "question": "Pick date...",
+        "answer": "07/27/2026"
+      },
+      {
+        "question": "Additional Information",
+        "answer": "I'm applying because Product Operations is the work I gravitate toward: owning the cross-functional problems that don't have a clean owner, then building the systems that make execution repeatable. At M Science I led a ground-up redesign of our packaging and pricing model, aligning data science, sales, and research and standing up a pricing desk, which drove a ~35% ARR increase the quarter after launch. I then built the infrastructure to make it stick, conceptualizing a Salesforce master-data system that unified our product metadata and automated customer entitlements. I do my own analysis in SQL and Python rather than waiting on a queue. OpenAI is shipping capability faster than most organizations can operationalize, and closing the gap between what the product can do and how a company actually runs on it is where I do my best work."
+      },
+      {
+        "question": "I acknowledge that I have opened, read, and understood the Arbitration Agreement. I understand that by submitting my application, I am agreeing to be bound by the terms of the Arbitration Agreement.",
+        "answer": "on"
+      },
+      {
+        "question": "I confirm I have read the above.",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "OpenAI",
+    "job_title": "Revenue Strategy & Operations - Central Cadence",
+    "url": "https://jobs.ashbyhq.com/openai/cc843c56-fac0-4174-aad5-dee875f2d86f/application",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Legal Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Preferred Name (if applicable)",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles,CA,US"
+      },
+      {
+        "question": "Pick date...",
+        "answer": "07/27/2026"
+      },
+      {
+        "question": "Additional Information",
+        "answer": "I've spent my career as a strategy and operations operator, running the analytical and system-level work behind revenue growth. At M Science I led a cross-functional overhaul of our pricing and packaging model, aligning sales, data science, and research and standing up a pricing desk, which drove a ~35% ARR increase the quarter after launch. I then built the infrastructure to make it durable: a Salesforce master data system for product metadata and entitlements, plus north-star metrics, Databricks pipelines, and executive dashboards. A central cadence role owning the forecasting and operating rhythm across GTM is exactly the kind of high-leverage, ambiguous problem I want to work on, and I'm self-sufficient in SQL and Python to do the analysis myself."
+      },
+      {
+        "question": "I acknowledge that I have opened, read, and understood the Arbitration Agreement. I understand that by submitting my application, I am agreeing to be bound by the terms of the Arbitration Agreement.",
+        "answer": "on"
+      },
+      {
+        "question": "I confirm I have read the above.",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Notion",
+    "job_title": "Product Manager, Workspaces",
+    "url": "https://jobs.ashbyhq.com/notion/35785e61-c4c3-44ec-a401-6741d89dd16a/application",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Full Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Notion Website",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Instacart",
+    "job_title": "Senior Product Manager, AI",
+    "url": "https://boards.greenhouse.io/embed/job_app?for=instacart&token=8024428",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": []
+  },
+  {
+    "company": "OpenAI",
+    "job_title": "Product Manager, Financial Engineering",
+    "url": "https://jobs.ashbyhq.com/openai/0f4da2b4-df8a-4560-809d-d0a6ac1ad9bc/application",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Legal Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Preferred Name (if applicable)",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles,CA,US"
+      },
+      {
+        "question": "Pick date...",
+        "answer": "08/02/2026"
+      },
+      {
+        "question": "Additional Information",
+        "answer": "I build data-intensive products for financially sophisticated users, so this role sits right where I want to be. At M Science I own our KPI API, which forecasts critical financial metrics for hundreds of companies for institutional and quant investors. Through discovery I found the API's restatement structure was creating look-ahead bias that broke clients' models, then partnered with engineering on a point-in-time schema that fixed it, doubled the number of quant teams using the data, and grew product ARR by about 80%. I also built ML anomaly detection and LLM-based QA that cut our error rate from over 2% to near zero. Turning frontier AI into financial tooling that teams trust enough to make real decisions with is exactly the kind of problem I want to work on."
+      },
+      {
+        "question": "I acknowledge that I have opened, read, and understood the Arbitration Agreement. I understand that by submitting my application, I am agreeing to be bound by the terms of the Arbitration Agreement.",
+        "answer": "on"
+      },
+      {
+        "question": "I confirm I have read the above.",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Mercury",
+    "job_title": "Senior Product Manager - Business Lending",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=mercury&token=6098827004",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Will you now or at any time in the future require visa sponsorship?*",
+        "answer": "No"
+      },
+      {
+        "question": "From where do you intend to work?*",
+        "answer": "Los Angeles, CA, United States"
+      },
+      {
+        "question": "Do you have at least 7+ years of direct product management experience?*",
+        "answer": "No"
+      },
+      {
+        "question": "Do you have at least 2+ years in lending, credit, payments, or another regulated financial domain?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "If you answered 'Yes' to the question above, then please describe your experience. *",
+        "answer": "My most directly relevant experience is at PennyMac Loan Services, where I spent about a year and a half as a Data Analyst in mortgage lending. I was the Broker Direct data domain expert and senior point of contact, built the high-visibility SQL and Excel reporting leadership used to steer strategy across a large loan portfolio, and produced time-sensitive regulatory reports, so I've worked inside the compliance and data rigor a regulated lending business demands. Since then, at M Science I've spent three-plus years as a Product Manager building data products for institutional and quant investors, which keeps me fluent in financial-services data and the needs of a highly regulated customer base. That combination of hands-on mortgage-lending data experience and product ownership in financial services is why Mercury's business lending mandate resonates with me: I understand both how much the lending lifecycle depends on trustworthy data and decisioning, and how to turn that into products customers trust."
+      }
+    ]
+  },
+  {
+    "company": "OpenAI",
+    "job_title": "Product Manager, ChatGPT Sites",
+    "url": "https://jobs.ashbyhq.com/openai/6db2af13-50b2-4fe0-a8df-874e2ba57f71/application",
+    "date": "2026-07-09",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Legal Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Preferred Name (if applicable)",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Pick date...",
+        "answer": "08/02/2026"
+      },
+      {
+        "question": "Additional Information",
+        "answer": "I've spent my career shipping data-intensive products and building things from zero. At M Science I own our KPI API, where product discovery surfaced adoption blockers the quant teams hadn't framed as product problems; the schema we rebuilt with engineering nearly doubled the teams using the data and grew ARR by ~80%. I'm also a builder by instinct. At Audare AI I used prototyping tools like Bolt and Lovable to get concepts in front of users early instead of arguing them in a doc. ChatGPT Sites sits right at the intersection I care about: putting real AI capability into a consumer product people actually use to make something. That's the kind of problem I want to work on, and I'd bring hands-on discovery, a bias for building, and comfort operating at the lowest level of detail."
+      },
+      {
+        "question": "I acknowledge that I have opened, read, and understood the Arbitration Agreement. I understand that by submitting my application, I am agreeing to be bound by the terms of the Arbitration Agreement.",
+        "answer": "on"
+      },
+      {
+        "question": "I confirm I have read the above.",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Coinbase",
+    "job_title": "Business Operations Senior Associate, Institutional",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=coinbase&token=7980600",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Company name*",
+        "answer": "M Science"
+      },
+      {
+        "question": "Title*",
+        "answer": "Product Manager, Systematic Data"
+      },
+      {
+        "question": "Start date month*",
+        "answer": "April"
+      },
+      {
+        "question": "Start date year*",
+        "answer": "2023"
+      },
+      {
+        "question": "Current role",
+        "answer": "1"
+      },
+      {
+        "question": "School*",
+        "answer": "University of California - Santa Barbara"
+      },
+      {
+        "question": "Degree*",
+        "answer": "Bachelor's Degree"
+      },
+      {
+        "question": "Discipline*",
+        "answer": "Economics"
+      },
+      {
+        "question": "Linkedin Profile URL*",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Are you at least 18 years of age?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Have you previously been employed by Coinbase in any capacity?*",
+        "answer": "No"
+      },
+      {
+        "question": "How did you hear about this job?*",
+        "answer": "Career Page"
+      },
+      {
+        "question": "Please confirm receipt of the above linked Global Data Privacy Notice and US Arbitration Agreement.*",
+        "answer": "Confirmed"
+      },
+      {
+        "question": "I understand that Coinbase may use AI tools to assist in the application and interview process. *",
+        "answer": "Yes"
+      },
+      {
+        "question": "Which of the following best describes how you use AI tools today?*",
+        "answer": "I design or automate workflows with AI tools (e.g., building agents, integrating AI into team processes)."
+      },
+      {
+        "question": "Have you ever worked in the financial services space?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Do you have a basic to intermediate understanding of cryptocurrency?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Have you ever worked at a consulting firm or internal strategy function? *",
+        "answer": "Yes"
+      },
+      {
+        "question": "Are you legally authorized to work in the country where this position is located?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Will you require sponsorship for employment visa status now or in the future?*",
+        "answer": "No"
+      },
+      {
+        "question": "Are you a current government official or were you a government official in the last five years (e.g., employee of a government agency or a government owned/controlled company, holder of public office or a civil service position)?*",
+        "answer": "No, I am not a current or former Government Official"
+      },
+      {
+        "question": "Are you a close relative of a government official (i.e., child/step-child, spouse/partner, parent/guardian, aunt/uncle, first cousin, in-law)?*",
+        "answer": "No, I am not a relative of a government official."
+      },
+      {
+        "question": "To your knowledge, do you or a close relative currently hold a role, have a significant financial interest in, or maintain a close personal relationship with a senior leader at a company connected to Coinbase that could create an actual or perceived conflict of interest?*",
+        "answer": "No"
+      },
+      {
+        "question": "To your knowledge, were you referred to this position by a senior leader or decision‑maker at a current or prospective institutional client, business partner, or vendor of Coinbase?*",
+        "answer": "No"
+      },
+      {
+        "question": "Security code",
+        "answer": "D"
+      },
+      {
+        "question": "security input 1",
+        "answer": "r"
+      },
+      {
+        "question": "security input 2",
+        "answer": "O"
+      },
+      {
+        "question": "security input 3",
+        "answer": "h"
+      },
+      {
+        "question": "security input 4",
+        "answer": "R"
+      },
+      {
+        "question": "security input 5",
+        "answer": "C"
+      },
+      {
+        "question": "security input 6",
+        "answer": "z"
+      },
+      {
+        "question": "security input 7",
+        "answer": "u"
+      }
+    ]
+  },
+  {
+    "company": "Tailscale",
+    "job_title": "Business Operations & Strategy Manager",
+    "url": "https://boards.greenhouse.io/embed/job_app?for=tailscale&token=4699962005",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": []
+  },
+  {
+    "company": "Plaid",
+    "job_title": "Product Operations",
+    "url": "https://jobs.ashbyhq.com/plaid/a7470e5b-2761-4251-9a59-a52c0f7c0e90/application",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "No - I do not consent to receiving text messages",
+        "answer": "notGiven"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Search schools...",
+        "answer": "University of California, Santa Barbara"
+      },
+      {
+        "question": "Degree",
+        "answer": "Bachelor's Degree"
+      },
+      {
+        "question": "Field of Study",
+        "answer": "Economics"
+      },
+      {
+        "question": "Current/Last Company",
+        "answer": "M Science"
+      },
+      {
+        "question": "LinkedIn",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Plaid's Mission",
+        "answer": "on"
+      },
+      {
+        "question": "Plaid's Products & Technical Innovation",
+        "answer": "on"
+      },
+      {
+        "question": "Ability to Use and Build AI Products",
+        "answer": "on"
+      },
+      {
+        "question": "N/A - Not enough information on Plaid's AI work to say",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Samsara",
+    "job_title": "Product Manager - Revenue Tools",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=samsara&token=7750279",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Preferred First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Preferred Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Will you now or in the future require Samsara to commence (“sponsor”) an immigration case in order to employ you? *",
+        "answer": "No"
+      },
+      {
+        "question": "At Samsara, we encourage employees to bring their whole selves to work (this includes applicants too!) Feel free to share your preferred name and pronouns (she/her, they/them, he/him, ze/zir etc.).",
+        "answer": "Siddharth Bhaskaran (he/him)"
+      },
+      {
+        "question": "Processing of Personal Data*",
+        "answer": "Acknowledge/Confirm"
+      },
+      {
+        "question": "Are you currently legally authorized to work in the country in which this job is based (e.g. you are a citizen, you have a visa, etc.)?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "What is the zip code of your primary residence?*",
+        "answer": "90036"
+      },
+      {
+        "question": "How did you hear about this opportunity?*",
+        "answer": "Samsara Careers Site"
+      },
+      {
+        "question": "AI Policy for Interviewers*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Current Employer (if applicable)*",
+        "answer": "M Science"
+      },
+      {
+        "question": "How many years of experience do you have owning internal GTM/Revenue tools?",
+        "answer": "0-4"
+      },
+      {
+        "question": "What is your highest level of education?",
+        "answer": "Bachelor’s"
+      },
+      {
+        "question": "Samsara will not provide relocation assistance for this role. Do you require relocation assistance?",
+        "answer": "No"
+      },
+      {
+        "question": "Will you now or in the future require Samsara to commence (“sponsor”) an immigration case in order to employ you?",
+        "answer": "No"
+      },
+      {
+        "question": "Have you previously worked at Samsara?*",
+        "answer": "No"
+      },
+      {
+        "question": "How do you identify? (race/ethnicity)*",
+        "answer": "South Asian (inclusive of Bangladeshi, Bhutanese, Indian, Nepali, Pakistani, and Sri Lankan)"
+      },
+      {
+        "question": "Security code",
+        "answer": "3"
+      },
+      {
+        "question": "security input 1",
+        "answer": "j"
+      },
+      {
+        "question": "security input 2",
+        "answer": "q"
+      },
+      {
+        "question": "security input 3",
+        "answer": "O"
+      },
+      {
+        "question": "security input 4",
+        "answer": "b"
+      },
+      {
+        "question": "security input 5",
+        "answer": "J"
+      },
+      {
+        "question": "security input 6",
+        "answer": "3"
+      },
+      {
+        "question": "security input 7",
+        "answer": "Y"
+      }
+    ]
+  },
+  {
+    "company": "Vanta",
+    "job_title": "Senior Product Manager, GRC Platform",
+    "url": "https://jobs.ashbyhq.com/vanta/7816b5fe-e916-43b8-9200-d0d45298ba9f/application",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Full Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "No - I do not consent to receiving text messages",
+        "answer": "notGiven"
+      },
+      {
+        "question": "Current/Most Recent Company Name",
+        "answer": "M Science"
+      },
+      {
+        "question": "Current/Most Recent Job Title",
+        "answer": "Product Manager, Systematic Data"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "What are your pronouns? (Optional)",
+        "answer": "He/Him"
+      }
+    ]
+  },
+  {
+    "company": "Boulevard",
+    "job_title": "Senior Product Manager, Developer Ecosystem",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=boulevard&token=4683617006",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Personal Pronouns",
+        "answer": "He/Him"
+      },
+      {
+        "question": "What are your total compensation requirements?*",
+        "answer": "$180,000"
+      },
+      {
+        "question": "Are you eligible to work in the US without sponsorship indefinitely?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Security code",
+        "answer": "m"
+      },
+      {
+        "question": "security input 1",
+        "answer": "k"
+      },
+      {
+        "question": "security input 2",
+        "answer": "B"
+      },
+      {
+        "question": "security input 3",
+        "answer": "L"
+      },
+      {
+        "question": "security input 4",
+        "answer": "A"
+      },
+      {
+        "question": "security input 5",
+        "answer": "J"
+      },
+      {
+        "question": "security input 6",
+        "answer": "W"
+      },
+      {
+        "question": "security input 7",
+        "answer": "4"
+      }
+    ]
+  },
+  {
+    "company": "Grow Therapy",
+    "job_title": "Senior Product Manager, Client Marketplace",
+    "url": "https://jobs.ashbyhq.com/grow-therapy/a26db799-b0dd-4936-9cc8-6af34d0dfeb3/application",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": []
+  },
+  {
+    "company": "Snowflake",
+    "job_title": "Senior Product Manager - Interactive Analytics",
+    "url": "https://jobs.ashbyhq.com/snowflake/e72df92e-951f-4c64-8016-1def8cf7e05d/application",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Full Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "LinkedIn Profile, if available",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Where have you most recently worked?",
+        "answer": "M Science"
+      },
+      {
+        "question": "I am a U.S. person",
+        "answer": "on"
+      },
+      {
+        "question": "No - I have never been employed by PwC",
+        "answer": "on"
+      },
+      {
+        "question": "I Acknowledge",
+        "answer": "on"
+      },
+      {
+        "question": "I have read and agree to the Snowflake Candidate Privacy Notice.",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Samsara",
+    "job_title": "Senior Product Manager, Growth",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=samsara&token=7700461",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Preferred First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Preferred Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Will you now or in the future require Samsara to commence (“sponsor”) an immigration case in order to employ you? *",
+        "answer": "No"
+      },
+      {
+        "question": "Are you currently legally authorized to work in the country in which this job is based (e.g. you are a citizen, you have a visa, etc.)?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "At Samsara, we encourage employees to bring their whole selves to work (this includes applicants too!) Feel free to share your preferred name and pronouns (she/her, they/them, he/him, ze/zir etc.).",
+        "answer": "Siddharth Bhaskaran (he/him)"
+      },
+      {
+        "question": "Processing of Personal Data*",
+        "answer": "Acknowledge/Confirm"
+      },
+      {
+        "question": "What is the zip code of your primary residence?*",
+        "answer": "90036"
+      },
+      {
+        "question": "How did you hear about this opportunity?*",
+        "answer": "Samsara Careers Site"
+      },
+      {
+        "question": "AI Policy for Interviewers*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Current Employer (if applicable)*",
+        "answer": "M Science"
+      },
+      {
+        "question": "Have you previously worked at Samsara?*",
+        "answer": "No"
+      },
+      {
+        "question": "How do you identify? (race/ethnicity)*",
+        "answer": "South Asian (inclusive of Bangladeshi, Bhutanese, Indian, Nepali, Pakistani, and Sri Lankan)"
+      },
+      {
+        "question": "Security code",
+        "answer": "B"
+      },
+      {
+        "question": "security input 1",
+        "answer": "w"
+      },
+      {
+        "question": "security input 2",
+        "answer": "t"
+      },
+      {
+        "question": "security input 3",
+        "answer": "y"
+      },
+      {
+        "question": "security input 4",
+        "answer": "8"
+      },
+      {
+        "question": "security input 5",
+        "answer": "P"
+      },
+      {
+        "question": "security input 6",
+        "answer": "t"
+      },
+      {
+        "question": "security input 7",
+        "answer": "R"
+      }
+    ]
+  },
+  {
+    "company": "Samsara",
+    "job_title": "Sr. Product Manager I, In-vehicle Experience",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=samsara&token=7786156",
+    "date": "2026-07-10",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Preferred First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Preferred Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Will you now or in the future require Samsara to commence (“sponsor”) an immigration case in order to employ you? *",
+        "answer": "No"
+      },
+      {
+        "question": "Are you currently legally authorized to work in the country in which this job is based (e.g. you are a citizen, you have a visa, etc.)?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "At Samsara, we encourage employees to bring their whole selves to work (this includes applicants too!) Feel free to share your preferred name and pronouns (she/her, they/them, he/him, ze/zir etc.).",
+        "answer": "Siddharth (He/Him)"
+      },
+      {
+        "question": "Processing of Personal Data*",
+        "answer": "Acknowledge/Confirm"
+      },
+      {
+        "question": "What is the zip code of your primary residence?*",
+        "answer": "90036"
+      },
+      {
+        "question": "How did you hear about this opportunity?*",
+        "answer": "Samsara Careers Site"
+      },
+      {
+        "question": "AI Policy for Interviewers*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Current Employer (if applicable)*",
+        "answer": "M Science"
+      },
+      {
+        "question": "Have you previously worked at Samsara?*",
+        "answer": "No"
+      },
+      {
+        "question": "How do you identify? (race/ethnicity)*",
+        "answer": "South Asian (inclusive of Bangladeshi, Bhutanese, Indian, Nepali, Pakistani, and Sri Lankan)"
+      }
+    ]
   }
 ]
