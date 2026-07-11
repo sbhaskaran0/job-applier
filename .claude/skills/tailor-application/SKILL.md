@@ -80,6 +80,16 @@ they appear on the posting.
 - **On-demand only.** Never run this as part of a normal apply unless asked.
 - **Truthful tailoring.** Reorder, re-emphasize, and trim what's already true;
   never invent roles, dates, metrics, or skills to match a JD.
+- **Match the base resume's voice — don't leave AI tells.** Rewritten bullets must
+  read like the ones you didn't touch. Mirror the original's syntax and cadence:
+  verb-led clauses, comma-joined, `-ing` result tails ("…resulting in / increasing
+  …by ~X%"), the same metric phrasing and level of formality. Do NOT introduce
+  em-dashes, parenthetical asides/lists, quoted words, colons splicing mid-bullet,
+  or buzzy coinages ("0-to-1", "messy, ambiguous problem") if the base doesn't use
+  them. Prefer the lightest touch: reorder by swapping original bullet texts
+  verbatim, edit as few bullets as possible, and leave already-relevant bullets
+  exactly as written. The tailored resume should be indistinguishable in style
+  from the user's own — a reader should not be able to tell which bullets changed.
 - **Preserve formatting.** Edits go through the `.docx` template in place — never
   regenerate a resume from plain text.
 - **Match the user's writing** for the cover letter; gate it for approval before

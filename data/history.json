@@ -109,14 +109,14 @@
     "answer": "Los Angeles, California, United States",
     "scope": "evergreen",
     "company": "Rula",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Notion Website",
     "answer": "on",
     "scope": "company",
     "company": "Notion",
-    "date": "2026-07-04"
+    "date": "2026-07-09"
   },
   {
     "question": "We work from our offices on Mondays, Tuesdays, and Thursdays (Anchor Days). If you need an accommodation, we’ll partner with you and explore reasonable options consistent with applicable law. Are you able to commit to working from one of our offices on Anchor Days each week?",
@@ -130,70 +130,70 @@
     "answer": "Notion Website",
     "scope": "conditional",
     "company": "Notion",
-    "date": "2026-07-04"
+    "date": "2026-07-09"
   },
   {
     "question": "From where do you intend to work?*",
     "answer": "Los Angeles, CA, United States",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-09"
   },
   {
     "question": "Security code",
-    "answer": "n",
+    "answer": "B",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "security input 1",
-    "answer": "4",
+    "answer": "w",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "security input 2",
-    "answer": "q",
+    "answer": "t",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "security input 3",
-    "answer": "D",
+    "answer": "y",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "security input 4",
-    "answer": "3",
+    "answer": "8",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "security input 5",
-    "answer": "c",
+    "answer": "P",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "security input 6",
-    "answer": "X",
+    "answer": "t",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "security input 7",
-    "answer": "d",
+    "answer": "R",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Do have experience working with ISV, Cloud or SI partners?*",
@@ -207,21 +207,21 @@
     "answer": "Siddharth Bhaskaran",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Middle Name",
     "answer": "N/A",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "What snack fuels your best ideas?",
     "answer": "Dark chocolate almonds.",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Have you led a data-driven initiative that resulted in measurable improvements in operations or quality?",
@@ -235,70 +235,70 @@
     "answer": "University of California, Santa Barbara",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Degree",
     "answer": "Bachelor's Degree",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Field of Study",
     "answer": "Economics",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Current/Last Company",
     "answer": "M Science",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Plaid's Mission",
     "answer": "on",
     "scope": "company",
     "company": "Plaid",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Passion for Fintech Industry",
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-09"
   },
   {
     "question": "Plaid's Products & Technical Innovation",
     "answer": "on",
     "scope": "company",
     "company": "Plaid",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Ability to Use and Build AI Products",
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "N/A - Not enough information on Plaid's AI work to say",
     "answer": "on",
     "scope": "company",
     "company": "Plaid",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Have you ever been previously employed by Plaid, Quovo or Cognito?",
     "answer": "No",
     "scope": "company",
     "company": "Plaid",
-    "date": "2026-07-05"
+    "date": "2026-07-09"
   },
   {
     "question": "Anything else you'd like to tell us?",
@@ -309,45 +309,45 @@
   },
   {
     "question": "Why are you interested in joining Tailscale? Thoughtful responses are encouraged.*",
-    "answer": "What draws me to Tailscale is the shape of the BizOps & Strategy mandate: being the embedded operator for the cross-functional problems that don't have a natural owner, and owning them from diagnosis through a durable, handed-off solution. That is exactly how I have worked. At M Science I led a cross-functional overhaul of our packaging and pricing model — aligning data science, sales, and research, standing up a pricing desk, and driving a ~35% ARR increase the quarter after launch — then built the infrastructure to make it stick: a Salesforce master-data system that unified our product metadata and automated entitlements, serving as the semantic layer behind our analytics and customer portal. I like building those structures early so they can be handed off as a company scales.\n\nThe specific problems in this role map directly to my experience — pricing and packaging strategy, maturing GTM systems alongside RevOps, reducing rework in business systems, and doing my own data analysis in SQL and Python rather than waiting on someone else. I am also genuinely excited by a PLG, developer-facing company: earning adoption bottom-up rewards exactly the kind of quantitative, first-principles operator I try to be. The written, async culture and high tolerance for ambiguity suit how I work best — I do my sharpest thinking when I get to define the problem, not just answer a scoped one. Tailscale's next chapter, from international/APAC expansion to cross-company AI adoption, is full of the ambiguous, high-leverage problems I want to spend my time on.",
+    "answer": "What draws me to Tailscale is the shape of the BizOps & Strategy mandate: being the embedded operator for the cross-functional problems that don't have a natural owner, and owning them from diagnosis through a durable, handed-off solution. That is exactly how I have worked. At M Science I led a cross-functional overhaul of our packaging and pricing model, aligning data science, sales, and research, standing up a pricing desk, and driving a ~35% ARR increase the quarter after launch, then built the infrastructure to make it stick: a Salesforce master-data system that unified our product metadata and automated entitlements, serving as the semantic layer behind our analytics and customer portal. I like building those structures early so they can be handed off as a company scales.\n\nThe specific problems in this role map directly to my experience: pricing and packaging strategy, maturing GTM systems alongside RevOps, reducing rework in business systems, and doing my own data analysis in SQL and Python rather than waiting on someone else. I am also genuinely excited by a PLG, developer-facing company: earning adoption bottom-up rewards exactly the kind of quantitative, first-principles operator I try to be. The written, async culture and high tolerance for ambiguity suit how I work best. I do my sharpest thinking when I get to define the problem, not just answer a scoped one. Tailscale's next chapter, from international/APAC expansion to cross-company AI adoption, is full of the ambiguous, high-leverage problems I want to spend my time on.",
     "scope": "company",
     "company": "Tailscale",
-    "date": "2026-07-04"
+    "date": "2026-07-10"
   },
   {
     "question": "We're always curious - have you used Tailscale before?*",
     "answer": "I haven’t used it, but I’m excited to learn more!",
     "scope": "company",
     "company": "Tailscale",
-    "date": "2026-07-04"
+    "date": "2026-07-10"
   },
   {
     "question": "I have read and understand Tailscale's \"Candidate Privacy Policy\" and \"AI Guidelines\" regarding the collection and use of my personal information and use of AI tools in the hiring and interviewing process. These can also be reviewed on the Tailscale career site. *",
     "answer": "Yes",
     "scope": "company",
     "company": "Tailscale",
-    "date": "2026-07-04"
+    "date": "2026-07-10"
   },
   {
     "question": "Please note the target compensation for this role in the job description above. Are you aligned with this compensation?*",
     "answer": "Yes",
     "scope": "conditional",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-10"
   },
   {
     "question": "Processing of Personal Data*",
     "answer": "Acknowledge/Confirm",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "What is the zip code of your primary residence?*",
     "answer": "90036",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "What is the highest level of education you have completed?*",
@@ -357,11 +357,11 @@
     "date": "2026-07-05"
   },
   {
-    "question": "Samsara will not provide relocation assistance for this role. Do you require relocation assistance?*",
+    "question": "Samsara will not provide relocation assistance for this role. Do you require relocation assistance?",
     "answer": "No",
     "scope": "company",
     "company": "Samsara",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Do you accept the listed salary range for this position?*",
@@ -375,14 +375,14 @@
     "answer": "Yes",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Have you previously worked at Samsara?*",
     "answer": "No",
     "scope": "company",
     "company": "Samsara",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "What is your postal code? (required)",
@@ -410,98 +410,98 @@
     "answer": "M Science",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Title*",
     "answer": "Product Manager, Systematic Data",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Start date month*",
     "answer": "April",
     "scope": "conditional",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Start date year*",
     "answer": "2023",
     "scope": "conditional",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "School*",
     "answer": "University of California - Santa Barbara",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Discipline*",
     "answer": "Economics",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Are you at least 18 years of age?*",
     "answer": "Yes",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Please confirm receipt of the above linked Global Data Privacy Notice and US Arbitration Agreement.*",
     "answer": "Confirmed",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "I understand that Coinbase may use AI tools to assist in the application and interview process. *",
     "answer": "Yes",
     "scope": "company",
     "company": "Coinbase",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Which of the following best describes how you use AI tools today?*",
     "answer": "I design or automate workflows with AI tools (e.g., building agents, integrating AI into team processes).",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Are you a current government official or were you a government official in the last five years (e.g., employee of a government agency or a government owned/controlled company, holder of public office or a civil service position)?*",
     "answer": "No, I am not a current or former Government Official",
     "scope": "conditional",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Are you a close relative of a government official (i.e., child/step-child, spouse/partner, parent/guardian, aunt/uncle, first cousin, in-law)?*",
     "answer": "No, I am not a relative of a government official.",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "To your knowledge, do you or a close relative currently hold a role, have a significant financial interest in, or maintain a close personal relationship with a senior leader at a company connected to Coinbase that could create an actual or perceived conflict of interest?*",
     "answer": "No",
     "scope": "company",
     "company": "Coinbase",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "To your knowledge, were you referred to this position by a senior leader or decision‑maker at a current or prospective institutional client, business partner, or vendor of Coinbase?*",
     "answer": "No",
     "scope": "company",
     "company": "Coinbase",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "Which OpEx categories have you directly owned? Feel free to be brief. *",
@@ -536,7 +536,7 @@
     "answer": "notGiven",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-05"
+    "date": "2026-07-10"
   },
   {
     "question": "3 - Above average",
@@ -572,5 +572,299 @@
     "scope": "company",
     "company": "",
     "date": "2026-07-06"
+  },
+  {
+    "question": "What Excites You About This Role?",
+    "answer": "What excites me most is the chance to turn emerging AI capabilities into agent experiences that compensation teams trust enough to make real pay decisions with. I've spent my career running customer discovery on technically sophisticated, data-intensive products, then partnering closely with engineering to ship what solves the root problem rather than the requested feature. At M Science I did exactly that with our KPI API: product discovery surfaced adoption blockers that quant teams hadn't framed as product problems, and the new schema we built with engineering doubled the number of quant teams using the data and grew ARR by ~80%. I'm also a builder by instinct. At Audare AI I used prototyping tools like Bolt and Lovable to put concepts in front of users early instead of debating them in a doc. Compa's agent-first bet on a function as high-stakes as compensation is exactly the kind of problem I want to work on.",
+    "scope": "company",
+    "company": "Compa",
+    "date": "2026-07-06"
+  },
+  {
+    "question": "What are your salary expectations?",
+    "answer": "180000",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-06"
+  },
+  {
+    "question": "Why are you interested in working at Plaid?",
+    "answer": "Plaid's Mission; Plaid's Products & Technical Innovation; Ability to Use and Build AI Products",
+    "scope": "company",
+    "company": "Plaid",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "How would you rate Plaid's position in AI compared to other tech companies?",
+    "answer": "N/A - Not enough information on Plaid's AI work to say",
+    "scope": "company",
+    "company": "Plaid",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Able to come into the office at least 2x a week (SF/NY/Seattle hybrid)?",
+    "answer": "Yes",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "San Francisco HQ",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Teams and roles based in our San Francisco HQ, New York, or Seattle offices may require a hybrid working arrangement with in office expectations. Are you able to come into the office to work at least 2x's a week, with or without a reasonable accommodation?",
+    "answer": "Yes",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Pick date...",
+    "answer": "08/02/2026",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Additional Information",
+    "answer": "I've spent my career shipping data-intensive products and building things from zero. At M Science I own our KPI API, where product discovery surfaced adoption blockers the quant teams hadn't framed as product problems; the schema we rebuilt with engineering nearly doubled the teams using the data and grew ARR by ~80%. I'm also a builder by instinct. At Audare AI I used prototyping tools like Bolt and Lovable to get concepts in front of users early instead of arguing them in a doc. ChatGPT Sites sits right at the intersection I care about: putting real AI capability into a consumer product people actually use to make something. That's the kind of problem I want to work on, and I'd bring hands-on discovery, a bias for building, and comfort operating at the lowest level of detail.",
+    "scope": "company",
+    "company": "OpenAI",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "I acknowledge that I have opened, read, and understood the Arbitration Agreement. I understand that by submitting my application, I am agreeing to be bound by the terms of the Arbitration Agreement.",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "I confirm I have read the above.",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Additional Information (motivation to apply)",
+    "answer": "I've spent my career as a strategy and operations operator, running the analytical and system-level work behind revenue growth. At M Science I led a cross-functional overhaul of our pricing and packaging model, aligning sales, data science, and research and standing up a pricing desk, which drove a ~35% ARR increase the quarter after launch. I then built the infrastructure to make it durable: a Salesforce master data system for product metadata and entitlements, plus north-star metrics, Databricks pipelines, and executive dashboards. A central cadence role owning the forecasting and operating rhythm across GTM is exactly the kind of high-leverage, ambiguous problem I want to work on, and I'm self-sufficient in SQL and Python to do the analysis myself.",
+    "scope": "company",
+    "company": "OpenAI",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Are you able to work from our US office three days per week?",
+    "answer": "Yes",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Have you ever worked in the financial services space?*",
+    "answer": "Yes",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "Do you have a basic to intermediate understanding of cryptocurrency?*",
+    "answer": "Yes",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "Have you ever worked at a consulting firm or internal strategy function? *",
+    "answer": "Yes",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "Able to commit to working from an office on Anchor Days (Mon/Tue/Thu) each week?",
+    "answer": "Yes",
+    "scope": "conditional",
+    "company": "Notion",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Are you currently, or have you previously, worked for Instacart?",
+    "answer": "No",
+    "scope": "company",
+    "company": "Instacart",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Do you identify as a member of the LGBT2QIA+ community?*",
+    "answer": "I don't wish to answer",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Are you legally entitled to work in Canada?",
+    "answer": "No",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "When can you start a new role?",
+    "answer": "2026-08-03",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Do you have at least 7+ years of direct product management experience?*",
+    "answer": "No",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Do you have at least 2+ years in lending, credit, payments, or another regulated financial domain?",
+    "answer": "Yes",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "If you answered 'Yes' to the question above, then please describe your experience. *",
+    "answer": "My most directly relevant experience is at PennyMac Loan Services, where I spent about a year and a half as a Data Analyst in mortgage lending. I was the Broker Direct data domain expert and senior point of contact, built the high-visibility SQL and Excel reporting leadership used to steer strategy across a large loan portfolio, and produced time-sensitive regulatory reports, so I've worked inside the compliance and data rigor a regulated lending business demands. Since then, at M Science I've spent three-plus years as a Product Manager building data products for institutional and quant investors, which keeps me fluent in financial-services data and the needs of a highly regulated customer base. That combination of hands-on mortgage-lending data experience and product ownership in financial services is why Mercury's business lending mandate resonates with me: I understand both how much the lending lifecycle depends on trustworthy data and decisioning, and how to turn that into products customers trust.",
+    "scope": "company",
+    "company": "Mercury",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "If you answered 'Yes' to the question above, then please describe your experience. (lending, credit, payments, or another regulated financial domain)",
+    "answer": "My most directly relevant experience is at PennyMac Loan Services, where I spent about a year and a half as a Data Analyst in mortgage lending. I was the Broker Direct data domain expert and senior point of contact, built the high-visibility SQL and Excel reporting leadership used to steer strategy across a large loan portfolio, and produced time-sensitive regulatory reports, so I've worked inside the compliance and data rigor a regulated lending business demands. Since then, at M Science I've spent three-plus years as a Product Manager building data products for institutional and quant investors, which keeps me fluent in financial-services data and the needs of a highly regulated customer base. That combination of hands-on mortgage-lending data experience and product ownership in financial services is why Mercury's business lending mandate resonates with me: I understand both how much the lending lifecycle depends on trustworthy data and decisioning, and how to turn that into products customers trust.",
+    "scope": "company",
+    "company": "Mercury",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Type your response",
+    "answer": "SIDDHARTH",
+    "scope": "company",
+    "company": "FloQast",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "cards[1d922656 131a 4221 927f e6c92e33080f][field0]",
+    "answer": "In my current role at M Science, I built an LLM- and OCR-based quality-assurance layer into the pipeline for our KPI data product. It automatically parses source filings and flags anomalies before we publish, which cut our annual data error rate from over 2% to near zero. More broadly, I use AI tools daily to move faster: LLMs to draft and refine SQL and Python, pressure-test product decisions, and accelerate analysis and documentation. In a prior fractional PM role I also used AI prototyping tools like Bolt and Lovable to turn product concepts into working wireframes, tightening the discovery-to-build loop.",
+    "scope": "company",
+    "company": "FloQast",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Cover letter",
+    "answer": "I want to join Linear because it is one of the few companies that treats the tools software teams use every day as a craft worth obsessing over, and it shows in a product people genuinely love to use. I have spent my career building the systems and tools that let teams do better work. At M Science I conceptualized and built an internal master-data platform in Salesforce that unified our product metadata and became the source of truth behind our customer portal, entitlements, unit economics, and analytics, because I could see how much siloed, duplicated work was slowing everyone down. I care about that kind of leverage, where getting the underlying model right quietly makes an entire organization faster.\n\nI am a generalist operator at heart. I pull insight from noise, turn it into a coherent strategy, and then lead the execution myself, whether that means running product discovery with customers, designing a new API schema with engineering, or writing the Python to clean 10,000 records so a system can finally launch. On my current KPI API product that approach doubled the number of quant teams using our data and grew ARR by roughly 80%.\n\nLinear builds for exactly the kind of user I want to serve: people who care about their craft and want tools that respect it. I would love to bring my mix of product judgment, technical fluency, and bias for execution to that mission.",
+    "scope": "company",
+    "company": "Linear",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "What motivates you professionally? What do you look forward to about work every day?",
+    "answer": "What motivates me is curiosity and the satisfaction of turning something messy into something that works. I have a compulsive need to understand how a system actually functions, and I like sitting at the intersection of data, strategy, and execution: taking a chaotic set of inputs, finding the real problem underneath, and shipping something that measurably moves the business.\n\nWhat I look forward to day to day is the problem-solving itself. I enjoy breaking an ambiguous problem down to first principles and building a novel, sometimes unconventional, path to a solution, then staying hands-on in the execution rather than handing it off. I am happiest when I am close enough to the details to write the query, design the schema, or talk to the user directly. The best days are the ones where a hard problem finally clicks and the thing I built makes other people's work easier.",
+    "scope": "company",
+    "company": "Linear",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Who are your biggest professional influences? What specific things have you taken from them?",
+    "answer": "Two kinds of influences have shaped how I work. The first is intellectual: Isaac Asimov's idea of psychohistory in Foundation, the notion that you can find patterns in data and turn chaotic human systems into something interpretable, is a big part of why I gravitated toward economics and then to data and product. It taught me to look for the underlying structure in messy problems, which is still how I approach almost everything I build.\n\nThe second is the leaders early in my career who trusted me with real problems before I had the obvious credentials for them, handing a junior employee ownership of a company-wide pricing overhaul. What I took from them was a bias toward giving people responsibility and judgment rather than just tasks, and the confidence to operate as a generalist: to get to the root of a problem, form a defensible point of view, and own the execution end to end. I try to bring both the structured thinking and that sense of ownership to every team I join.",
+    "scope": "company",
+    "company": "Linear",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "Additional Information (OpenAI ChatGPT Sites)",
+    "answer": "I've spent my career shipping data-intensive products and building things from zero. At M Science I own our KPI API, where product discovery surfaced adoption blockers the quant teams hadn't framed as product problems; the schema we rebuilt with engineering nearly doubled the teams using the data and grew ARR by ~80%. I'm also a builder by instinct. At Audare AI I used prototyping tools like Bolt and Lovable to get concepts in front of users early instead of arguing them in a doc. ChatGPT Sites sits right at the intersection I care about: putting real AI capability into a consumer product people actually use to make something. That's the kind of problem I want to work on, and I'd bring hands-on discovery, a bias for building, and comfort operating at the lowest level of detail.",
+    "scope": "company",
+    "company": "OpenAI",
+    "date": "2026-07-09"
+  },
+  {
+    "question": "What is your highest level of education?",
+    "answer": "Bachelor’s",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "The role requires deep hands-on experience building with AI. Describe a project where you leveraged core LLM concepts (e.g., prompting, fine-tuning, embeddings, retrieval) and translate them into a reliable, user-facing product. What was the greatest technical challenge you faced, and how did you resolve it?",
+    "answer": "At M Science I built the AI-driven data-QA layer for our KPI API product, which forecasts financial KPIs for hundreds of companies for quant investors. The user-facing requirement was near-perfect accuracy, since clients trade on this data. I used an OCR/LLM pipeline to read and structure messy source financial documents into standardized metric values, prompting the model to extract and normalize fields, paired with an ML anomaly-detection layer that scored incoming values against historical patterns. The greatest technical challenge was reliability: LLM extraction on inconsistent, noisy filings produced silent errors that were unacceptable for a product clients depend on. I resolved it by not trusting the model in isolation. I built the anomaly detector as a second, independent check to catch outliers the extraction missed, and added a human-in-the-loop review gate for flagged exceptions, so the automated path handled the high-confidence bulk and people adjudicated the edges. That combination cut the product's annual error rate from over 2% to roughly zero.",
+    "scope": "company",
+    "company": "Ramp",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "Walk us through a time you \"vibe-coded a prototype before lunch and wrote the rollout plan after.\" Describe a messy operational problem you turned into an elegant automated system using AI, detailing the full journey from prototype to scaled production.",
+    "answer": "One of the messiest operational problems I owned was customer entitlements at M Science, which ran on a manual process that consumed more than 40 hours a week and was error-prone. I started by prototyping the automation myself: I wrote a Python mapping script to model how our disparate product metadata should resolve into entitlements, which let me quickly test the logic and cut the number of records that needed manual review. Once the approach held up, I built it into an internal Salesforce master-data system that became the single source of truth for product metadata, serving as the semantic layer for our AI products and automating entitlements going forward. Getting to production still required real operational work: I led a three-person team over two weeks to validate and correct more than 10,000 records the automation couldn't reach, because I judged that this was the necessary manual work to make the automated system trustworthy. The result replaced a recurring 40-plus hour weekly manual process with an automated one, and the same master-data layer went on to power our customer portal, unit economics, and internal analytics.",
+    "scope": "company",
+    "company": "Ramp",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "Current/Most Recent Company Name",
+    "answer": "M Science",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "What are your total compensation requirements?",
+    "answer": "$180,000",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "Why are you interested in working at Grow Therapy?",
+    "answer": "I've spent my career building data-intensive products and solving the messy problems underneath them, and Grow Therapy is a rare place where that work maps onto something that plainly matters. Mental healthcare access is a real, tangible problem, and a marketplace that matches clients to the right therapist and actually makes insurance work is a hard product and operations challenge worth solving well.\n\nAt M Science I own our KPI API product, where product discovery surfaced adoption blockers the quant teams hadn't framed as product problems; rebuilding the schema with engineering nearly doubled the teams using the data and grew ARR by roughly 80%. I also led a cross-functional overhaul of our pricing and packaging model across sales, data science, and research, which drove a ~35% ARR increase. That mix of marketplace dynamics, matching, and getting the underlying system right is exactly what the Client Marketplace role calls for, and I'd be glad to bring it to a mission I actually believe in.",
+    "scope": "company",
+    "company": "Grow Therapy",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "Where have you most recently worked?",
+    "answer": "M Science",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "I am a U.S. person",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "No - I have never been employed by PwC",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "I Acknowledge",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-10"
+  },
+  {
+    "question": "I have read and agree to the Snowflake Candidate Privacy Notice.",
+    "answer": "on",
+    "scope": "company",
+    "company": "Snowflake",
+    "date": "2026-07-10"
   }
 ]

@@ -36,7 +36,7 @@ baseline:
     - "Strategy Analyst"
     - "Business Operations Analyst"
     - "Business Operations Associate"
-  acceptable_seniority: ["Mid", "Senior"]
+  acceptable_seniority: ["Mid", "Senior","Early Career"]
   # "Associate" intentionally NOT excluded (JOB-26): analyst/associate ops roles
   # are valid mid-level targets, so we don't reject them on the title-seniority gate.
   excluded_seniority: ["Director", "VP", "Head", "Principal", "Intern", "Junior"]
