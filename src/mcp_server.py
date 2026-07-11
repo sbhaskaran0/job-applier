@@ -5,6 +5,10 @@ Claude Code calls. Claude Code is the agentic loop; these tools are the hands
 and the memory. Run via:  python -m src.mcp_server   (stdio transport).
 """
 
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
 from mcp.server.fastmcp import FastMCP
 
 from . import browser, config, context, data, store, tailor
@@ -169,6 +173,92 @@ async def get_job_text() -> str:
     """Return the visible page text (use it to read the job description for a
     fit assessment)."""
     return await browser.session.get_job_text()
+
+
+@mcp.tool()
+async def snapshot_job(url: str, company: str = "", out_dir: str = "") -> dict:
+    """Snapshot a posting for batch prep — SERVER-SIDE, so the big field list and
+    job description never pass through the model's context. This is the batch
+    Stage-A primitive: the caller loops it over the queue and carries neither a
+    single form dump nor a JD; only a compact receipt comes back.
+
+    It composes existing primitives (open_job -> read the form + intervention,
+    get_job_text -> the JD) and WRITES the prep file directly, so it is exactly
+    as ATS-agnostic as read_form (any ATS, no per-site rules). It does not click
+    or type, so it captures precisely the initially-rendered fields — same
+    fidelity as a manual read_form. Snapshotting fills nothing, so the active tab
+    is reused (no new_tab); resume.txt is re-synced from resume.pdf as a harmless
+    side effect of open_job.
+
+    Writes `<out_dir or data/prep>/<job-slug>.json`:
+      {url, company, job_title, ats, snapshot_at, fields, jd_text}
+    Field LABELS are stored verbatim — opaque/GUID/bare "Yes/No" labels INCLUDED.
+    Disambiguating those against jd_text is a PREP-stage concern (the JD is in the
+    same file); snapshot does not infer them.
+
+    Returns only {url, company, job_title, ats, prep_path, field_count,
+    required_count, freetext_count, status, park_reason, recaptcha_warning?}:
+      - status "snapshotted": form read and file written. `freetext_count` is the
+        number of multi-line/free-text fields (textarea / contenteditable / ARIA
+        textbox) — the routing signal for batch prep: 0 => resolve inline
+        (all-profile / closed-choice), >0 => route to a crafting agent (needs the
+        voice corpus). Plain <input type=text> profile fields are NOT counted.
+        When freetext_count == 0, the receipt also carries the verbatim `fields`
+        array (native-<select> options where read_form has them; jd_text
+        excluded) so the inline lane resolves the job WITHOUT reading the prep
+        file — keeping the JD out of the main context. Combobox (react-select)
+        options are NOT inlined here (they need get_field_options); their exact
+        option is matched at fill time in Stage D, as it already is. When
+        freetext_count > 0, `fields` is omitted (the crafting subagent reads the
+        full prep file instead).
+      - status "parked" (no file written): a REAL visible challenge
+        (intervention.blocked), or zero fields (dead/removed posting / unreadable
+        form). park_reason says which. A Greenhouse invisible-reCAPTCHA v3 signal
+        is NOT a block — it comes back blocked=false, is snapshotted normally, and
+        the signal is surfaced in `recaptcha_warning`."""
+    opened = await browser.session.open_job(url, new_tab=False, company=company)
+    interv = opened.get("intervention", {}) or {}
+    fields = opened.get("fields", []) or []
+    title = opened.get("title", "")
+    ats = opened.get("detected_ats", "")
+    base = {"url": url, "company": company, "job_title": title, "ats": ats,
+            "prep_path": None, "field_count": 0, "required_count": 0}
+    if interv.get("blocked"):
+        return {**base, "status": "parked",
+                "park_reason": "blocked at open: "
+                + (interv.get("message") or "visible challenge")}
+    if not fields:
+        return {**base, "status": "parked",
+                "park_reason": "no fields (dead/removed posting or unreadable form)"}
+    jd_text = await browser.session.get_job_text()
+    prep_dir = Path(out_dir) if out_dir else (config.DATA_DIR / "prep")
+    prep_dir.mkdir(parents=True, exist_ok=True)
+    prep_path = prep_dir / f"{tailor.job_slug(company, title, url)}.json"
+    prep_path.write_text(
+        json.dumps({"url": url, "company": company, "job_title": title,
+                    "ats": ats,
+                    "snapshot_at": datetime.now(timezone.utc).isoformat(),
+                    "fields": fields, "jd_text": jd_text},
+                   indent=2, ensure_ascii=False),
+        encoding="utf-8")
+    freetext_count = sum(1 for f in fields if f.get("multiline"))
+    out = {**base, "prep_path": str(prep_path), "field_count": len(fields),
+           "required_count": sum(1 for f in fields if f.get("required")),
+           "freetext_count": freetext_count,
+           "status": "snapshotted", "park_reason": None}
+    # Inline lane: a job with NO free-text field can be resolved inline (no
+    # subagent). Carry its `fields` on the receipt (native-<select> options
+    # included; combobox options resolve at fill time) but WITHOUT jd_text — so
+    # inline resolution never reads the prep file (which would pull the JD, dead
+    # weight for a no-essay job, into the persistent main context). Craft jobs
+    # (freetext_count > 0) get only the counts; their subagent reads the full
+    # prep file (fields + jd_text) in its own disposable context.
+    if freetext_count == 0:
+        out["fields"] = fields
+    warnings = interv.get("warnings") or []
+    if warnings:
+        out["recaptcha_warning"] = warnings
+    return out
 
 
 @mcp.tool()
