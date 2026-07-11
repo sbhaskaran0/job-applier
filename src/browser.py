@@ -94,9 +94,19 @@ _SCAN_JS = r"""
       if (sv) value = clean(sv.innerText);
     }
 
+    // Multi-line / free-text signal: a <textarea>, contenteditable, or ARIA
+    // textbox is almost always an open-ended answer (essay / cover letter /
+    // "why us"), whereas a plain <input type=text> is usually a profile fact.
+    // Snapshot surfaces this as freetext_count so batch prep can route craft
+    // jobs to a crafting agent and resolve all-profile jobs inline — without
+    // ever reading the field payload into the main context.
+    const multiline = (tag === 'textarea' ||
+                       el.getAttribute('contenteditable') === 'true' ||
+                       el.getAttribute('role') === 'textbox') || undefined;
+
     el.setAttribute('data-jaidx', String(idx));
     out.push({
-      index: idx, kind, label: labelFor(el),
+      index: idx, kind, label: labelFor(el), multiline,
       group: (kind === 'radio' || kind === 'checkbox') ? clean(el.getAttribute('name')) : undefined,
       option_value: (kind === 'radio' || kind === 'checkbox') ? (el.value || '') : undefined,
       options, required, current_value: value,

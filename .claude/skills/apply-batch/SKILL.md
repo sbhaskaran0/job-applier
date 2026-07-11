@@ -41,62 +41,42 @@ one tab before touching the next. Multi-tab (Stage D) lets each job keep its
 own filled form so an unsubmittable one is never re-filled; it does **not** make
 the browser parallel. Only the read-only reasoning (B) is parallel.
 
-## Stage A — Snapshot pass (ONE serial subagent, browser)
+## Stage A — Snapshot pass (inline `snapshot_job`, no subagent)
 
-The snapshot pass reads every form's full field list (which for native
-`<select>`-heavy forms is thousands of lines of option dumps). To keep that
-payload **out of the main context**, run the entire pass inside **one
-snapshot subagent** — a single agent, spawned alone (never in parallel: it
-drives the shared singleton browser, so a second concurrent browser agent
-would collide). It opens each job, writes the prep files, and returns only a
-compact manifest. The big form dumps live and die in its disposable context.
+`snapshot_job(url, company=...)` opens each posting, reads its form + JD, and
+writes the prep file **server-side**, returning only a compact receipt. Because
+the field dumps (thousands of lines of `<select>` options on native-heavy forms)
+and the JD never enter the model context, there is **no courier subagent
+anymore** — call `snapshot_job` **inline, once per queued URL, straight from the
+orchestrator**. The calls are naturally serial in the main loop, which is exactly
+what the singleton browser needs. Snapshotting fills nothing, so it reuses the
+active tab.
 
-Spawn one subagent with this prompt (fill in the bracketed parts):
+For each queued URL, call `snapshot_job(url, company=<company>)`. It returns:
 
-> You drive the shared browser to snapshot a queue of job applications. Work
-> the URLs **strictly in order, one at a time** (the browser is a singleton).
-> For each URL:
-> 1. `open_job(url)` — returns `intervention` + `fields` in one shot. (It also
->    re-syncs `resume.txt` from `resume.pdf` — expected, harmless.)
->    Snapshotting fills nothing, so reuse a single tab (the default
->    `new_tab=False`).
-> 2. `get_job_text()` for the JD.
-> 3. Write a **prep file** `data/prep/<company>-<role-slug>.json`:
->
-> ```json
-> {
->   "url": "...",
->   "company": "...",
->   "job_title": "...",
->   "ats": "...",
->   "snapshot_at": "<ISO date>",
->   "fields": [
->     {"label": "...", "kind": "text|select|radio|checkbox|file|combobox",
->      "options": [...], "required": true, "group": "..."}
->   ],
->   "jd_text": "..."
-> }
-> ```
->
-> Store **labels, not indexes** (indexes are reassigned on every `read_form`).
-> If a field comes back with `options_count`/`options_sample` instead of a full
-> `options` list (read_form collapses long native `<select>` lists), record
-> what you have — `options_count` plus the sample is enough for prep; do NOT
-> call `get_field_options` here (that is a Stage D fill-time concern).
-> If `open_job` reports `intervention.blocked` or `fields` is empty, do NOT
-> snapshot — record the job as **parked at snapshot** with the reason and move
-> on. (Exception: a Greenhouse "recaptcha" signal with no visible challenge is
-> a known false positive until JOB-16 lands — take a `screenshot()` to confirm
-> nothing visible, note it, and proceed if the form is readable.)
-> Do NOT resolve answers, fill anything, or submit — snapshot only.
-> **Return only a compact manifest** (no field dumps): a JSON array with one
-> row per URL `{url, company, job_title, ats, prep_path, field_count,
-> required_count, status: "snapshotted"|"parked", park_reason}`.
+```json
+{"url": "...", "company": "...", "job_title": "...", "ats": "...",
+ "prep_path": "data/prep/<job-slug>.json", "field_count": 25,
+ "required_count": 6, "status": "snapshotted", "park_reason": null}
+```
 
-When the subagent returns, you have the manifest but not the form payloads —
-exactly the point. Carry the manifest into Stage B. Any row with
-`status: "parked"` is **parked at snapshot**; surface it at Stage C and never
-snapshot/prep/submit it.
+Collect these rows into the Stage-A manifest and carry it into Stage B. Rules:
+
+- **`status: "parked"`** (a REAL visible block, or zero fields = dead/removed
+  posting) → no prep file was written. Surface it at Stage C and never
+  prep/submit it.
+- **`recaptcha_warning`** on a row is the Greenhouse invisible-reCAPTCHA v3
+  signal — **not** a block; the job is snapshotted normally. No screenshot
+  needed: the server already distinguished a real challenge from invisible v3.
+- The prep file stores field **labels verbatim**, including opaque/GUID/bare
+  "Yes/No" labels. **Disambiguating those is a Stage-B concern** (the JD is in the
+  same file) — `snapshot_job` does not infer them.
+
+Even a large queue stays cheap: only the tiny receipts accumulate in the main
+context, never a form dump or a JD. (The old single-snapshot-subagent pattern is
+obsolete — it existed only to keep form dumps out of the main context, which
+`snapshot_job` now does at the source, saving the courier agent's ~40k floor and
+its per-turn re-accumulation of every JD.)
 
 ## Stage B — Parallel prep (read-only subagents)
 
@@ -106,28 +86,54 @@ with a heavy system prompt + tool registry and re-sends its whole context on
 every one of its ~8–16 tool-call turns, so each agent carries a ~40k-token floor
 *before it writes a single answer* (measured: an all-profile job with zero
 crafted answers still burned ~42k). Crafting essays only adds on top of that
-floor. Two rules follow, and they are the difference between a ~3k/job run and a
-~60k/job run:
+floor. The routing below is the difference between a ~3k/job run and a ~60k/job
+run:
 
-1. **Chunk jobs into agents; do not spawn one agent per job.** Put **4–6 jobs in
-   each subagent** (so a 17-job queue is ~3 agents, not 17). The floor is paid
-   per *agent*, so batching amortizes it across every job the agent handles. Spawn
-   the chunk-agents together in one message (they're read-only, no browser, so
-   concurrency is safe). Cap concurrency around the runner's default; a very large
-   queue just uses a few more chunk-agents.
-2. **Do NOT tell the agent to read `apply-to-job/SKILL.md`.** That file is ~21 KB
-   and gets re-sent on every turn of every agent — pure waste at this fan-out.
-   The **Prep digest** below carries everything Stage B actually needs; paste it
-   into the prompt verbatim instead.
+**Route by `freetext_count` FIRST — from the Stage-A manifest alone, never by
+reading prep files** (reading a prep file pulls its fields + JD back into the main
+context, defeating snapshot). Each snapshot receipt carries `freetext_count`, the
+number of multi-line/free-text fields (textarea / contenteditable / ARIA textbox)
+— i.e. "does this job have an essay that needs the voice corpus":
 
-**Inline fast-path (skip the agent entirely).** If a job's manifest/prep file has
-**no free-text/essay fields and nothing that will resolve to `context`/`review`**
-(i.e. every field is a profile fact or a closed choice — common for lean Ashby/
-Lever forms), just resolve it **inline in the main context**: one
-`resolve_fields` call, write the sheet, done. A 42k agent to fill exact profile
-values is the single most wasteful thing Stage B can do. Only route jobs that
-genuinely need crafting (open-ended essays, cross-company adaptations) through a
-chunk-agent.
+1. **`freetext_count == 0` → inline lane (no agent).** Every field is a profile
+   fact or a closed choice (lean or demographic-heavy Ashby/Lever/Greenhouse
+   forms). The snapshot receipt already carries this job's verbatim `fields`
+   (native-`<select>` options included, jd_text excluded) — **resolve from those;
+   do NOT `Read` the prep file** (that would pull the JD into the persistent main
+   context, the dead weight inline exists to avoid). Resolve it **inline in the
+   main context**: one `resolve_fields(fields, company=...)` call — **forward each
+   field's `kind`** so closed-choice fields return compact `choice` results and
+   DON'T pollute the main context — map each `choice` to its native-`<select>`
+   option where present (combobox/react-select choices carry no options on the
+   receipt; they're matched to the live option at fill time in Stage D, as today),
+   then write the sheet. A 42k
+   agent to fill exact profile values is the single most wasteful thing Stage B can
+   do. *Exception:* if such a form carries opaque labels (GUID / bare "Yes/No" /
+   empty) that need the JD to interpret, send it to the crafting lane instead —
+   the inline lane has no `jd_text` for step-0 disambiguation.
+2. **`freetext_count > 0` → crafting lane (agent).** The job has ≥1 open-ended
+   field (essay / cover letter / "why us") that needs the voice corpus. Group these
+   into **crafting agents of 3–4 jobs each** — smaller than a mixed chunk, because
+   essay jobs accumulate JDs + searches + drafts and re-send them every turn (the
+   same N² curve Stage A now avoids). **Do NOT put all essay jobs in one agent:**
+   one long agent re-accumulates everything and can eat the savings or blow the
+   context budget. ~2 crafting agents for a typical run loads the voice corpus
+   about twice — the sweet spot between a risky single-load mega-agent and paying
+   the corpus per chunk. Spawn the crafting agents together in one message
+   (read-only, no browser, so concurrency is safe).
+   - Each crafting agent calls `get_cover_letter_examples` **once** and reuses that
+     voice across its 3–4 jobs (the amortization).
+   - **Process each job independently:** pass the right `company` per job to
+     `resolve_fields`, craft each essay from *that* job's `jd_text` + scoped
+     `search_history`/`search_context`, and never reuse one job's draft for
+     another. The shared voice corpus is company-agnostic *tone* (safe to share);
+     answer *content* is always per-job. (This is unchanged from the old mixed
+     chunks — grouping by craft-need adds no cross-contamination the chunks didn't
+     already have.)
+3. **Do NOT tell the agent to read `apply-to-job/SKILL.md`.** That file is ~21 KB
+   and gets re-sent on every turn of every agent — pure waste at this fan-out. The
+   **Prep digest** below carries everything Stage B actually needs; paste it into
+   the prompt verbatim instead.
 
 **Chunk-agent prompt template** (fill in the bracketed parts — give each agent
 its **list** of `{prep_path, sheet_path, company}` rows):
@@ -140,6 +146,15 @@ its **list** of `{prep_path, sheet_path, company}` rows):
 > Do NOT read any SKILL.md — the rules you need are below.
 >
 > For each job: read its prep file, then resolve every fillable field:
+> 0. **Disambiguate opaque labels first.** Snapshot stores labels verbatim, so
+>    some fields arrive with a non-descriptive label — a GUID/hash, a bare
+>    "Yes/No", or an empty string (common for Ashby radio groups). Before
+>    resolving, infer what each such field is actually asking from the prep file's
+>    `jd_text` and the neighboring fields, and use that inferred question as the
+>    label you resolve against (and as `raw_label`), noting the inference in
+>    `notes`. Descriptive labels are used as-is. This is yours to do — you already
+>    hold the JD, so it costs nothing extra here (doing it at snapshot time would
+>    force a model to carry every JD, which is the whole cost we removed).
 > 1. Call `resolve_fields(fields, company="[company]")` **once** with all
 >    `{index, label, kind}` rows — **forward each field's `kind`** (from the prep
 >    file). This is mandatory: with `kind`, closed-choice fields (select/radio/

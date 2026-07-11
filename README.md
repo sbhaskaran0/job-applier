@@ -205,6 +205,32 @@ cross-platform: it uses Microsoft Word when present (Windows or macOS) and
 falls back to LibreOffice (`soffice`, any OS, no Word needed); if neither is
 installed the tailored `.docx` is still saved to export manually.
 
+## Batch prep — snapshot & routing (how `/apply-batch` stays cheap)
+
+`/apply-batch` is engineered so the per-application token cost stays low even
+across a large queue. Two ideas do the work: **snapshot server-side** (the big
+form dumps and job descriptions are written straight to disk and never pass
+through a model's context), and **route by `freetext_count`** (jobs with no
+open-ended field are resolved *inline* with no subagent; only genuine
+essay/cover-letter jobs pay for a crafting agent, and those are grouped so the
+voice corpus loads once per agent).
+
+```mermaid
+flowchart TD
+    Q["/apply-batch: queued URLs"] --> A["Stage A · snapshot_job(url) per URL<br/>SERVER-SIDE: reads form + JD,<br/>writes data/prep/&lt;slug&gt;.json,<br/>returns a COMPACT receipt only"]
+    A -->|"visible block / 0 fields"| PK["parked at snapshot"]
+    A -->|"receipt.freetext_count"| RT{"free-text field?"}
+    RT -->|"0 · all profile / closed-choice"| INL["Inline lane — no subagent<br/>resolve_fields from the receipt's fields<br/>(JD never enters main context)"]
+    RT -->|"&gt; 0 · essay / cover letter"| CR["Crafting lane<br/>subagents of 3–4 jobs each<br/>voice corpus loaded once per agent<br/>(opaque labels disambiguated here vs the JD)"]
+    INL --> SH[("prep sheet<br/>data/prep/&lt;slug&gt;-sheet.json")]
+    CR --> SH
+    SH --> D["Stage D · serial fill + submit<br/>submitted · manual_submission · parked"]
+```
+
+The receipt's `freetext_count` is derived from a `multiline` flag the form
+scanner sets on textareas / contenteditable / ARIA textboxes, so the router
+never has to read a field payload to decide the lane.
+
 ## Autonomous mode (hands-off, per run)
 
 By default the agent gates its answers and **never submits without your say-so**.

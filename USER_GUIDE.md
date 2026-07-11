@@ -53,7 +53,7 @@ playwright install chromium          # the browser the agent drives
 
 Then, in Claude Code, **open this project and reload it** so it loads
 [.mcp.json](.mcp.json). Run `/mcp` — you should see the `job-applier` server with
-**32 tools**.
+**33 tools**.
 
 > Whenever you change code in `src/`, reload Claude Code so the MCP server
 > restarts with the new code.
@@ -279,14 +279,16 @@ filled form so you can fix the flagged field and submit yourself.
 For applying to several roles in one sitting without sitting through each
 one's prompts. It runs in stages:
 
-1. **Snapshot** — each form is opened briefly and saved (fields + job
-  description) to `data/prep/` (gitignored).
-2. **Parallel prep** — read-only subagents resolve every field through the same
-  profile → history → context cascade and draft anything open-ended. Jobs are
-   **chunked ~4–6 per subagent** (not one agent per job) so each agent's fixed
-   context overhead is amortized across several jobs, and all-profile forms with
-   nothing to craft are resolved inline with no subagent at all — keeping the
-   per-application token cost low.
+1. **Snapshot** — each form's fields + JD are written to `data/prep/`
+  (gitignored) **server-side by `snapshot_job`**, which returns only a compact
+   receipt (incl. `freetext_count`); the form dumps and JD never enter any
+   agent's context.
+2. **Prep, routed by `freetext_count`** — jobs with **no** free-text field
+  resolve **inline** (no subagent; the fields ride in on the snapshot receipt),
+   while jobs with a genuine essay/cover-letter field go to **crafting subagents
+   of ~3–4 jobs each** (the voice corpus loaded once per agent). Same profile →
+   history → context cascade throughout; the routing keeps the per-application
+   token cost low.
 3. **One consolidated review** — you approve/edit all gated answers for the
   whole queue **and give per-job submit consent** ("submit both", "fill #2
    but don't submit"…). This is the only interaction.
@@ -408,7 +410,7 @@ and trims what's already true in your resume and [context/](context/).
 
 ---
 
-## 8. The full tool set (32)
+## 8. The full tool set (33)
 
 **Browser / apply**
 
@@ -426,6 +428,13 @@ way to expand a summarized `<select>` list).
 - `upload_resume([index])` — attach the resume (auto-finds hidden file inputs).
 - `screenshot([path])` — capture the page for review.
 - `get_job_text()` — the visible page text (read a JD).
+- `snapshot_job(url[, company])` — **batch Stage-A primitive**: opens a posting,
+reads its form + JD, and writes the `data/prep/<slug>.json` prep file
+**server-side**, returning only a compact receipt (`field_count`,
+`required_count`, `freetext_count`, `status`) — the form dumps and JD never enter
+the model context. `freetext_count` routes batch prep: `0` → resolve inline (the
+receipt carries the fields); `>0` → a crafting subagent. Parks on a real visible
+block or a dead posting.
 - `check_for_intervention()` — detect a CAPTCHA/login wall; only a **visible**
 challenge blocks (invisible reCAPTCHA v3 comes back as a non-blocking warning).
 - `detect_verification_gate()` — spot an email/OTP code gate after a submit.
