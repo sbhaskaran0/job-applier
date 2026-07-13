@@ -106,10 +106,10 @@
   },
   {
     "question": "Start typing...",
-    "answer": "Los Angeles, California, United States",
+    "answer": "Asian (Not Hispanic or Latino) - A person having origins in any of the original peoples of the Far East, Southeast Asia, or the Indian Subcontinent, including, for example, Cambodia, China, India, Japan, Korea, Malaysia, Pakistan, the Philippine Islands, Thailand, and Vietnam.",
     "scope": "evergreen",
     "company": "Rula",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "Notion Website",
@@ -141,59 +141,59 @@
   },
   {
     "question": "Security code",
-    "answer": "B",
+    "answer": "J",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "security input 1",
-    "answer": "w",
+    "answer": "q",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "security input 2",
-    "answer": "t",
+    "answer": "m",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "security input 3",
-    "answer": "y",
+    "answer": "C",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "security input 4",
-    "answer": "8",
+    "answer": "E",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "security input 5",
-    "answer": "P",
+    "answer": "c",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "security input 6",
-    "answer": "t",
+    "answer": "X",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "security input 7",
-    "answer": "R",
+    "answer": "b",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "Do have experience working with ISV, Cloud or SI partners?*",
@@ -207,21 +207,21 @@
     "answer": "Siddharth Bhaskaran",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "Middle Name",
     "answer": "N/A",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "What snack fuels your best ideas?",
     "answer": "Dark chocolate almonds.",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-12"
   },
   {
     "question": "Have you led a data-driven initiative that resulted in measurable improvements in operations or quality?",
@@ -866,5 +866,138 @@
     "scope": "company",
     "company": "Snowflake",
     "date": "2026-07-10"
+  },
+  {
+    "question": "Please acknowledge that you've read and understand Mixpanel's Recruitment Privacy Policy*",
+    "answer": "Acknowledge/Confirm",
+    "scope": "company",
+    "company": "Mixpanel",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "By checking this box, I consent to Mixpanel collecting, storing, and processing my responses to the demographic data surveys above.",
+    "answer": "1",
+    "scope": "company",
+    "company": "Mixpanel",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "What is the best number to reach you at?",
+    "answer": "310-343-9671",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "Current or Most Recent Employer",
+    "answer": "M Science",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "University or School Attended",
+    "answer": "University of California, Santa Barbara",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "Yes but I would need to relocate",
+    "answer": "on",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "I own a surface area, but eng resources are shared (e.g. backend, frontend)",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "5-10 engineers",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "Remote in Canada/US",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "If yes to above, please elaborate",
+    "answer": "Most of my product experience has been building financial products. At M Science I own a data API that quantitative investors and hedge funds use to forecast company KPIs and drive trading decisions, which meant deep work on financial data integrity, point-in-time history, and how funds actually consume market data. Earlier, at PennyMac, I worked in mortgage lending as the data owner for the Broker Direct channel, building the reporting leadership used to steer strategy across a large loan portfolio. I have not worked directly with BaaS card-issuing partners like Stripe or Marqeta, but I have built and operated products squarely in regulated financial domains.",
+    "scope": "company",
+    "company": "Benepass",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "Tell us a little bit about yourself and why you're a fit for this position.",
+    "answer": "I am a generalist operator who has built my career on pulling signal out of noise, turning it into strategy, and then doing the operational work to execute it. At M Science I own product strategy and operations for a data API used by quantitative investors. I led a cross-functional overhaul of our pricing and packaging that drove a 35% revenue increase, and I architected a Salesforce-based master data system that automated a 40-plus-hour weekly manual entitlements process and became the semantic layer behind our customer portal, analytics, and unit economics. I am equally comfortable scoping strategy and rolling up my sleeves: when we automated entitlements, I wrote the Python mapping script to cut scope and then personally reviewed and corrected over 10,000 records to get the data clean enough to launch.\n\nProduct Operations is where I do my best work because it rewards exactly that blend of process design, cross-functional alignment, and technical self-sufficiency. Benepass's mission of making benefits actually usable is the kind of tangible, real-world problem I want to help scale, and I would bring rigor and an owner's mindset to the operational systems that let the product grow.",
+    "scope": "company",
+    "company": "Benepass",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "Are you based in the U.S?",
+    "answer": "Yes",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "What excites you about Replit?",
+    "answer": "What excites me about Replit is that it collapses the distance between an idea and a working product. I have spent my career as the generalist who takes a problem from first principles all the way to a shipped solution, and Replit is building the platform that lets far more people do exactly that. In my own work I have leaned heavily on AI to move faster: I built an automated data-QA layer for our KPI API using an OCR and LLM pipeline plus anomaly detection that cut the product's annual data error rate from over 2% to near zero. Experiences like that convinced me that agentic, AI-native tooling is going to reshape who gets to build software, and Replit is at the center of that shift.\n\nI am also drawn to the product surface itself. Replit has to serve everyone from first-time builders to professional engineers, which makes segmentation, onboarding, and monetization genuinely hard problems, the kind I have spent years solving. At M Science I ran discovery on a technically sophisticated product, rebuilt it around how power users actually worked, and grew ARR by roughly 80%. I would love to bring that combination of product discovery, technical fluency, and execution to a product I would genuinely use myself.",
+    "scope": "company",
+    "company": "Replit",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "What is your desired salary range?",
+    "answer": "$180,000 - $210,000",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "What makes you excited about the ElevenLabs mission?",
+    "answer": "ElevenLabs is making voice a first-class interface and holding it to a quality bar that turns research breakthroughs into products people actually build on. That combination is what pulls me in. I've spent my career on data-intensive, technically hard products, taking emerging capability and turning it into something customers trust enough to rely on, and I want to do that for audio AI at the moment it's reshaping how people create and consume content. The accessibility side of the mission matters to me too; making any voice and any language available to anyone is exactly the kind of tangible, universal problem I've always wanted to work on. On the revenue strategy and operations side specifically, I'm drawn to building the pricing, packaging, and go-to-market infrastructure that lets a fast-moving research company scale its commercial engine without slowing the product down.",
+    "scope": "company",
+    "company": "ElevenLabs",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "Finally, tell us about a hard problem in your past!",
+    "answer": "The hardest I've ever worked was rebuilding our customer entitlements system at M Science. I inherited a manual process that ate 40-plus man-hours every week, and automating it meant first doing a brutal amount of manual data validation and transformation to populate the new system. My instinct as an operator is to figure out which work can be simplified or automated and which work simply has to be done. So I cut the scope every way I could, pulling in data science and engineering to find optimizations and personally writing a Python script to handle the complex mapping and shrink the number of records that needed human review. Once I'd exhausted every shortcut, I led a small team through two weeks of focused validation, and I personally reviewed and corrected over 10,000 records to get the data integrity we needed to launch. The automated system replaced the weekly manual grind entirely. It taught me that the unglamorous, detailed work is often exactly what makes a scalable system possible.",
+    "scope": "company",
+    "company": "ElevenLabs",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "Preferred Name",
+    "answer": "Siddharth",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "Why are you interested in working at Abridge?",
+    "answer": "Abridge sits at an intersection I care about a lot: genuinely hard AI applied to a problem that plainly matters. Turning messy clinical conversations into structured, trustworthy documentation is exactly the kind of data-intensive product problem I've built my career around, and doing it in healthcare means the payoff is real, less clinician burnout and more time with patients. I've spent my career as a generalist operator on technically sophisticated products, running discovery, turning insight into strategy, and then building the operational infrastructure to execute it. At M Science I led a cross-functional overhaul of our pricing and packaging that drove a ~35% ARR increase, and I built the master data system that became the semantic layer under our analytics and AI products. Product operations and strategy is where I do my best work, sitting between product, engineering, and go-to-market to make execution repeatable. I'd love to bring that to a company scaling AI in a space where getting it right actually improves people's lives.",
+    "scope": "company",
+    "company": "Abridge",
+    "date": "2026-07-12"
+  },
+  {
+    "question": "Asian or Asian American",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-12"
   }
 ]

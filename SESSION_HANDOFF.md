@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-07-11.
+per-session narrative lives in `git log` + Linear. Last updated 2026-07-12.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -11,7 +11,7 @@ An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
 `python -m src.mcp_server`, **33 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
-- **`/find-jobs <query>`** — roles across a curated ~34-company watchlist
+- **`/find-jobs <query>`** — roles across a curated ~46-company watchlist
   (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
   strict-filtered by `job_criteria.yaml`, ranked semantically by Claude.
 - **`/apply-to-job <url>`** — fills from profile→history→context with
@@ -38,6 +38,16 @@ the user's data. **No LLM API key** in the core flow. Skills:
   `resumes/<job-slug>/`; apply flow auto-picks it up. NOT run per-application.
 - **`/commit`** (dev) — every commit must update README + USER_GUIDE + this file,
   and add/refresh a Mermaid diagram for any new workflow.
+- **Applyer web wrapper** — `scripts\webapp.cmd` → FastAPI `server/` on :8765
+  serving the built React SPA `frontend/` (5 surfaces: Jobs chat, Postings,
+  Applications, Profile+onboarding, Connections). Chat = real Claude Code
+  sessions via **claude-agent-sdk** (WS `/ws/chat`, one SDK client per socket,
+  `bypassPermissions`, `setting_sources=["user","project"]` so skills +
+  .mcp.json load). Data API reuses src.store/src.config directly. Write-back:
+  watchlist add, whitelisted profile facts (regex line edits preserve YAML
+  comments; EEO never exposed), resume/context uploads. Design recreated from
+  the "Applyer" design handoff (warm espresso dark default + paper light,
+  Newsreader/Hanken Grotesk, semantic tokens in frontend/src/tokens.css).
 
 User: **Siddharth Bhaskaran**, Los Angeles, ~5-yr PM targeting mid/senior
 **product & tech-strategy / BizOps** roles. Repo: private GitHub
@@ -94,7 +104,13 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `watchlist.yaml`, `discovery.yaml`, `resume.txt`/`.pdf`/`.docx` (JOB-6 base),
   `context/`, `data/history.json`, `data/applications.json`. `RESUMES_DIR`
   (gitignored), `base_resume_docx()`.
-- Docs: `README.md` (answer-cascade + discovery mermaids), `USER_GUIDE.md`.
+- `server/` — Applyer backend: `data_api.py` (REST over src modules; EDITABLE_
+  PROFILE_KEYS whitelist), `chat.py` (WS ⇄ ClaudeSDKClient bridge), `app.py`
+  (serves `frontend/dist` when built). `frontend/` — Vite React TS SPA
+  (components per surface; tokens.css = design palette; chat.ts = WS hook that
+  turns tool calls into run-card steps).
+- Docs: `README.md` (answer-cascade + discovery + web-wrapper mermaids),
+  `USER_GUIDE.md` (§7b web wrapper).
 
 ## Core behaviors (settled design)
 **Answer cascade** — strict priority, first hit wins, gating increases down:
@@ -128,17 +144,22 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-07-12 session:** built the **Applyer web wrapper** from the design
+  handoff zip (React SPA + FastAPI + Agent SDK chat; see the bullet in the
+  skills list above and the README web-wrapper section). Smoke-tested: all six
+  REST endpoints return live data, profile write-back is comment-preserving,
+  context upload round-trips, and the WS chat spawned a real headless Claude
+  Code turn ("WRAPPER OK"). Screenshots verified design fidelity (dark theme).
+  The Agent SDK ships a bundled claude.exe, so the CLI need not be on PATH.
 - **Branch `main`**, pushed to `origin/main`. **In review:** JOB-52 batch
   Stage A/B token cut (server-side `snapshot_job` + `freetext_count` routing,
   branch `job-52-batch-snapshot-tool`, PR #2). Merged: JOB-45 startup discovery,
   JOB-51 batch Stage B token cut, JOB-6 per-job tailoring, JOB-26 sourcing
   rework, postings store (JOB-27..31). `.env` untracked/never committed.
 - **Applications submitted** (ground truth: `data/applications.json`):
-  Stripe — PM Payments (`submitted`) · Stripe — PM Ecosystem Risk (backfilled) ·
-  Notion — Product Ops Mgr (`submitted`) · Notion — CS S&O Mgr
-  (`manual_submission`) · Mercury — Data S&O Lead · Databricks — Sr Mgr GTM S&O
-  (both `submitted`). Scale AI — Growth S&O Lead: **confirmed live but UNLOGGED**
-  (backfill pending, JOB-17).
+  **52 records as of 2026-07-12** (48 `submitted`, 4 `manual_submission`) —
+  too many to enumerate here; read the JSON. Scale AI — Growth S&O Lead:
+  **confirmed live but UNLOGGED** (backfill pending, JOB-17).
 - **2026-07-11 run (JOB-52):** autonomous `/apply-batch` over 20 BizOps/S&O
   roles → 11 verified submits (Coinbase, Tailscale, Ladder, Plaid, Samsara×3,
   Vanta GRC, Boulevard, Grow Therapy, Snowflake), Ashby ones (Rula, Ramp Bill
@@ -147,9 +168,9 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   upload). Ground truth in `data/applications.json`.
 
 ## Open items / next steps
-1. **User action: update `resume.pdf`** — still says "Audare AI … Ongoing";
-   `resume.txt` is regenerated from it on every `open_job`, so the stale line
-   out-ranks the corrected `background.md` in retrieval.
+1. **Update `resume.pdf` — DONE (2026-07-12):** the PDF (and synced
+   `resume.txt`) now shows "Audare AI … March 2025–November 2025"; the stale
+   "Ongoing" line is gone from retrieval.
 2. **(JOB-6) `resume.docx` base template — DONE (2026-07-11):** a real
    `resume.docx` is now committed at the project root, so resume tailoring is
    live (was inert). DOCX→PDF needs Word (present).
@@ -196,3 +217,17 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   it back empty (DoorDash EEO react-select, Ashby button-group): confirm with one
   screenshot, report as "set but unverifiable in the DOM", ask user to glance.
 - **EEO:** delete profile values to opt out; README carries the warning.
+- **Web-wrapper chat on ARM64 Windows:** the Agent SDK's bundled `claude.exe`
+  is x64 (emulated here) and crash-loops with 0xC0000005 when a second session
+  spawns; leaked processes then poison later spawns. Fix (2026-07-12, in
+  `server/chat.py`): `find_cli()` prefers a native CLI (PATH → Cursor/VS Code
+  extension `native-binary` → Claude Desktop's managed claude-code) via
+  `ClaudeAgentOptions.cli_path`, session startup is serialized behind a global
+  asyncio lock with one retry, and connect failures surface as chat error
+  events (verified: two concurrent sessions OK). If chat dies again, check for
+  stray `_bundled\claude.exe` processes and kill only those.
+- **claude.ai connectors in headless sessions:** verified 2026-07-12 — the
+  Gmail connector loads in wrapper-spawned headless sessions (deferred behind
+  ToolSearch), since it rides the account login. Authorization itself still
+  happens at claude.ai settings (connectors) / `/mcp` (MCP servers), never in
+  the web UI.

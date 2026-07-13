@@ -118,3 +118,39 @@ companies:
   - name: Toast           # restaurant SaaS, remote; Sr Mgr Growth Operations $149-238k
     ats: greenhouse
     slug: toast
+  - name: Harvey
+    ats: ashby
+    slug: harvey
+  - name: Zip
+    ats: ashby
+    slug: zip
+  - name: Abridge
+    ats: ashby
+    slug: Abridge
+  - name: Alpaca
+    ats: greenhouse
+    slug: alpaca
+  - name: Cresta
+    ats: greenhouse
+    slug: cresta
+  - name: Replit
+    ats: ashby
+    slug: replit
+  - name: Mixpanel
+    ats: greenhouse
+    slug: mixpanel
+  - name: ElevenLabs
+    ats: ashby
+    slug: elevenlabs
+  - name: Modern Treasury
+    ats: ashby
+    slug: moderntreasury
+  - name: Benepass
+    ats: ashby
+    slug: benepass
+  - name: Substack
+    ats: ashby
+    slug: substack
+  - name: Benchling
+    ats: ashby
+    slug: benchling

@@ -2105,5 +2105,646 @@
         "answer": "South Asian (inclusive of Bangladeshi, Bhutanese, Indian, Nepali, Pakistani, and Sri Lankan)"
       }
     ]
+  },
+  {
+    "company": "Alpaca",
+    "job_title": "Product Manager, Accounts",
+    "url": "https://boards.greenhouse.io/embed/job_app?for=alpaca&token=6002028004",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": []
+  },
+  {
+    "company": "Alpaca",
+    "job_title": "Product Manager, Crypto",
+    "url": "https://boards.greenhouse.io/embed/job_app?for=alpaca&token=5994474004",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": []
+  },
+  {
+    "company": "Cresta",
+    "job_title": "Platform Product Manager",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=cresta&token=5114374008",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Security code",
+        "answer": "K"
+      },
+      {
+        "question": "security input 1",
+        "answer": "5"
+      },
+      {
+        "question": "security input 2",
+        "answer": "Z"
+      },
+      {
+        "question": "security input 3",
+        "answer": "P"
+      },
+      {
+        "question": "security input 4",
+        "answer": "D"
+      },
+      {
+        "question": "security input 5",
+        "answer": "C"
+      },
+      {
+        "question": "security input 6",
+        "answer": "0"
+      },
+      {
+        "question": "security input 7",
+        "answer": "y"
+      }
+    ]
+  },
+  {
+    "company": "Cresta",
+    "job_title": "Forward Deployed Product Manager, AI Agent",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=cresta&token=4738837008",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Security code",
+        "answer": "U"
+      },
+      {
+        "question": "security input 1",
+        "answer": "K"
+      },
+      {
+        "question": "security input 2",
+        "answer": "p"
+      },
+      {
+        "question": "security input 3",
+        "answer": "u"
+      },
+      {
+        "question": "security input 4",
+        "answer": "j"
+      },
+      {
+        "question": "security input 5",
+        "answer": "0"
+      },
+      {
+        "question": "security input 6",
+        "answer": "u"
+      },
+      {
+        "question": "security input 7",
+        "answer": "l"
+      }
+    ]
+  },
+  {
+    "company": "Mixpanel",
+    "job_title": "Revenue Strategy & Operations Manager",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=mixpanel&token=7950662",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "How did you hear about Mixpanel as an Employer?*",
+        "answer": "LinkedIn"
+      },
+      {
+        "question": "Are you currently authorized to work in the country outlined for this job (e.g. H-1B status)?*",
+        "answer": "I am authorized to work for any employer in the country outlined in this role (ie: citizen, permanent resident, etc.)"
+      },
+      {
+        "question": "Name (the name you go by)",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Pronouns (the pronouns you use)",
+        "answer": "He/him"
+      },
+      {
+        "question": "Please acknowledge that you've read and understand Mixpanel's Recruitment Privacy Policy*",
+        "answer": "Acknowledge/Confirm"
+      },
+      {
+        "question": "By checking this box, I consent to Mixpanel collecting, storing, and processing my responses to the demographic data surveys above.",
+        "answer": "1"
+      },
+      {
+        "question": "Security code",
+        "answer": "J"
+      },
+      {
+        "question": "security input 1",
+        "answer": "q"
+      },
+      {
+        "question": "security input 2",
+        "answer": "m"
+      },
+      {
+        "question": "security input 3",
+        "answer": "C"
+      },
+      {
+        "question": "security input 4",
+        "answer": "E"
+      },
+      {
+        "question": "security input 5",
+        "answer": "c"
+      },
+      {
+        "question": "security input 6",
+        "answer": "X"
+      },
+      {
+        "question": "security input 7",
+        "answer": "b"
+      }
+    ]
+  },
+  {
+    "company": "Modern Treasury",
+    "job_title": "Product Manager, Payments",
+    "url": "https://jobs.ashbyhq.com/moderntreasury/f11d16f1-641b-4837-a107-f393956144e2/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "LinkedIn",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "What is the best number to reach you at?",
+        "answer": "310-343-9671"
+      }
+    ]
+  },
+  {
+    "company": "Harvey",
+    "job_title": "Innovation Product Manager",
+    "url": "https://jobs.ashbyhq.com/harvey/e5272fbe-4431-4841-bf00-b9f59812b82a/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Legal First and Last Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Preferred Last Name",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Current or Most Recent Employer",
+        "answer": "M Science"
+      },
+      {
+        "question": "University or School Attended",
+        "answer": "University of California, Santa Barbara"
+      },
+      {
+        "question": "Pronouns",
+        "answer": "He/him"
+      },
+      {
+        "question": "No, I do not require sponsorship to work in the country where this role is located",
+        "answer": "on"
+      },
+      {
+        "question": "No, I’m not based in this location but willing to relocate",
+        "answer": "on"
+      },
+      {
+        "question": "LinkedIn",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      }
+    ]
+  },
+  {
+    "company": "Harvey",
+    "job_title": "Senior Product Operations Manager",
+    "url": "https://jobs.ashbyhq.com/harvey/be87aefc-9e03-4294-a86f-a4c5e9fddb44/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Legal First and Last Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Preferred Last Name",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Current or Most Recent Employer",
+        "answer": "M Science"
+      },
+      {
+        "question": "University or School Attended",
+        "answer": "University of California, Santa Barbara"
+      },
+      {
+        "question": "No, I do not require sponsorship to work in the country where this role is located",
+        "answer": "on"
+      },
+      {
+        "question": "No, I’m not based in this location but willing to relocate",
+        "answer": "on"
+      },
+      {
+        "question": "LinkedIn",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      }
+    ]
+  },
+  {
+    "company": "Zip",
+    "job_title": "Senior Product Manager, AP Automation",
+    "url": "https://jobs.ashbyhq.com/zip/62267b66-e970-432c-8cf2-5b6bb25302a4/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Yes but I would need to relocate",
+        "answer": "on"
+      },
+      {
+        "question": "I own a surface area, but eng resources are shared (e.g. backend, frontend)",
+        "answer": "on"
+      },
+      {
+        "question": "5-10 engineers",
+        "answer": "on"
+      },
+      {
+        "question": "Remote in Canada/US",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Zip",
+    "job_title": "GTM Strategy & Operations Manager, Data & Territory Operations",
+    "url": "https://jobs.ashbyhq.com/zip/7f052c21-f506-4fe2-8476-a5290091e715/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Yes but I would need to relocate",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Zip",
+    "job_title": "Business Operations Manager",
+    "url": "https://jobs.ashbyhq.com/zip/e7f5d4ff-22d7-4617-8fbd-ba8865e51490/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Yes but I would need to relocate",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Benepass",
+    "job_title": "Staff Product Manager (Fintech)",
+    "url": "https://jobs.ashbyhq.com/benepass/8d52b724-c0c2-4592-b5a4-0555e66714b9/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "If yes to above, please elaborate",
+        "answer": "Most of my product experience has been building financial products. At M Science I own a data API that quantitative investors and hedge funds use to forecast company KPIs and drive trading decisions, which meant deep work on financial data integrity, point-in-time history, and how funds actually consume market data. Earlier, at PennyMac, I worked in mortgage lending as the data owner for the Broker Direct channel, building the reporting leadership used to steer strategy across a large loan portfolio. I have not worked directly with BaaS card-issuing partners like Stripe or Marqeta, but I have built and operated products squarely in regulated financial domains."
+      },
+      {
+        "question": "Tell us a little bit about yourself and why you're a fit for this position.",
+        "answer": "I am a product and strategy operator who has spent my career turning messy, data-heavy problems into products people trust to make real decisions with. At M Science I manage an API product that delivers forecasted KPIs for hundreds of public companies to quantitative investors. Through product discovery I found that the data structure was creating look-ahead bias that invalidated the product for quant funds, so I partnered with engineering to rebuild the schema around point-in-time history and worked with research to standardize the metadata. That overhaul grew the product's ARR by roughly 80% and doubled the number of quant teams using it. I also led a cross-functional pricing and packaging redesign that drove a 35% revenue increase, and I built the Salesforce-based master data system that automates entitlements and powers our unit economics.\n\nWhat draws me to this Staff PM role is that Benepass sits exactly at the intersection where I work best: a fintech product where getting the money movement, partner integrations, and user experience right all matter at once. I have built financial products in regulated domains, I am self-sufficient in SQL and Python, and I am comfortable operating from strategy down to the lowest level of detail. I would bring that same generalist, first-principles approach to Benepass's fintech roadmap."
+      }
+    ]
+  },
+  {
+    "company": "Benepass",
+    "job_title": "Product Operations Manager",
+    "url": "https://jobs.ashbyhq.com/benepass/7f963a7a-aaad-456b-b12b-7f34b35d51cf/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Tell us a little bit about yourself and why you're a fit for this position.",
+        "answer": "I am a generalist operator who has built my career on pulling signal out of noise, turning it into strategy, and then doing the operational work to execute it. At M Science I own product strategy and operations for a data API used by quantitative investors. I led a cross-functional overhaul of our pricing and packaging that drove a 35% revenue increase, and I architected a Salesforce-based master data system that automated a 40-plus-hour weekly manual entitlements process and became the semantic layer behind our customer portal, analytics, and unit economics. I am equally comfortable scoping strategy and rolling up my sleeves: when we automated entitlements, I wrote the Python mapping script to cut scope and then personally reviewed and corrected over 10,000 records to get the data clean enough to launch.\n\nProduct Operations is where I do my best work because it rewards exactly that blend of process design, cross-functional alignment, and technical self-sufficiency. Benepass's mission of making benefits actually usable is the kind of tangible, real-world problem I want to help scale, and I would bring rigor and an owner's mindset to the operational systems that let the product grow."
+      },
+      {
+        "question": "Do you now, or will you in the future, require sponsorship for employment visa status (e.g., H-1B visa status, etc.) to work legally for our company in the United States? *",
+        "answer": "No"
+      },
+      {
+        "question": "Are you based in the U.S?",
+        "answer": "Yes"
+      }
+    ]
+  },
+  {
+    "company": "ElevenLabs",
+    "job_title": "Revenue Strategy & Operations",
+    "url": "https://jobs.ashbyhq.com/elevenlabs/0bbf2519-4f28-4de3-836a-aabc302050d7/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "United States"
+      },
+      {
+        "question": "Link to your LinkedIn profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "What makes you excited about the ElevenLabs mission?",
+        "answer": "ElevenLabs is making voice a first-class interface and holding it to a quality bar that turns research breakthroughs into products people actually build on. That combination is what pulls me in. I've spent my career on data-intensive, technically hard products, taking emerging capability and turning it into something customers trust enough to rely on, and I want to do that for audio AI at the moment it's reshaping how people create and consume content. The accessibility side of the mission matters to me too; making any voice and any language available to anyone is exactly the kind of tangible, universal problem I've always wanted to work on. On the revenue strategy and operations side specifically, I'm drawn to building the pricing, packaging, and go-to-market infrastructure that lets a fast-moving research company scale its commercial engine without slowing the product down."
+      },
+      {
+        "question": "Finally, tell us about a hard problem in your past!",
+        "answer": "The hardest I've ever worked was rebuilding our customer entitlements system at M Science. I inherited a manual process that ate 40-plus man-hours every week, and automating it meant first doing a brutal amount of manual data validation and transformation to populate the new system. My instinct as an operator is to figure out which work can be simplified or automated and which work simply has to be done. So I cut the scope every way I could, pulling in data science and engineering to find optimizations and personally writing a Python script to handle the complex mapping and shrink the number of records that needed human review. Once I'd exhausted every shortcut, I led a small team through two weeks of focused validation, and I personally reviewed and corrected over 10,000 records to get the data integrity we needed to launch. The automated system replaced the weekly manual grind entirely. It taught me that the unglamorous, detailed work is often exactly what makes a scalable system possible."
+      }
+    ]
+  },
+  {
+    "company": "Abridge",
+    "job_title": "Product Operations and Strategy Manager",
+    "url": "https://jobs.ashbyhq.com/Abridge/bdbe64c1-cb3e-4ba6-a0fe-0bf76372a673/application",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Full Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Preferred Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Github",
+        "answer": "https://github.com/sbhaskaran0"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "California, United States"
+      },
+      {
+        "question": "I do not currently live in New York, San Francisco - but I am willing to relocate within 6 months",
+        "answer": "on"
+      },
+      {
+        "question": "Why are you interested in working at Abridge?",
+        "answer": "Abridge sits at an intersection I care about a lot: genuinely hard AI applied to a problem that plainly matters. Turning messy clinical conversations into structured, trustworthy documentation is exactly the kind of data-intensive product problem I've built my career around, and doing it in healthcare means the payoff is real, less clinician burnout and more time with patients. I've spent my career as a generalist operator on technically sophisticated products, running discovery, turning insight into strategy, and then building the operational infrastructure to execute it. At M Science I led a cross-functional overhaul of our pricing and packaging that drove a ~35% ARR increase, and I built the master data system that became the semantic layer under our analytics and AI products. Product operations and strategy is where I do my best work, sitting between product, engineering, and go-to-market to make execution repeatable. I'd love to bring that to a company scaling AI in a space where getting it right actually improves people's lives."
+      },
+      {
+        "question": "Asian or Asian American",
+        "answer": "on"
+      }
+    ]
   }
 ]

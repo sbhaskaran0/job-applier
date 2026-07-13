@@ -1,0 +1,231 @@
+/* Applyer design tokens — from the design handoff. Warm paper light theme /
+   warm espresso dark theme (default dark). Semantic names replace the
+   prototype's --cXXXXXX hex vars; every pair maps 1:1 to the handoff table. */
+
+:root,
+[data-theme='light'] {
+  --overlay-base: #ede4d5;
+  --bg-sidebar: #ebe1d0;
+  --bg-app: #f6f1e8;
+  --bg-rail: #f1eadd;
+  --bg-card: #fcfaf5;
+  --chip: #efe7d8;
+  --accent-soft: #f1e2d9;
+  --row-selected: #fbf1ea;
+  --divider: #f0e8da;
+  --divider-2: #ede5d7;
+  --bar-track: #dfd4c2;
+  --amber-header: #f9efd6;
+  --amber-soft: #f3e8cf;
+  --sage-soft: #e2ecdf;
+  --purple-soft: #e7e0f0;
+  --border-1: #e7ded0;
+  --border-2: #e4dac9;
+  --border-3: #e1d6c3;
+  --border-4: #d8cdbb;
+  --ink: #2b2723;
+  --text-2: #5c5348;
+  --text-3: #7a7167;
+  --text-4: #948a7c;
+  --text-5: #a79e90;
+  --dot-faint: #c6b9a3;
+  --clay: #bc5a3c;
+  --clay-text: #a2482e;
+  --clay-hover: #9c4429;
+  --on-clay: #fcefe7;
+  --sage: #4f7d5e;
+  --sage-text: #3f6b4e;
+  --amber: #b07d28;
+  --amber-text: #8a6416;
+  --amber-border: #e7d5a8;
+  --amber-bright: #d9a441;
+  --amber-on-dark: #e4c98e;
+  --purple: #8579a8;
+  --purple-text: #5b4e7a;
+  --toast-divider: #4b443c;
+}
+
+[data-theme='dark'] {
+  --overlay-base: #1b1815;
+  --bg-sidebar: #201c18;
+  --bg-app: #232019;
+  --bg-rail: #262019;
+  --bg-card: #2b2620;
+  --chip: #322b23;
+  --accent-soft: #3a2a22;
+  --row-selected: #382a21;
+  --divider: #2e2720;
+  --divider-2: #2e2720;
+  --bar-track: #3c332a;
+  --amber-header: #33280f;
+  --amber-soft: #372c14;
+  --sage-soft: #22332a;
+  --purple-soft: #2c2638;
+  --border-1: #37302a;
+  --border-2: #3a3229;
+  --border-3: #423a30;
+  --border-4: #4a4136;
+  --ink: #f1eadf;
+  --text-2: #c7bcab;
+  --text-3: #a69b8a;
+  --text-4: #8a8071;
+  --text-5: #7c7464;
+  --dot-faint: #675f51;
+  --clay: #c96b4b;
+  --clay-text: #e28b6d;
+  --clay-hover: #e89372;
+  --on-clay: #fbefe7;
+  --sage: #6fa27f;
+  --sage-text: #8fc3a2;
+  --amber: #e0ac4e;
+  --amber-text: #e0ac4e;
+  --amber-border: #574627;
+  --amber-bright: #e4b85c;
+  --amber-on-dark: #e4c98e;
+  --purple: #a99bd0;
+  --purple-text: #c4b7e5;
+  --toast-divider: #5a5147;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+body {
+  font-family: 'Hanken Grotesk', system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: var(--clay);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--clay-hover);
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-4);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+input,
+textarea,
+button {
+  font-family: inherit;
+}
+textarea {
+  resize: none;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+/* ---- shared building blocks ---- */
+.serif {
+  font-family: 'Newsreader', serif;
+}
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-1);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(80, 60, 30, 0.04);
+}
+.page-header {
+  padding: 20px 34px 16px;
+  border-bottom: 1px solid var(--border-1);
+}
+.page-header h1 {
+  font-family: 'Newsreader', serif;
+  font-weight: 600;
+  font-size: 23px;
+  margin: 0;
+  letter-spacing: -0.015em;
+}
+.page-header p {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.btn-primary {
+  background: var(--clay);
+  color: var(--on-clay);
+  border: none;
+  border-radius: 9px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 9px 14px;
+}
+.btn-soft {
+  background: var(--bg-app);
+  color: var(--text-2);
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 9px 14px;
+}
+.mono-tile {
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--clay-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Newsreader', serif;
+  font-weight: 600;
+  flex: none;
+}
+.tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  letter-spacing: 0.04em;
+}
+.badge-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 11px;
+  border-radius: 20px;
+  justify-self: start;
+}
