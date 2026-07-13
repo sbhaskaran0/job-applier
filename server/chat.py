@@ -18,12 +18,40 @@ questions arrive as agent_text for the user to answer in the chat.
 """
 
 import asyncio
+import shutil
+from pathlib import Path
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 from src import config
 
 TOOL_PREFIX = "mcp__job-applier__"
+
+# Starting two CLI processes at the same instant can crash one with an access
+# violation (seen on Windows ARM64 with the SDK's emulated x64 bundled CLI) —
+# serialize session startup and retry once.
+_connect_lock = asyncio.Lock()
+
+
+def find_cli() -> str | None:
+    """Prefer a native CLI install over the SDK's bundled binary (which is
+    x64 and runs under emulation on ARM64 Windows — flaky under concurrency).
+    Returns None to let the SDK fall back to its bundled CLI."""
+    if cli := shutil.which("claude"):
+        return cli
+    candidates: list[Path] = []
+    # VS Code/Cursor extension native binaries (version-suffixed dirs)
+    for ide_dir in (Path.home() / ".cursor" / "extensions",
+                    Path.home() / ".vscode" / "extensions"):
+        candidates += ide_dir.glob(
+            "anthropic.claude-code-*/resources/native-binary/claude.exe")
+    # Claude Desktop's managed claude-code install
+    candidates += (Path.home() / "AppData" / "Local" / "Packages").glob(
+        "Claude_*/LocalCache/Roaming/Claude/claude-code/*/claude.exe")
+    if not candidates:
+        return None
+    # Highest version-ish path wins (lexicographic on the version dir name)
+    return str(sorted(candidates, key=lambda p: p.parent.as_posix())[-1])
 _DETAIL_KEYS = ("url", "label", "question", "company", "query", "skill", "path",
                 "file_path", "command")
 
@@ -59,11 +87,25 @@ async def chat_session(ws: WebSocket) -> None:
         # user+project: load ~/.claude auth/config AND this repo's .mcp.json,
         # .claude/skills, CLAUDE.md — the same surface a terminal session gets.
         setting_sources=["user", "project"],
+        cli_path=find_cli(),
     )
     client = ClaudeSDKClient(options=options)
     busy = False
     try:
-        await client.connect()
+        async with _connect_lock:
+            try:
+                await client.connect()
+            except Exception:
+                await asyncio.sleep(2)  # transient spawn crash — one retry
+                client = ClaudeSDKClient(options=options)
+                try:
+                    await client.connect()
+                except Exception as e:
+                    await ws.send_json({"type": "error", "message":
+                                        f"Could not start a Claude Code "
+                                        f"session: {e}"})
+                    await ws.close()
+                    return
         await ws.send_json({"type": "ready"})
         while True:
             incoming = await ws.receive_json()

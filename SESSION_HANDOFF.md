@@ -219,3 +219,17 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   it back empty (DoorDash EEO react-select, Ashby button-group): confirm with one
   screenshot, report as "set but unverifiable in the DOM", ask user to glance.
 - **EEO:** delete profile values to opt out; README carries the warning.
+- **Web-wrapper chat on ARM64 Windows:** the Agent SDK's bundled `claude.exe`
+  is x64 (emulated here) and crash-loops with 0xC0000005 when a second session
+  spawns; leaked processes then poison later spawns. Fix (2026-07-12, in
+  `server/chat.py`): `find_cli()` prefers a native CLI (PATH → Cursor/VS Code
+  extension `native-binary` → Claude Desktop's managed claude-code) via
+  `ClaudeAgentOptions.cli_path`, session startup is serialized behind a global
+  asyncio lock with one retry, and connect failures surface as chat error
+  events (verified: two concurrent sessions OK). If chat dies again, check for
+  stray `_bundled\claude.exe` processes and kill only those.
+- **claude.ai connectors in headless sessions:** verified 2026-07-12 — the
+  Gmail connector loads in wrapper-spawned headless sessions (deferred behind
+  ToolSearch), since it rides the account login. Authorization itself still
+  happens at claude.ai settings (connectors) / `/mcp` (MCP servers), never in
+  the web UI.

@@ -101,7 +101,7 @@ export function useAgentChat(): AgentChat {
         setTyping(false)
         wsRef.current = null
         if (!closedByUs.current) {
-          timer = window.setTimeout(connect, Math.min(15000, 1000 * 2 ** retry++))
+          timer = window.setTimeout(connect, Math.min(30000, 1000 * 2 ** retry++))
         }
       }
     }
