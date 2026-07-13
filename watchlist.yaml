@@ -154,3 +154,69 @@ companies:
   - name: Benchling
     ats: ashby
     slug: benchling
+
+  # --- Discovery adoptions 2026-07-13 (drained-queue run; all boards ≥2
+  #     qualifying roles, confirmed live against the ATS APIs by src.discover) ---
+  - name: ClassDojo        # edtech platform
+    ats: ashby
+    slug: classdojo
+  - name: PermitFlow       # construction permitting SaaS, YC
+    ats: ashby
+    slug: permitflow
+  - name: Qventus          # AI healthcare operations
+    ats: greenhouse
+    slug: qventus
+  - name: Temporal Technologies  # durable-execution dev infra
+    ats: greenhouse
+    slug: temporaltechnologies
+  - name: Valon Labs       # mortgage-servicing fintech
+    ats: ashby
+    slug: Valon
+  - name: Ambience Healthcare    # AI clinical documentation
+    ats: ashby
+    slug: ambiencehealthcare
+  - name: Hadrian          # precision manufacturing / defense
+    ats: ashby
+    slug: hadrian-automation
+  - name: Speak            # AI language learning
+    ats: ashby
+    slug: speak
+  - name: Sprinter Health  # in-home healthcare
+    ats: ashby
+    slug: sprinter-health
+  - name: Skydio           # autonomous drones
+    ats: ashby
+    slug: skydio
+  - name: Stepful          # healthcare workforce training
+    ats: ashby
+    slug: stepful
+  - name: Suno             # AI music
+    ats: ashby
+    slug: suno
+  - name: AtoB             # fintech for trucking
+    ats: ashby
+    slug: atob
+  - name: Counsel Health   # virtual medical care
+    ats: ashby
+    slug: counsel
+  - name: Doctronic        # AI health answers
+    ats: ashby
+    slug: doctronic
+  - name: Greenlight       # family fintech
+    ats: lever
+    slug: greenlight
+  - name: Pair Team        # Medicaid care coordination
+    ats: greenhouse
+    slug: pairteam
+  - name: Propel           # benefits/fintech for low-income Americans
+    ats: ashby
+    slug: propel
+  - name: Rillet           # AI-native ERP / accounting
+    ats: ashby
+    slug: rillet
+  - name: Stedi            # healthcare clearinghouse / EDI
+    ats: ashby
+    slug: Stedi
+  - name: TRM Labs         # blockchain intelligence
+    ats: ashby
+    slug: trm-labs

@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-07-12.
+per-session narrative lives in `git log` + Linear. Last updated 2026-07-13.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -11,7 +11,7 @@ An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
 `python -m src.mcp_server`, **33 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
-- **`/find-jobs <query>`** — roles across a curated ~46-company watchlist
+- **`/find-jobs <query>`** — roles across a curated ~67-company watchlist
   (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
   strict-filtered by `job_criteria.yaml`, ranked semantically by Claude.
 - **`/apply-to-job <url>`** — fills from profile→history→context with
@@ -144,6 +144,14 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-07-13 session (JOB-56):** watchlist expansion — `src.discover` drained
+  the candidate queue (145 probed, 83 newly confirmed, 0 left), adopted all 21
+  not-yet-listed boards with ≥2 qualifying roles (ClassDojo, PermitFlow,
+  Qventus, Temporal, Valon, Ambience Healthcare, Hadrian, Speak, Sprinter
+  Health, Skydio, Stepful, Suno, AtoB, Counsel Health, Doctronic, Greenlight,
+  Pair Team, Propel, Rillet, Stedi, TRM Labs) → **67 boards**. `src.refresh`
+  verified all 67 fetch clean; 7,671 scanned, 880 new, **55 new
+  baseline-passing roles** in `data/digest-latest.md`.
 - **2026-07-12 session:** built the **Applyer web wrapper** from the design
   handoff zip (React SPA + FastAPI + Agent SDK chat; see the bullet in the
   skills list above and the README web-wrapper section). Smoke-tested: all six
