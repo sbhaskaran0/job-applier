@@ -268,4 +268,50 @@ flowchart TD
     DONE --> REPORT
 ```
 
+## Web wrapper — Applyer (optional frontend)
+
+The whole agent also has a **desktop web face**: a React SPA (`frontend/`) +
+FastAPI backend (`server/`) that wraps the same data files and skills. The
+chat surface spawns **real Claude Code sessions in this repo via the Claude
+Agent SDK** (your existing Claude Code auth — still no API key), so
+`/find-jobs`, `/apply-batch`, and `/tailor-application` run for real, with
+tool calls streaming into live run cards. The other surfaces are served from
+the same modules the MCP server uses, so they always match what the agent
+sees.
+
+```bash
+pip install -r requirements.txt        # now includes fastapi/uvicorn/claude-agent-sdk
+cd frontend && npm install && npm run build && cd ..
+scripts\webapp.cmd                     # serves http://localhost:8765 and opens it
+```
+
+```mermaid
+flowchart LR
+    subgraph UI["frontend/ — React SPA (Vite, TS)"]
+        J["Jobs chat + watchlist rail"]
+        P["Postings (select → queue)"]
+        A["Applications monitor"]
+        PR["Profile + onboarding"]
+        CN["Connections"]
+    end
+    subgraph BE["server/ — FastAPI :8765"]
+        API["REST /api/*<br/>postings · applications · profile ·<br/>watchlist · uploads · connections"]
+        WS["WebSocket /ws/chat"]
+    end
+    UI -->|fetch| API
+    J <-->|stream| WS
+    API --> SRC["src/store · src/config ·<br/>src/providers.watchlist<br/>(same code the MCP server uses)"]
+    SRC --> FILES[("postings.db · applications.json ·<br/>user_profile.yaml · watchlist.yaml · context/")]
+    WS --> SDK["Claude Agent SDK<br/>headless Claude Code session, cwd = repo"]
+    SDK --> SKILLS["/find-jobs · /apply-batch ·<br/>/tailor-application + job-applier MCP<br/>(.mcp.json, skills, CLAUDE.md all load)"]
+```
+
+Selecting postings and confirming the apply modal launches a **real**
+`/apply-batch` (the autonomous variant shows an explicit warning modal first).
+Write-back from the UI is deliberately narrow: watchlist add (same logic as
+`add_company`), whitelisted profile string facts (comment-preserving edits to
+`user_profile.yaml`; EEO entries are never shown or written), and resume /
+context uploads. Connections is status-only — authorization still happens in
+Claude Code.
+
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**

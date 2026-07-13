@@ -26,6 +26,11 @@ data/discovery-latest.md
 current_page.png
 *_review.png
 
+# Frontend (Applyer web wrapper)
+frontend/node_modules/
+frontend/dist/
+
 # OS
 .DS_Store
 Thumbs.db
+frontend/*.tsbuildinfo

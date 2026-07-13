@@ -5,3 +5,9 @@ pypdf
 httpx
 python-docx
 docx2pdf
+
+# web wrapper backend (server/ — the Applyer frontend's API + chat bridge)
+fastapi
+uvicorn[standard]
+python-multipart
+claude-agent-sdk

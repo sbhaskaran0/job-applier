@@ -410,6 +410,40 @@ and trims what's already true in your resume and [context/](context/).
 
 ---
 
+## 7b. The web wrapper — Applyer
+
+Prefer a UI over the terminal? The repo ships a desktop web frontend that
+wraps everything above. One-time setup:
+
+```bash
+pip install -r requirements.txt        # adds fastapi, uvicorn, claude-agent-sdk
+cd frontend && npm install && npm run build
+```
+
+Then launch with **`scripts\webapp.cmd`** (or `python -m server`) and open
+<http://localhost:8765>. Five surfaces:
+
+| Surface | What it shows / does |
+| --- | --- |
+| **Jobs** | A chat that runs **real Claude Code sessions** in this repo (Agent SDK, your existing auth). Type `/find-jobs fintech strategy` or plain English; tool calls stream in as live run-card steps. The right rail edits the watchlist (`+` calls the same `add_company` logic). |
+| **Postings** | Every baseline-passing role from the local store, with NEW/APPLIED tags, salary, and ATS. Multi-select → **Apply via Claude Code** launches a real `/apply-batch` with those URLs. The **Autonomous** toggle switches the confirm modal to the amber hands-off variant (explicit "can't be undone" warning). |
+| **Applications** | The tracker from `data/applications.json` — stat cards + status pills (`submitted` / `manual submit` / `attempted` / `parked`). |
+| **Profile** | Your `user_profile.yaml` facts, résumé state, and `context/` knowledge base. "Edit setup" opens a 5-step onboarding that writes whitelisted facts back to the YAML (comments preserved) and uploads résumé/context files. EEO values never appear in the UI and can't be edited from it. |
+| **Connections** | Detected status of Claude Code, the job-applier MCP server, Gmail, and Linear. Status-only — authorize in Claude Code (`/mcp`) or claude.ai connector settings. |
+
+Notes:
+
+- The chat session runs with the same trust as a terminal session in this
+  repo (`bypassPermissions` inside the project). Approval gates are
+  **conversational** — the skills still pause and ask before submitting, and
+  you answer right in the chat. Autonomous runs are still opt-in per run.
+- A chat run opens its own MCP server + browser, independent of any Claude
+  Code session you have open in an editor — don't drive two applies at once.
+- Dev loop: `python -m server` + `npm run dev` in `frontend/` (Vite proxies
+  `/api` and `/ws` to :8765).
+
+---
+
 ## 8. The full tool set (33)
 
 **Browser / apply**
@@ -549,6 +583,9 @@ Job Applier/
 ├─ data/digest-latest.md         # refresh digest (gitignored, regenerated)
 ├─ data/prep/                    # batch-mode prep files/sheets (gitignored)
 ├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows)
+├─ scripts/webapp.cmd            # launch the Applyer web wrapper (§7b)
+├─ server/                       # FastAPI backend: /api/* + /ws/chat (Agent SDK bridge)
+├─ frontend/                     # Applyer React SPA (Vite + TS; npm run build → dist/)
 ├─ src/
 │  ├─ mcp_server.py              # the 32 tools
 │  ├─ browser.py                 # ATS-agnostic form reading/filling
