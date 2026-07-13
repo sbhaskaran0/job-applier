@@ -70,7 +70,7 @@ Then, in Claude Code, **open this project and reload it** so it loads
 | `**resume.pdf`** (add to project root) | The actual file **uploaded** to forms (preferred over `.txt`). On each apply, its text is auto-synced into `resume.txt`.                                         |
 | [context/](context/)                   | Your "knowledge base" — `background.md`, `stories.md`, `preferences.md`, and any `.md` / `.txt` / `**.pdf`** you add. Searched when crafting open-ended answers. |
 | [job_criteria.yaml](job_criteria.yaml) | The strict bar for `/find-jobs`: acceptable titles, seniority, locations/remote, and `salary_floor` (currently **$130k**; mid-level ops titles allowed and `Associate` not excluded, per JOB-26). |
-| [watchlist.yaml](watchlist.yaml)       | The ~34 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04, and mid-level S&O/BizOps sources Atticus/Tailscale/Ladder/Toast added 2026-07-05 for JOB-26). |
+| [watchlist.yaml](watchlist.yaml)       | The ~46 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04, mid-level S&O/BizOps sources added 2026-07-05 for JOB-26, and a dozen more — Harvey, Zip, Abridge, Mixpanel, Modern Treasury… — added 2026-07-12). |
 | [data/history.json](data/history.json) | Past Q&A answers. Grows automatically as you approve crafted answers.                                                                                            |
 
 
@@ -226,9 +226,12 @@ The watchlist is the universe `/find-jobs` searches — curated for quality.
 board URL) — it detects the ATS and slug and appends the entry.
 - **Remove:** delete the entry from [watchlist.yaml](watchlist.yaml).
 
-Current seed (20): Stripe, Figma, Databricks, Airtable, Brex, Mercury, Coinbase,
-Anthropic, Scale AI, Instacart, Airbnb, Robinhood, Samsara, Ramp, Notion, Plaid,
-Vanta, Linear, OpenAI, Snowflake.
+Currently ~46 companies — the original seed (Stripe, Figma, Databricks,
+Airtable, Brex, Mercury, Coinbase, Anthropic, Scale AI, Instacart, Airbnb,
+Robinhood, Samsara, Ramp, Notion, Plaid, Vanta, Linear, OpenAI, Snowflake)
+plus the JOB-26 S&O/BizOps additions and the 2026-07-12 batch (Harvey, Zip,
+Abridge, Alpaca, Cresta, Replit, Mixpanel, ElevenLabs, Modern Treasury,
+Benepass, …). [watchlist.yaml](watchlist.yaml) is the source of truth.
 
 ---
 

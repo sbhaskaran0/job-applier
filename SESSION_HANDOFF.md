@@ -11,7 +11,7 @@ An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
 `python -m src.mcp_server`, **33 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
-- **`/find-jobs <query>`** — roles across a curated ~34-company watchlist
+- **`/find-jobs <query>`** — roles across a curated ~46-company watchlist
   (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
   strict-filtered by `job_criteria.yaml`, ranked semantically by Claude.
 - **`/apply-to-job <url>`** — fills from profile→history→context with
@@ -157,11 +157,9 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   JOB-51 batch Stage B token cut, JOB-6 per-job tailoring, JOB-26 sourcing
   rework, postings store (JOB-27..31). `.env` untracked/never committed.
 - **Applications submitted** (ground truth: `data/applications.json`):
-  Stripe — PM Payments (`submitted`) · Stripe — PM Ecosystem Risk (backfilled) ·
-  Notion — Product Ops Mgr (`submitted`) · Notion — CS S&O Mgr
-  (`manual_submission`) · Mercury — Data S&O Lead · Databricks — Sr Mgr GTM S&O
-  (both `submitted`). Scale AI — Growth S&O Lead: **confirmed live but UNLOGGED**
-  (backfill pending, JOB-17).
+  **52 records as of 2026-07-12** (48 `submitted`, 4 `manual_submission`) —
+  too many to enumerate here; read the JSON. Scale AI — Growth S&O Lead:
+  **confirmed live but UNLOGGED** (backfill pending, JOB-17).
 - **2026-07-11 run (JOB-52):** autonomous `/apply-batch` over 20 BizOps/S&O
   roles → 11 verified submits (Coinbase, Tailscale, Ladder, Plaid, Samsara×3,
   Vanta GRC, Boulevard, Grow Therapy, Snowflake), Ashby ones (Rula, Ramp Bill
@@ -170,9 +168,9 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   upload). Ground truth in `data/applications.json`.
 
 ## Open items / next steps
-1. **User action: update `resume.pdf`** — still says "Audare AI … Ongoing";
-   `resume.txt` is regenerated from it on every `open_job`, so the stale line
-   out-ranks the corrected `background.md` in retrieval.
+1. **Update `resume.pdf` — DONE (2026-07-12):** the PDF (and synced
+   `resume.txt`) now shows "Audare AI … March 2025–November 2025"; the stale
+   "Ongoing" line is gone from retrieval.
 2. **(JOB-6) `resume.docx` base template — DONE (2026-07-11):** a real
    `resume.docx` is now committed at the project root, so resume tailoring is
    live (was inert). DOCX→PDF needs Word (present).
