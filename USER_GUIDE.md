@@ -432,9 +432,9 @@ Then launch with **`scripts\webapp.cmd`** (or `python -m server`) and open
 | Surface | What it shows / does |
 | --- | --- |
 | **Jobs** | A chat that runs **real Claude Code sessions** in this repo (Agent SDK, your existing auth). Type `/find-jobs fintech strategy` or plain English; tool calls stream in as live run-card steps. The right rail edits the watchlist (`+` calls the same `add_company` logic). |
-| **Postings** | Every baseline-passing role from the local store, with NEW/APPLIED tags, salary, and ATS. Multi-select → **Apply via Claude Code** launches a real `/apply-batch` with those URLs. The **Autonomous** toggle switches the confirm modal to the amber hands-off variant (explicit "can't be undone" warning). |
+| **Postings** | Every baseline-passing role from the local store, with NEW tags, salary, and ATS (already-applied roles are excluded — they live on Applications). A filter card narrows by job title, location (normalized city/remote tokens, so "SF" and "San Francisco, CA" match together), years-of-experience and salary ranges, posted date, and an include-missing-data toggle. The **chevron** next to a title opens the full job description in a modal (from the store when cached, live ATS read otherwise). The **Refresh** button next to the page title runs the same board sweep as `python -m src.refresh` (spinner while running, then a scanned/new/removed summary; a second click during a run is refused). Multi-select → **Apply via Claude Code** launches a real `/apply-batch` with those URLs. The **Autonomous** toggle switches the confirm modal to the amber hands-off variant (explicit "can't be undone" warning). |
 | **Applications** | The tracker from `data/applications.json` — stat cards + status pills (`submitted` / `manual submit` / `attempted` / `parked`). |
-| **Profile** | Your `user_profile.yaml` facts, résumé state, and `context/` knowledge base. "Edit setup" opens a 5-step onboarding that writes whitelisted facts back to the YAML (comments preserved) and uploads résumé/context files. EEO values never appear in the UI and can't be edited from it. |
+| **Profile** | Your `user_profile.yaml` facts, résumé state, and `context/` knowledge base. "Edit setup" opens a 5-step onboarding that writes whitelisted facts back to the YAML (comments preserved) and uploads résumé/context files. EEO values never appear in the UI and can't be edited from it. Below the facts, a **Job criteria** card edits `job_criteria.yaml` (titles, locations, seniority, salary floor, YoE window, posted-within, remote) with the same comment-preserving write-back — saving re-scopes the Postings page, the digest, and `/find-jobs` immediately. |
 | **Connections** | Detected status of Claude Code, the job-applier MCP server, Gmail, and Linear. Status-only — authorize in Claude Code (`/mcp`) or claude.ai connector settings. |
 
 Notes:
@@ -447,6 +447,11 @@ Notes:
   Code session you have open in an editor — don't drive two applies at once.
 - Dev loop: `python -m server` + `npm run dev` in `frontend/` (Vite proxies
   `/api` and `/ws` to :8765).
+- After changing `server/` or `src/` code, **restart the webapp** — rebuilding
+  the frontend alone isn't enough (the backend runs in-process). And make sure
+  the old process actually died: a server still squatting :8765 makes the
+  relaunch fail silently while your browser keeps talking to stale code
+  (JOB-59 tracks making this loud).
 
 ---
 

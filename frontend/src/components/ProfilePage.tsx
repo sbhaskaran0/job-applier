@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { uploadFile } from '../api'
 import type { Profile } from '../types'
+import JobCriteriaCard from './JobCriteriaCard'
 
 const FACT_ROWS: { label: string; value: (f: Record<string, string>) => string }[] = [
   { label: 'Full name', value: (f) => f.full_name },
@@ -156,6 +157,8 @@ export default function ProfilePage({ profile, openOnboarding }: Props) {
               </div>
             </div>
           </div>
+
+          <JobCriteriaCard />
         </div>
       </div>
     </div>

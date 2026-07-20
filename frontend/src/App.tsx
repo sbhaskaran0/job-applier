@@ -104,6 +104,7 @@ export default function App() {
             selected={selected} setSelected={setSelected}
             autonomous={autonomous} setAutonomous={setAutonomous}
             openApply={() => setModalOpen(true)}
+            reload={reload}
           />
         )}
         {page === 'applications' && <ApplicationsPage applications={applications} />}

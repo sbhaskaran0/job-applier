@@ -1,5 +1,6 @@
 import type {
-  ApplicationRecord, Connection, Posting, Profile, Status, WatchlistCompany,
+  ApplicationRecord, Connection, Criteria, Posting, PostingDetail, Profile,
+  Status, WatchlistCompany,
 } from './types'
 
 async function get<T>(path: string): Promise<T> {
@@ -26,6 +27,33 @@ export async function addWatchlistCompany(url: string) {
   })
   if (!r.ok) throw new Error((await r.json()).detail ?? 'could not add company')
   return r.json() as Promise<{ status: string; name?: string; ats?: string; slug?: string }>
+}
+
+export async function refreshPostings() {
+  const r = await fetch('/api/refresh', { method: 'POST' })
+  if (!r.ok) throw new Error((await r.json()).detail ?? 'refresh failed')
+  return r.json() as Promise<{
+    run_at: string
+    total_scanned: number
+    new_count: number
+    removed_count: number
+    relisted_count: number
+    boards_failed: string[]
+  }>
+}
+
+export const fetchCriteria = () => get<Criteria>('/api/criteria')
+export const fetchPostingDetail = (url: string) =>
+  get<PostingDetail>(`/api/posting?url=${encodeURIComponent(url)}`)
+
+export async function updateCriteria(update: Partial<Criteria>) {
+  const r = await fetch('/api/criteria', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(update),
+  })
+  if (!r.ok) throw new Error((await r.json()).detail ?? 'could not save criteria')
+  return r.json() as Promise<Criteria>
 }
 
 export async function updateProfile(facts: Record<string, string>) {

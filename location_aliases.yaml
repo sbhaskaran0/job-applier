@@ -1,0 +1,44 @@
+﻿# Curated location alias map (JOB-55) — the hand-maintained half of location
+# normalization. Regex canonicalization in src/providers/locations.py handles
+# the mechanical cases (US-CA- prefixes, ", CA" suffixes, "HQ"/"Office" noise);
+# this file catches what regex can't: abbreviations, nicknames, and typos seen
+# on real boards.
+#
+# Keys are matched case-insensitively AFTER regex cleanup. Values are the
+# canonical display name. Curation loop: review the location_observations
+# table in data/postings.db (raw token → derived canonical, with counts),
+# add corrections here, and the next refresh re-normalizes everything.
+
+aliases:
+  # -- abbreviations / nicknames
+  sf: San Francisco
+  sfo: San Francisco
+  san francisco bay area: San Francisco
+  sf bay area: San Francisco
+  bay area: San Francisco
+  nyc: New York
+  new york city: New York
+  sea: Seattle
+  chi: Chicago
+  la: Los Angeles
+  dc: Washington, DC
+  washington dc: Washington, DC
+  washington d.c.: Washington, DC
+  atl: Atlanta
+  # -- typos seen on live boards
+  san fransisco: San Francisco
+  cananda: Canada
+  # -- country / region spellings
+  us: United States
+  u.s.: United States
+  usa: United States
+  united states of america: United States
+  america: United States
+  uk: United Kingdom
+  great britain: United Kingdom
+  england: United Kingdom
+  # -- non-locations that should be dropped entirely (map to empty)
+  n/a: ""
+  tbd: ""
+  anywhere: ""
+  flexible: ""

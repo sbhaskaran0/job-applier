@@ -49,7 +49,7 @@ baseline:
     - "Strategy Analyst"
     - "Business Operations Analyst"
     - "Business Operations Associate"
-  acceptable_seniority: ["Mid", "Senior","Early Career"]
+  acceptable_seniority: ["Mid", "Senior", "Early Career", "Associate", "Manager"]
   # "Associate" intentionally NOT excluded (JOB-26): analyst/associate ops roles
   # are valid mid-level targets, so we don't reject them on the title-seniority gate.
   excluded_seniority: ["Director", "VP", "Head", "Principal", "Intern", "Junior"]
@@ -62,3 +62,7 @@ baseline:
   # Salary floor (USD). A DISCLOSED salary below this is dropped; a listing that
   # does not disclose salary is kept but flagged "salary not listed".
   salary_floor: 130000  # JOB-26: lowered 150k->130k to match the S&O search intent
+
+  # Advisory YoE window shown in the postings UI filters (JOB-55).
+  yoe_min: 0
+  yoe_max: 15

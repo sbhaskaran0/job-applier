@@ -4,6 +4,8 @@ export interface Posting {
   company: string
   title: string
   location: string
+  locations: string[]
+  work_mode: 'remote' | 'hybrid' | 'onsite'
   remote: boolean
   salary_min: number | null
   salary_max: number | null
@@ -11,10 +13,32 @@ export interface Posting {
   min_years: number | null
   url: string
   first_seen: string
+  posted_at: string | null
   is_new: boolean
   already_applied: boolean
   ats: string
   snippet: string
+}
+
+export interface PostingDetail {
+  url: string
+  found: boolean
+  source: 'store' | 'live'
+  description?: string
+  title?: string
+  note?: string
+}
+
+export interface Criteria {
+  titles: string[]
+  search_titles: string[]
+  locations: string[]
+  acceptable_seniority: string[]
+  excluded_seniority: string[]
+  salary_floor: number | null
+  date_posted_days: number | null
+  remote_ok: boolean
+  yoe: [number, number]
 }
 
 export interface ApplicationRecord {

@@ -68,7 +68,7 @@ deep-reads.
 flowchart TD
     subgraph ING["python -m src.refresh — pure Python, no LLM, scheduler-friendly"]
         B["~67 watchlist boards<br/>public Greenhouse/Lever/Ashby APIs"] --> N["normalize<br/>(ats, slug, job_id)"]
-        N --> X["extract once per posting:<br/>salary from JD text · min-years (advisory)<br/>· excluded-seniority flag"]
+        N --> X["extract once per posting:<br/>salary from JD text · min-years (advisory)<br/>· excluded-seniority flag · locations →<br/>canonical tokens + work_mode<br/>(regex + location_aliases.yaml)"]
         X --> DB[("data/postings.db<br/>first_seen · last_seen · removed_at<br/>(removals only from boards that fetched OK)")]
         DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield per company"]
     end
@@ -289,13 +289,13 @@ scripts\webapp.cmd                     # serves http://localhost:8765 and opens 
 flowchart LR
     subgraph UI["frontend/ — React SPA (Vite, TS)"]
         J["Jobs chat + watchlist rail"]
-        P["Postings (select → queue)"]
+        P["Postings (filters · JD modal ·<br/>refresh → select → queue)"]
         A["Applications monitor"]
-        PR["Profile + onboarding"]
+        PR["Profile + onboarding<br/>+ job-criteria editor"]
         CN["Connections"]
     end
     subgraph BE["server/ — FastAPI :8765"]
-        API["REST /api/*<br/>postings · applications · profile ·<br/>watchlist · uploads · connections"]
+        API["REST /api/*<br/>postings · posting (JD) · refresh ·<br/>criteria · applications · profile ·<br/>watchlist · uploads · connections"]
         WS["WebSocket /ws/chat"]
     end
     UI -->|fetch| API
@@ -306,11 +306,16 @@ flowchart LR
     SDK --> SKILLS["/find-jobs · /apply-batch ·<br/>/tailor-application + job-applier MCP<br/>(.mcp.json, skills, CLAUDE.md all load)"]
 ```
 
-Selecting postings and confirming the apply modal launches a **real**
-`/apply-batch` (the autonomous variant shows an explicit warning modal first).
-Write-back from the UI is deliberately narrow: watchlist add (same logic as
-`add_company`), whitelisted profile string facts (comment-preserving edits to
-`user_profile.yaml`; EEO entries are never shown or written), and resume /
+The Postings page filters roles by title, location (normalized tokens — "SF"
+and "San Francisco, CA" match together), YoE/salary ranges, and posted date;
+a chevron opens the full JD in a modal, and a **Refresh** button runs the same
+board sweep as `python -m src.refresh` right from the UI. Selecting postings
+and confirming the apply modal launches a **real** `/apply-batch` (the
+autonomous variant shows an explicit warning modal first). Write-back from the
+UI is deliberately narrow: watchlist add (same logic as `add_company`),
+whitelisted profile string facts (comment-preserving edits to
+`user_profile.yaml`; EEO entries are never shown or written), the job-criteria
+card on Profile (comment-preserving edits to `job_criteria.yaml`), and resume /
 context uploads. Connections is status-only — authorization still happens in
 Claude Code.
 
