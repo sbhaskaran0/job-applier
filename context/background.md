@@ -82,3 +82,9 @@ Agile Project Management, Advanced Excel, PowerPoint/Word, Document Writing,
 Quantitative Analysis, Data Analytics, BI, VBA, Tableau, Data Visualization,
 AI/ML, Stakeholder Management, Databricks Unity Catalog, ETL, A/B testing,
 Salesforce.
+
+## Work authorization / citizenship
+- **U.S. citizen** (confirmed by Siddharth, 2026-07-13). Authorized to work in
+  the US on a permanent basis; never requires visa sponsorship, present or
+  future. Satisfies US-person requirements (ITAR / export-control questions →
+  "Yes").

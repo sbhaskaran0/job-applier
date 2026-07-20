@@ -29,9 +29,8 @@ requires_sponsorship: "No"
 willing_to_relocate: "Yes"
 how_did_you_hear: "Company careers page / professional network"
 
-desired_salary: ""
-notice_period: ""
-
+desired_salary: "130000"
+notice_period: "2 weeks"
 # EEO / voluntary self-identification. Each entry is marked `eeo: true` so the
 # agent knows it is handling sensitive demographic data (see the warning in
 # README.md). Filled only into voluntary self-ID form sections; delete a value

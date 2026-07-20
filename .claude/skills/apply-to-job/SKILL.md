@@ -151,7 +151,11 @@ issue any genuinely independent calls together in a single message.
    wrong option, a multi-select showing extra values, or a `current_value` the
    DOM can't read back), you get **one** cheap corrective attempt: a single
    `fill_many` / `fill_field` refill with the exact option text, or at most
-   **one** `screenshot()` to disambiguate a widget the DOM reads oddly. If that
+   **one** screenshot to disambiguate a widget the DOM reads oddly — and give
+   it a **unique path** (`screenshot(path="data/prep/<job-slug>.verify.png")`),
+   never the shared default `current_page.png`: reading that file moments
+   after it's rewritten has hung the harness mid-run (2026-07-13, batch run;
+   the Read never returned and the session had to be killed). If that
    doesn't resolve it, **stop and flag the field for manual intervention** —
    call it out explicitly in your wrap-up (the field label, what you intended,
    what's actually there) and leave it for the user to set in the open browser.

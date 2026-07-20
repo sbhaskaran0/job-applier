@@ -278,6 +278,15 @@ For each approved job, in order:
    (`{index, kind, label, current_value}`, no option lists) is all a
    verification pass needs; confirm every intended `current_value` is set.
    Mismatch after one refill attempt → **park**.
+   **Do NOT add a routine screenshot+Read verify on top of this** — it adds
+   nothing `read_form` didn't already prove, and reading the shared default
+   `current_page.png` moments after it's rewritten has **hung the harness
+   mid-run** (observed 2026-07-13: batch froze at the Sprinter Health
+   pre-submit verify; the Read of the just-overwritten PNG never returned and
+   the run had to be killed). If a screenshot is genuinely needed to
+   disambiguate an odd widget, write it to a **unique path** —
+   `screenshot(path="data/prep/<job-slug>.verify.png")` — never the shared
+   default.
 6. `check_for_intervention()` — real visible CAPTCHA / login wall → **park**
    (JOB-16 caveat above applies).
 7. `submit_application(company=..., job_title=...)` — only for jobs with
@@ -318,8 +327,10 @@ re-fill it.
 ## Stage E — Screenshot audit + final report
 
 **Audit every "complete" job before reporting.** For each job the run claims
-submitted, re-verify visually: `screenshot()` / `get_job_text()` must show
-the explicit success page. Any job without that proof is NOT submitted —
+submitted, re-verify: prefer `get_job_text()` (success text is the proof);
+when a screenshot is used, give it a unique path
+(`screenshot(path="data/prep/<job-slug>.success.png")` — see the Stage D
+step-5 hang note) and it must show the explicit success page. Any job without that proof is NOT submitted —
 reclassify it as `"manual_submission"`.
 
 **Present the manual-submission queue — one tab per job.** Call `list_tabs()`:

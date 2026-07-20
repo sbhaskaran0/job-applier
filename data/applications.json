@@ -2746,5 +2746,180 @@
         "answer": "on"
       }
     ]
+  },
+  {
+    "company": "Alpaca",
+    "job_title": "Product Manager - Internal Product",
+    "url": "https://boards.greenhouse.io/embed/job_app?for=alpaca&token=6001722004",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": []
+  },
+  {
+    "company": "Ladder",
+    "job_title": "Business Operations Manager (BizOps, SQL, and Data Modeling Required)",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=ladder33&token=7950494",
+    "date": "2026-07-12",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile*",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Will you now or in the future require sponsorship for employment visa status (E.G, H-1B Visa Status)?*",
+        "answer": "No"
+      },
+      {
+        "question": "How did you hear about this job?*",
+        "answer": "Company careers page"
+      },
+      {
+        "question": "Please note the target compensation for this role in the job description above. Are you aligned with this compensation?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Do you currently live in one of the following States? AZ, CA, CO, CT, FL, GA, KS, MA, MD, MN, NC, NH, NJ, NV, NY, OH, OR, PA, TX, VA, WA, WI",
+        "answer": "Yes"
+      }
+    ]
+  },
+  {
+    "company": "PermitFlow",
+    "job_title": "Business Operations Manager",
+    "url": "https://jobs.ashbyhq.com/permitflow/457c46da-e415-4a6f-9169-da17c944b386/application",
+    "date": "2026-07-13",
+    "status": "submitted",
+    "fields": []
+  },
+  {
+    "company": "Rillet",
+    "job_title": "Business Operations Associate",
+    "url": "https://jobs.ashbyhq.com/rillet/f8d4f207-1e14-49fc-a0aa-a997a0c9bc2c/application",
+    "date": "2026-07-13",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "How many years experience in business operations do you have?",
+        "answer": "5"
+      },
+      {
+        "question": "We're a high-growth startup looking to work with ambitious people with a history of exceptional performance. Do you have one or two examples of exceptional performance you want to highlight?",
+        "answer": "Two that stand out, both from M Science. First, as a junior employee I was trusted to lead the cross-functional overhaul of our packaging and pricing model, working with data science, sales, and investment research to build a data-driven framework and stand up a pricing desk. ARR grew about 35% in the first quarter after rollout. Second, as owner of our KPI API, I found through customer discovery that the restatement structure created look-ahead bias for quant funds and that clients lacked the semantic context to use the data. I partnered with engineering on a new schema with point-in-time history, standardized dimension tables, and external IDs, then drove the GTM with sales and marketing leadership. That release doubled the number of quant teams using the product and grew its ARR by roughly 80%."
+      }
+    ]
+  },
+  {
+    "company": "Cresta",
+    "job_title": "Associate Forward Deployed Product Manager",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=cresta&token=4992510008",
+    "date": "2026-07-16",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Security code",
+        "answer": "Q"
+      },
+      {
+        "question": "security input 1",
+        "answer": "a"
+      },
+      {
+        "question": "security input 2",
+        "answer": "p"
+      },
+      {
+        "question": "security input 3",
+        "answer": "n"
+      },
+      {
+        "question": "security input 4",
+        "answer": "z"
+      },
+      {
+        "question": "security input 5",
+        "answer": "4"
+      },
+      {
+        "question": "security input 6",
+        "answer": "8"
+      },
+      {
+        "question": "security input 7",
+        "answer": "k"
+      }
+    ]
   }
 ]
