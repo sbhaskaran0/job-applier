@@ -22,7 +22,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from . import config
-from .providers import extract
+from .providers import extract, locations
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS postings (
@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS postings (
   min_years INTEGER, min_years_source TEXT,
   seniority_flag TEXT,
   url TEXT, description TEXT, posted TEXT,
+  work_mode TEXT, posted_at TEXT,
   first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, removed_at TEXT,
   content_hash TEXT,
   PRIMARY KEY (ats, slug, job_id)
@@ -50,6 +51,17 @@ CREATE TABLE IF NOT EXISTS candidate_boards (
   first_seen TEXT NOT NULL, last_probed TEXT,
   PRIMARY KEY (source, source_key)
 );
+CREATE TABLE IF NOT EXISTS posting_locations (
+  ats TEXT NOT NULL, slug TEXT NOT NULL, job_id TEXT NOT NULL,
+  name TEXT NOT NULL, kind TEXT NOT NULL,   -- city | region | remote
+  PRIMARY KEY (ats, slug, job_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_posting_locations_name ON posting_locations(name);
+CREATE TABLE IF NOT EXISTS location_observations (
+  raw TEXT NOT NULL, canonical TEXT NOT NULL, kind TEXT NOT NULL,
+  seen INTEGER NOT NULL DEFAULT 1, last_seen TEXT,
+  PRIMARY KEY (raw, canonical)
+);
 """
 
 
@@ -58,7 +70,52 @@ def connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _apply_locations(conn: sqlite3.Connection, key: tuple,
+                     location: str, remote) -> str:
+    """Normalize one posting's location string: replace its posting_locations
+    rows, log raw→canonical observations for curation, return work_mode."""
+    norm = locations.normalize(location or "", remote_hint=bool(remote))
+    conn.execute("DELETE FROM posting_locations WHERE ats=? AND slug=? "
+                 "AND job_id=?", key)
+    conn.executemany(
+        "INSERT OR IGNORE INTO posting_locations (ats, slug, job_id, name, kind) "
+        "VALUES (?,?,?,?,?)",
+        [(*key, d["name"], d["kind"]) for d in norm["locations"]])
+    now = _now()
+    conn.executemany(
+        "INSERT INTO location_observations (raw, canonical, kind, seen, last_seen) "
+        "VALUES (?,?,?,1,?) ON CONFLICT(raw, canonical) "
+        "DO UPDATE SET seen=seen+1, last_seen=excluded.last_seen",
+        [(raw, name, kind, now) for raw, name, kind in norm["observations"]])
+    return norm["work_mode"]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Schema v2 (JOB-55): work_mode + posted_at columns and normalized
+    posting_locations, backfilled once from the existing rows."""
+    if conn.execute("PRAGMA user_version").fetchone()[0] >= 2:
+        return
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(postings)")}
+    if "work_mode" not in cols:
+        conn.execute("ALTER TABLE postings ADD COLUMN work_mode TEXT")
+    if "posted_at" not in cols:
+        conn.execute("ALTER TABLE postings ADD COLUMN posted_at TEXT")
+    rows = conn.execute(
+        "SELECT ats, slug, job_id, location, remote, posted FROM postings"
+    ).fetchall()
+    for r in rows:
+        key = (r["ats"], r["slug"], r["job_id"])
+        wm = _apply_locations(conn, key, r["location"], r["remote"])
+        conn.execute(
+            "UPDATE postings SET work_mode=?, posted_at=? "
+            "WHERE ats=? AND slug=? AND job_id=?",
+            (wm, locations.parse_posted(r["posted"]), *key))
+    conn.execute("PRAGMA user_version=2")
+    conn.commit()
 
 
 def _now() -> str:
@@ -139,41 +196,52 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                 "WHERE ats=? AND slug=? AND job_id=?", key).fetchone()
             if row is None:
                 e = _enrich(p, excluded)
+                wm = _apply_locations(conn, key, p["location"], p["remote"])
                 conn.execute(
                     "INSERT INTO postings (ats, slug, job_id, company, title, "
                     "location, remote, salary_min, salary_max, salary_source, "
                     "min_years, min_years_source, seniority_flag, url, "
-                    "description, posted, first_seen, last_seen, content_hash) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "description, posted, work_mode, posted_at, "
+                    "first_seen, last_seen, content_hash) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (*key, p["company"], p["title"], p["location"],
                      int(bool(p["remote"])), e["salary_min"], e["salary_max"],
                      e["salary_source"], e["min_years"], e["min_years_source"],
                      e["seniority_flag"], p["url"], p["description"],
-                     p.get("posted"), now, now, chash))
+                     p.get("posted"), wm, locations.parse_posted(p.get("posted")),
+                     now, now, chash))
                 new_rows.append({**p, **e, "first_seen": now})
             else:
                 if row["removed_at"]:
                     relisted += 1
                 if row["content_hash"] != chash:
                     e = _enrich(p, excluded)
+                    wm = _apply_locations(conn, key, p["location"], p["remote"])
                     conn.execute(
                         "UPDATE postings SET company=?, title=?, location=?, "
                         "remote=?, salary_min=?, salary_max=?, salary_source=?, "
                         "min_years=?, min_years_source=?, seniority_flag=?, "
-                        "url=?, description=?, posted=?, content_hash=?, "
+                        "url=?, description=?, posted=?, work_mode=?, "
+                        "posted_at=?, content_hash=?, "
                         "last_seen=?, removed_at=NULL "
                         "WHERE ats=? AND slug=? AND job_id=?",
                         (p["company"], p["title"], p["location"],
                          int(bool(p["remote"])), e["salary_min"], e["salary_max"],
                          e["salary_source"], e["min_years"], e["min_years_source"],
                          e["seniority_flag"], p["url"], p["description"],
-                         p.get("posted"), chash, now, *key))
+                         p.get("posted"), wm, locations.parse_posted(p.get("posted")),
+                         chash, now, *key))
                 else:
-                    # criteria may have changed since ingest → re-derive the flag
+                    # criteria may have changed since ingest → re-derive the
+                    # flag; posted isn't hashed (Greenhouse updated_at drifts),
+                    # so keep posted_at current too
                     conn.execute(
                         "UPDATE postings SET last_seen=?, removed_at=NULL, "
-                        "seniority_flag=? WHERE ats=? AND slug=? AND job_id=?",
-                        (now, extract.seniority_flag(p["title"], excluded), *key))
+                        "seniority_flag=?, posted=?, posted_at=? "
+                        "WHERE ats=? AND slug=? AND job_id=?",
+                        (now, extract.seniority_flag(p["title"], excluded),
+                         p.get("posted"), locations.parse_posted(p.get("posted")),
+                         *key))
 
         # Removal pass — ONLY over boards that fetched successfully this run.
         failed_names = {e["company"] for e in errors}
@@ -276,13 +344,20 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         rows = [dict(r) for r in conn.execute(
             "SELECT * FROM postings WHERE removed_at IS NULL "
             "ORDER BY company, title")]
+        loc_map: dict[tuple, list] = {}
+        for lr in conn.execute("SELECT ats, slug, job_id, name FROM "
+                               "posting_locations ORDER BY rowid"):
+            loc_map.setdefault((lr["ats"], lr["slug"], lr["job_id"]),
+                               []).append(lr["name"])
     finally:
         conn.close()
 
     applied = _applied_keys()
     from . import data as _data
     run_at = run["run_at"] if run else None
-    seen, light = set(), []
+    _MODE_RANK = {"remote": 0, "hybrid": 1, "onsite": 2}
+    by_key: dict[tuple, dict] = {}
+    light: list[dict] = []
     dropped_years = 0
     for r in rows:
         ok, _why = passes_baseline(r, baseline)
@@ -291,21 +366,33 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         if max_years and r.get("min_years") and r["min_years"] > max_years:
             dropped_years += 1
             continue
+        locs = loc_map.get((r["ats"], r["slug"], r["job_id"]), [])
+        mode = r.get("work_mode") or ("remote" if r["remote"] else "onsite")
         key = (r["company"], r["title"].strip().lower())
-        if key in seen:
+        prev = by_key.get(key)
+        if prev is not None:
+            # same role posted across cities: union the locations, keep the
+            # most-flexible work mode, so filters see every variant
+            prev["locations"] += [n for n in locs if n not in prev["locations"]]
+            if _MODE_RANK[mode] < _MODE_RANK[prev["work_mode"]]:
+                prev["work_mode"] = mode
+            prev["remote"] = prev["remote"] or bool(r["remote"])
             continue
-        seen.add(key)
-        light.append({
+        entry = {
             "company": r["company"], "title": r["title"], "location": r["location"],
+            "locations": list(locs), "work_mode": mode,
             "remote": bool(r["remote"]), "salary_min": r["salary_min"],
             "salary_max": r["salary_max"], "salary_listed": r["salary_min"] is not None,
             "salary_source": r["salary_source"], "min_years": r["min_years"],
             "url": r["url"], "first_seen": r["first_seen"],
+            "posted_at": r.get("posted_at"),
             "is_new": r["first_seen"] == run_at,
             "already_applied": (_data._normalize(r["company"]),
                                 _data._normalize(r["title"])) in applied,
             "snippet": _snippet(r["description"] or "", snippet_chars),
-        })
+        }
+        by_key[key] = entry
+        light.append(entry)
 
     matched = len(light)
     qtokens = _qtokens(query)
@@ -320,6 +407,18 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         "dropped_over_max_years": dropped_years,
         "companies_failed": json.loads(run["companies_failed"]) if run else [],
     }
+
+
+def posting_description(url: str) -> str | None:
+    """Stored JD text for one posting, looked up by URL (Applyer detail view).
+    None when the URL isn't in the store — callers fall back to a live read."""
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT description FROM postings WHERE url=?", (url,)).fetchone()
+    finally:
+        conn.close()
+    return (row["description"] or None) if row else None
 
 
 # --------------------------------------------------------------------------- #

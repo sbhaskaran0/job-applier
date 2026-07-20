@@ -135,6 +135,7 @@ def parse(path):
     run = _empty()
     per = {}
     labels = {}
+    context_peak = 0
     for i, t in enumerate(turns):
         k, lbl = t["key"], t["label"]
         if i > last_job:
@@ -146,6 +147,11 @@ def parse(path):
             per[k][f] += t["add"][f]
         run["turns"] += 1
         per[k]["turns"] += 1
+        # Single-request prompt size = fresh input + cache read + cache write.
+        prompt = t["add"]["input"] + t["add"]["cache_read"] + t["add"]["cache_write"]
+        if prompt > context_peak:
+            context_peak = prompt
+    run["context_peak"] = context_peak
     return run, per, labels
 
 
@@ -186,13 +192,21 @@ def main():
         "cost_usd": _cost(t),
     } for k, t in apps]
 
+    # Two honest metrics:
+    #   billed_throughput = what you pay for (cache reads re-billed every turn).
+    #   distinct_tokens   = actual unique content (cache-write + fresh input + output);
+    #                       this is the "how big was the session" number.
+    #   context_peak      = largest single request; compare to the 1M window.
+    distinct = run["cache_write"] + run["input"] + run["output"]
     rec = {
         "session_id": session_id or os.path.splitext(os.path.basename(path))[0],
         "transcript": os.path.basename(path),
         "model": "claude-opus-4-8",
         "turns": run["turns"],
         "tokens": {**{k: run[k] for k in ("input", "output", "cache_write", "cache_read")},
-                   "total": _tokens(run)},
+                   "billed_throughput": _tokens(run),
+                   "distinct": distinct,
+                   "context_peak": run["context_peak"]},
         "cost_usd": run_cost,
         "per_application": breakdown,
     }
@@ -223,11 +237,14 @@ def main():
     # Compact human summary (ASCII only) to stderr.
     tk = run
     sys.stderr.write(
-        "[token_report] {tot:,} tokens over {turns} turns "
-        "(in {i:,} / out {o:,} / cache-write {cw:,} / cache-read {cr:,}) "
-        "= ${cost:.2f} @ Opus 4.8 -> data/token_usage.jsonl\n".format(
-            tot=_tokens(tk), turns=tk["turns"], i=tk["input"], o=tk["output"],
-            cw=tk["cache_write"], cr=tk["cache_read"], cost=run_cost))
+        "[token_report] {turns} turns | ${cost:.2f} @ Opus 4.8\n"
+        "  billed throughput {tot:,} (mostly cache reads, re-billed each turn)\n"
+        "  distinct/new      {dist:,} (cache-write {cw:,} + input {i:,} + output {o:,})\n"
+        "  context peak      {peak:,} of 1,000,000 window\n"
+        "  -> data/token_usage.jsonl\n".format(
+            turns=tk["turns"], cost=run_cost, tot=_tokens(tk), dist=distinct,
+            cw=tk["cache_write"], i=tk["input"], o=tk["output"],
+            peak=tk["context_peak"]))
     for a in breakdown[:8]:
         sys.stderr.write("  ${c:>6.2f}  {tks:>8,} tok  {lbl}\n".format(
             c=a["cost_usd"], tks=a["total_tokens"], lbl=a["label"][:52]))

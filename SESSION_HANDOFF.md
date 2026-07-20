@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-07-13.
+per-session narrative lives in `git log` + Linear. Last updated 2026-07-20.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -78,9 +78,19 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
 - `src/store.py` — **postings store**: SQLite `data/postings.db` (gitignored
   cache; PK `(ats, slug, job_id)`; `first_seen`/`last_seen`/`removed_at`;
   removals ONLY from boards that fetched OK), `passes_baseline`,
-  `list_postings_from_store`, `yield_stats`. Also the discovery
+  `list_postings_from_store`, `yield_stats`. Schema v2 (JOB-55, auto-migrates
+  via `PRAGMA user_version`): `work_mode`/`posted_at` columns + normalized
+  `posting_locations` + `location_observations` (raw→canonical audit trail for
+  alias curation). Same-role-multiple-cities rows are merged in
+  `list_postings_from_store` (union locations, most-flexible work mode).
+  `posting_description(url)` serves the Applyer JD modal. Also the discovery
   `candidate_boards` ledger (PK `(source, source_key)`) + `count_board_baseline`
   / `load_candidates` / `upsert_candidate`.
+- `src/providers/locations.py` (JOB-55) — deterministic location normalization:
+  raw ATS location strings → canonical city/remote tokens + work_mode
+  (regex canonicalization + curated `location_aliases.yaml`; observations
+  logged to the store for later curation). No LLM, same philosophy as
+  `extract.py`.
 - `src/providers/watchlist.py` — fetch/normalize boards (incl. `job_id`+`slug`),
   live `list_postings`, `get_posting(s)`, `add_company`, `detect_ats_slug`,
   `_FETCHERS` (reused by discovery to probe candidate boards).
@@ -105,10 +115,16 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `context/`, `data/history.json`, `data/applications.json`. `RESUMES_DIR`
   (gitignored), `base_resume_docx()`.
 - `server/` — Applyer backend: `data_api.py` (REST over src modules; EDITABLE_
-  PROFILE_KEYS whitelist), `chat.py` (WS ⇄ ClaudeSDKClient bridge), `app.py`
-  (serves `frontend/dist` when built). `frontend/` — Vite React TS SPA
-  (components per surface; tokens.css = design palette; chat.ts = WS hook that
-  turns tool calls into run-card steps).
+  PROFILE_KEYS whitelist; `/api/criteria` GET/PUT = comment-preserving
+  `job_criteria.yaml` editor, `/api/posting` = JD detail store-first/live-
+  fallback, `POST /api/refresh` = the src.refresh ingest behind an asyncio.Lock
+  → 409 on concurrent click), `chat.py` (WS ⇄ ClaudeSDKClient bridge), `app.py`
+  (serves `frontend/dist` when built; SPA catch-all answers unknown paths with
+  index.html — see the stale-server gotcha). `frontend/` — Vite React TS SPA
+  (components per surface; PostingsPage filter card + Refresh button +
+  JobDetailModal; ProfilePage JobCriteriaCard; shared MultiSelect/RangeSlider/
+  Toggle; tokens.css = design palette; chat.ts = WS hook that turns tool calls
+  into run-card steps).
 - Docs: `README.md` (answer-cascade + discovery + web-wrapper mermaids),
   `USER_GUIDE.md` (§7b web wrapper).
 
@@ -144,6 +160,19 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-07-20 session (JOB-58/59, landed JOB-55):** committed the pending
+  webapp tree — **JOB-55 postings UX** (postings filter card: title/location/
+  YoE/salary/posted-date/include-missing; JD modal via `/api/posting`;
+  Profile job-criteria editor via comment-preserving `/api/criteria` PUT;
+  store schema v2 with normalized locations + `work_mode`/`posted_at`;
+  `src/providers/locations.py` + `location_aliases.yaml`) and **JOB-58
+  Refresh button** (Postings header button → `POST /api/refresh` runs the
+  src.refresh ingest server-side; verified live: 7,664 scanned · 156 new ·
+  197 removed · 0 boards failed; concurrent click → 409). Diagnosed
+  JD-modal "not loading": a **stale server process from 7/13 squatting :8765**
+  made the user's restart silently fail to bind — killed it, relaunched;
+  **JOB-59 filed** (port guard + API-404 guard, backlog). Also synced skills'
+  screenshot-unique-path rules (2026-07-13 hang) + data files.
 - **2026-07-13 session (JOB-56):** watchlist expansion — `src.discover` drained
   the candidate queue (145 probed, 83 newly confirmed, 0 left), adopted all 21
   not-yet-listed boards with ≥2 qualifying roles (ClassDojo, PermitFlow,
@@ -188,7 +217,9 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
    route around it; the entry still needs fixing.
 5. **Linear open:** JOB-24 (submit verification — code shipped, verify live) ·
    JOB-32 (Phase 2 embeddings) · JOB-19 pt2 → JOB-32 · JOB-22/20 (queue
-   executor/parent) · JOB-33/34 (portability — filed, NOT executed).
+   executor/parent) · JOB-33/34 (portability — filed, NOT executed) ·
+   JOB-59 (webapp stale-server guards: port 8765 check + 404 for unknown
+   /api/* — filed 2026-07-20, NOT built).
 
 ## Proposed backlog (not built — bring back for approval)
 - **Data layer:** application tracker v2 (status transitions, follow-ups) ·
@@ -225,6 +256,14 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   it back empty (DoorDash EEO react-select, Ashby button-group): confirm with one
   screenshot, report as "set but unverifiable in the DOM", ask user to glance.
 - **EEO:** delete profile values to opt out; README carries the warning.
+- **Webapp restarts can silently no-op (JOB-59):** the frontend is served from
+  `frontend/dist` on disk (fresh after `npm run build`) but backend Python runs
+  in-process — and an old server squatting :8765 makes a relaunch fail to bind
+  and die as its console closes, so the browser keeps hitting stale code. The
+  SPA catch-all then answers missing `/api/*` routes with index.html + 200
+  (frontend shows a generic "could not load"). Check
+  `Get-NetTCPConnection -LocalPort 8765 -State Listen` → owning PID StartTime;
+  kill the squatter, relaunch. Bit us 2026-07-20 (JD modal).
 - **Web-wrapper chat on ARM64 Windows:** the Agent SDK's bundled `claude.exe`
   is x64 (emulated here) and crash-loops with 0xC0000005 when a second session
   spawns; leaked processes then poison later spawns. Fix (2026-07-12, in

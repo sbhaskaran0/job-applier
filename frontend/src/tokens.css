@@ -125,6 +125,13 @@ textarea,
 button {
   font-family: inherit;
 }
+/* native date pickers follow the active theme */
+[data-theme='light'] input[type='date'] {
+  color-scheme: light;
+}
+[data-theme='dark'] input[type='date'] {
+  color-scheme: dark;
+}
 textarea {
   resize: none;
 }
@@ -155,6 +162,11 @@ textarea {
   }
   50% {
     opacity: 0.2;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

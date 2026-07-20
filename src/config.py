@@ -20,6 +20,7 @@ CONTEXT_DIR.mkdir(exist_ok=True)
 USER_PROFILE_PATH = BASE_DIR / "user_profile.yaml"
 JOB_CRITERIA_PATH = BASE_DIR / "job_criteria.yaml"
 WATCHLIST_PATH = BASE_DIR / "watchlist.yaml"
+LOCATION_ALIASES_PATH = BASE_DIR / "location_aliases.yaml"  # curated alias map for location normalization
 HISTORY_PATH = DATA_DIR / "history.json"
 APPLICATIONS_PATH = DATA_DIR / "applications.json"
 POSTINGS_DB_PATH = DATA_DIR / "postings.db"     # local postings store (cache of public data)
@@ -108,6 +109,16 @@ def load_discovery_config() -> dict:
         return {}
     with open(DISCOVERY_PATH, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def load_location_aliases() -> dict:
+    """Load location_aliases.yaml → {lowercased alias: canonical}. The curated
+    half of location normalization; regex canonicalization handles the rest."""
+    if not LOCATION_ALIASES_PATH.exists():
+        return {}
+    with open(LOCATION_ALIASES_PATH, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return {str(k).lower(): str(v) for k, v in (data.get("aliases") or {}).items()}
 
 
 def load_search_criteria() -> dict:

@@ -1,4 +1,4 @@
-"""REST endpoints serving the agent's real data files to the Applyer frontend.
+﻿"""REST endpoints serving the agent's real data files to the Applyer frontend.
 
 Read paths reuse the same modules the MCP server uses (src.store, src.config,
 src.providers.watchlist) so the UI shows exactly what /find-jobs would see.
@@ -6,16 +6,19 @@ Write paths are deliberately narrow: watchlist append, whitelisted profile
 string fields (comment-preserving line edits), and resume/context uploads.
 """
 
+import asyncio
 import json
 import re
 import shutil
 from pathlib import Path
 
+import yaml
+
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from src import config, store
-from src.providers.watchlist import add_company, detect_ats_slug
+from src import config, refresh as refresh_job, store
+from src.providers.watchlist import add_company, detect_ats_slug, get_posting
 
 router = APIRouter(prefix="/api")
 
@@ -65,6 +68,46 @@ def postings(query: str | None = None):
     for p in result["postings"]:
         p["ats"] = _ats_from_url(p["url"])
     return result
+
+
+# One refresh at a time — a second click while a run is in flight gets a 409
+# instead of a duplicate board sweep.
+_refresh_lock = asyncio.Lock()
+
+
+@router.post("/refresh")
+async def refresh_postings():
+    """Run the same LLM-free ingest as `python -m src.refresh`: fetch every
+    watchlist board, upsert data/postings.db, regenerate the digest."""
+    if _refresh_lock.locked():
+        raise HTTPException(409, "a refresh is already running")
+    async with _refresh_lock:
+        try:
+            summary = await refresh_job.run()
+        except Exception as exc:  # surface board-sweep failures to the UI
+            raise HTTPException(500, f"refresh failed: {exc}")
+    return {
+        "run_at": summary["run_at"],
+        "total_scanned": summary["total_scanned"],
+        "new_count": summary["new_count"],
+        "removed_count": summary["removed_count"],
+        "relisted_count": summary["relisted_count"],
+        "boards_failed": [f["company"] for f in summary["companies_failed"]],
+    }
+
+
+@router.get("/posting")
+async def posting_detail(url: str):
+    """Full job description for one posting — served from the store when
+    cached, else a live ATS API read (the same deep-read /find-jobs uses)."""
+    if config.POSTINGS_DB_PATH.exists():
+        description = store.posting_description(url)
+        if description:
+            return {"url": url, "found": True, "source": "store",
+                    "description": description}
+    got = await get_posting(url)
+    got["source"] = "live"
+    return got
 
 
 @router.get("/applications")
@@ -125,6 +168,133 @@ def update_profile(body: ProfileUpdate):
             text = text.rstrip("\n") + f'\n{key}: "{value}"\n'
     config.USER_PROFILE_PATH.write_text(text, encoding="utf-8")
     return profile()
+
+
+# --------------------------------------------------------------------------- #
+# job criteria (read + comment-preserving write-back, JOB-55)
+# --------------------------------------------------------------------------- #
+def _criteria_payload() -> dict:
+    crit = config.load_search_criteria()
+    sd, base = crit.get("search_defaults", {}), crit.get("baseline", {})
+    return {
+        "titles": base.get("acceptable_titles") or [],
+        "search_titles": sd.get("titles") or [],
+        "locations": base.get("locations_allowed") or [],
+        "acceptable_seniority": base.get("acceptable_seniority") or [],
+        "excluded_seniority": base.get("excluded_seniority") or [],
+        "salary_floor": base.get("salary_floor"),
+        "date_posted_days": sd.get("date_posted_days"),
+        "remote_ok": bool(base.get("remote_allowed", True)),
+        "yoe": [base.get("yoe_min", 0), base.get("yoe_max", 15)],
+    }
+
+
+@router.get("/criteria")
+def criteria():
+    return _criteria_payload()
+
+
+def _yaml_set_scalar(text: str, key: str, value, add_under_baseline=False) -> str:
+    """Replace the value on a `key:` line anywhere in the file, preserving
+    indentation and any trailing comment. Optionally append the key at EOF
+    (the baseline section runs to EOF) when it doesn't exist yet."""
+    rendered = ("true" if value is True else "false" if value is False
+                else str(value))
+    pattern = re.compile(
+        rf"^(\s*{re.escape(key)}:\s*)([^#\n]*?)(\s*#.*)?$", re.MULTILINE)
+    if pattern.search(text):
+        return pattern.sub(
+            lambda m: f"{m.group(1)}{rendered}{m.group(3) or ''}",
+            text, count=1)
+    if add_under_baseline:
+        return text.rstrip("\n") + f"\n  {key}: {rendered}\n"
+    return text
+
+
+def _yaml_set_inline_list(text: str, key: str, values: list[str]) -> str:
+    rendered = json.dumps(values, ensure_ascii=False)
+    return _yaml_set_scalar(text, key, rendered)
+
+
+def _yaml_set_block_list(text: str, key: str, values: list[str]) -> str:
+    """Rewrite a `key:` block list (two-space-indented `- item` lines). The
+    block's interior comment lines are preserved, re-emitted directly under the
+    key so hand-written context (e.g. JOB-26 notes) survives the rewrite.
+    Trailing comments after the last item belong to the NEXT key and stay."""
+    lines = text.split("\n")
+    key_re = re.compile(rf"^(\s*){re.escape(key)}:\s*(#.*)?$")
+    start = next((i for i, ln in enumerate(lines) if key_re.match(ln)), None)
+    if start is None:
+        return text
+    indent = key_re.match(lines[start]).group(1)
+    item_re = re.compile(rf"^{indent}\s+- ")
+    comment_re = re.compile(r"^\s*(#|$)")
+    last_item = start
+    i = start + 1
+    while i < len(lines) and (item_re.match(lines[i]) or comment_re.match(lines[i])):
+        if item_re.match(lines[i]):
+            last_item = i
+        i += 1
+    interior_comments = [ln for ln in lines[start + 1:last_item + 1]
+                         if comment_re.match(ln) and ln.strip()]
+    block = ([lines[start]] + interior_comments
+             + [f'{indent}  - "{v}"' for v in values])
+    return "\n".join(lines[:start] + block + lines[last_item + 1:])
+
+
+class CriteriaUpdate(BaseModel):
+    titles: list[str] | None = None
+    locations: list[str] | None = None
+    acceptable_seniority: list[str] | None = None
+    excluded_seniority: list[str] | None = None
+    salary_floor: int | None = None
+    date_posted_days: int | None = None
+    remote_ok: bool | None = None
+    yoe: list[int] | None = None
+
+
+@router.put("/criteria")
+def update_criteria(body: CriteriaUpdate):
+    """Comment-preserving edits to job_criteria.yaml. Only the keys present in
+    the body are touched; every query path reloads the file live, so a save
+    re-scopes the postings page, digest, and /find-jobs immediately."""
+    if not config.JOB_CRITERIA_PATH.exists():
+        raise HTTPException(404, "job_criteria.yaml not found")
+    current = _criteria_payload()
+    text = config.JOB_CRITERIA_PATH.read_text(encoding="utf-8")
+    if body.titles is not None and body.titles != current["titles"]:
+        text = _yaml_set_block_list(text, "acceptable_titles", body.titles)
+    if body.locations is not None:
+        text = _yaml_set_inline_list(text, "locations_allowed", body.locations)
+    if body.acceptable_seniority is not None:
+        text = _yaml_set_inline_list(
+            text, "acceptable_seniority", body.acceptable_seniority)
+    if body.excluded_seniority is not None:
+        text = _yaml_set_inline_list(
+            text, "excluded_seniority", body.excluded_seniority)
+    if body.salary_floor is not None:
+        text = _yaml_set_scalar(text, "salary_floor", body.salary_floor)
+    if body.date_posted_days is not None:
+        text = _yaml_set_scalar(text, "date_posted_days", body.date_posted_days)
+    if body.remote_ok is not None:
+        text = _yaml_set_scalar(text, "remote_allowed", body.remote_ok)
+        text = _yaml_set_scalar(text, "remote_ok", body.remote_ok)
+    if body.yoe is not None and len(body.yoe) == 2:
+        lo, hi = sorted(int(v) for v in body.yoe)
+        if "yoe_min" not in text:
+            text = (text.rstrip("\n")
+                    + "\n\n  # Advisory YoE window shown in the postings UI "
+                    "filters (JOB-55).\n")
+        text = _yaml_set_scalar(text, "yoe_min", lo, add_under_baseline=True)
+        text = _yaml_set_scalar(text, "yoe_max", hi, add_under_baseline=True)
+    try:
+        parsed = yaml.safe_load(text)
+        if not (isinstance(parsed, dict) and "baseline" in parsed):
+            raise ValueError("lost structure")
+    except Exception:
+        raise HTTPException(500, "criteria edit produced invalid YAML; not saved")
+    config.JOB_CRITERIA_PATH.write_text(text, encoding="utf-8")
+    return _criteria_payload()
 
 
 # --------------------------------------------------------------------------- #
