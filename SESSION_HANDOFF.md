@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-07-20.
+per-session narrative lives in `git log` + Linear. Last updated 2026-07-23.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -160,6 +160,15 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-07-23 session (data sync):** committed the 2026-07-20 apply run that
+  was left uncommitted — 3 verified submits (**Hadrian** Global Product Manager
+  + **Stepful** Chief of Staff, both Ashby; **Alpaca** Product Manager New
+  Assets, Greenhouse) → tracker at **60 records**. `history.json` gained the
+  evergreen ITAR/EAR "U.S. person" answer, Hadrian why-us/fit essays
+  (company-scoped), and the school-name fix ("University of
+  California-Santa Barbara" — the UCLA wart, open item 4, is gone). Linear
+  close-outs for the run are **pending** (Linear MCP not connected in the
+  sync session).
 - **2026-07-20 session (JOB-58/59, landed JOB-55):** committed the pending
   webapp tree — **JOB-55 postings UX** (postings filter card: title/location/
   YoE/salary/posted-date/include-missing; JD modal via `/api/posting`;
@@ -194,7 +203,7 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   JOB-51 batch Stage B token cut, JOB-6 per-job tailoring, JOB-26 sourcing
   rework, postings store (JOB-27..31). `.env` untracked/never committed.
 - **Applications submitted** (ground truth: `data/applications.json`):
-  **52 records as of 2026-07-12** (48 `submitted`, 4 `manual_submission`) —
+  **60 records as of 2026-07-20** (56 `submitted`, 4 `manual_submission`) —
   too many to enumerate here; read the JSON. Scale AI — Growth S&O Lead:
   **confirmed live but UNLOGGED** (backfill pending, JOB-17).
 - **2026-07-11 run (JOB-52):** autonomous `/apply-batch` over 20 BizOps/S&O
@@ -212,9 +221,9 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
    `resume.docx` is now committed at the project root, so resume tailoring is
    live (was inert). DOCX→PDF needs Word (present).
 3. **Backfill Scale AI submit** into `applications.json` (JOB-17 remainder).
-4. **Data wart:** a history entry says "most recent school = UCLA"; correct is
-   **UC Santa Barbara** (UCLA MQE in progress, expected Dec 2027). Prep agents
-   route around it; the entry still needs fixing.
+4. **Data wart — DONE (2026-07-20):** the "most recent school = UCLA" history
+   entry is gone; history now reads "University of California-Santa Barbara"
+   (UCLA MQE in progress, expected Dec 2027, unchanged in `background.md`).
 5. **Linear open:** JOB-24 (submit verification — code shipped, verify live) ·
    JOB-32 (Phase 2 embeddings) · JOB-19 pt2 → JOB-32 · JOB-22/20 (queue
    executor/parent) · JOB-33/34 (portability — filed, NOT executed) ·

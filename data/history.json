@@ -106,10 +106,10 @@
   },
   {
     "question": "Start typing...",
-    "answer": "United States",
+    "answer": "Los Angeles,CA,US",
     "scope": "evergreen",
     "company": "Rula",
-    "date": "2026-07-13"
+    "date": "2026-07-20"
   },
   {
     "question": "Notion Website",
@@ -207,7 +207,7 @@
     "answer": "Siddharth Bhaskaran",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-13"
+    "date": "2026-07-20"
   },
   {
     "question": "Middle Name",
@@ -232,38 +232,38 @@
   },
   {
     "question": "Search schools...",
-    "answer": "University of California, Santa Barbara",
+    "answer": "University of California-Santa Barbara",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-20"
   },
   {
     "question": "Degree",
     "answer": "Bachelor's Degree",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-20"
   },
   {
     "question": "Field of Study",
     "answer": "Economics",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-20"
   },
   {
     "question": "Current/Last Company",
     "answer": "M Science",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-20"
   },
   {
     "question": "Plaid's Mission",
     "answer": "on",
     "scope": "company",
     "company": "Plaid",
-    "date": "2026-07-10"
+    "date": "2026-07-20"
   },
   {
     "question": "Passion for Fintech Industry",
@@ -277,21 +277,21 @@
     "answer": "on",
     "scope": "company",
     "company": "Plaid",
-    "date": "2026-07-10"
+    "date": "2026-07-20"
   },
   {
     "question": "Ability to Use and Build AI Products",
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-20"
   },
   {
     "question": "N/A - Not enough information on Plaid's AI work to say",
     "answer": "on",
     "scope": "company",
     "company": "Plaid",
-    "date": "2026-07-10"
+    "date": "2026-07-20"
   },
   {
     "question": "Have you ever been previously employed by Plaid, Quovo or Cognito?",
@@ -536,7 +536,7 @@
     "answer": "notGiven",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-20"
   },
   {
     "question": "3 - Above average",
@@ -613,7 +613,7 @@
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-09"
+    "date": "2026-07-20"
   },
   {
     "question": "Teams and roles based in our San Francisco HQ, New York, or Seattle offices may require a hybrid working arrangement with in office expectations. Are you able to come into the office to work at least 2x's a week, with or without a reasonable accommodation?",
@@ -1055,5 +1055,33 @@
     "scope": "evergreen",
     "company": "",
     "date": "2026-07-13"
+  },
+  {
+    "question": "U.S. person. This ITAR/EAR status includes U.S. citizens, U.S. nationals, lawful permanent residents (green card holders), and asylees and refugees with such status granted, not pending",
+    "answer": "on",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-20"
+  },
+  {
+    "question": "Where did you hear about Hadrian?",
+    "answer": "Hadrian's careers page",
+    "scope": "company",
+    "company": "Hadrian",
+    "date": "2026-07-20"
+  },
+  {
+    "question": "Why are you applying? What excites you about the opportunity?",
+    "answer": "Hadrian is working on a problem I think actually matters: the aerospace and defense industrial base depends on manufacturing capacity that has not kept pace, and you are rebuilding it with software and automation instead of patching it incrementally. That is the kind of problem I want to spend my time on. My career has been built on turning manual, expertise-bound processes into automated systems that scale. At M Science I own a technical data product end to end, but the work I am proudest of is operational: I replaced a 40+ hour a week manual entitlements process with an automated system, writing the mapping scripts myself and leading the validation of over 10,000 records to get it launched. What excites me about this role is applying that same discipline where the output is physical, the quality bar is unforgiving, and the payoff is real parts shipped for programs that matter.",
+    "scope": "company",
+    "company": "Hadrian",
+    "date": "2026-07-20"
+  },
+  {
+    "question": "What relevant work makes you a great fit for this role?",
+    "answer": "At M Science I own the KPI API product end to end: strategy, discovery, roadmap, and delivery with engineering. Through discovery I found the two blockers keeping quant investors off the product, a restatement structure that created look-ahead bias and missing semantic context. I partnered with engineering to ship a new schema with point-in-time history and standardized dimension tables, which doubled the number of quant teams using the data and grew ARR about 80%. I also built ML anomaly detection and OCR/LLM-based QA that cut our annual error rate from over 2% to roughly 0%. Earlier, I built the Salesforce master data system that automated customer entitlements, replacing a 40+ hour weekly manual process. I wrote the Python mapping script myself and led a three-person team through validating more than 10,000 records where automation could not reach. That mix of technical depth, process automation, and cross-functional delivery on products where precision matters is exactly what a global PM role at Hadrian needs.",
+    "scope": "company",
+    "company": "Hadrian",
+    "date": "2026-07-20"
   }
 ]
