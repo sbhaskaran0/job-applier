@@ -11,7 +11,7 @@ An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
 `python -m src.mcp_server`, **33 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
-- **`/find-jobs <query>`** — roles across a curated ~67-company watchlist
+- **`/find-jobs <query>`** — roles across a curated ~79-company watchlist
   (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
   strict-filtered by `job_criteria.yaml`, ranked semantically by Claude.
 - **`/apply-to-job <url>`** — fills from profile→history→context with
@@ -182,6 +182,12 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   made the user's restart silently fail to bind — killed it, relaunched;
   **JOB-59 filed** (port guard + API-404 guard, backlog). Also synced skills'
   screenshot-unique-path rules (2026-07-13 hang) + data files.
+- **2026-07-24 session:** watchlist expansion — `src.discover` drained the
+  candidate queue again (250 probed, 4 left), adopted 12 not-yet-listed boards
+  (all ≥2 qualifying roles, plus Decagon/Mistral for AI title-match depth):
+  Headway, Flock Safety, Yuno, ClickUp, Cursor, Turquoise Health, Kong,
+  HappyRobot, SentiLink, Splice, Decagon, Mistral AI → **79 boards**.
+  `src.refresh` verified all 79 fetch clean (0 failed); 8,609 scanned, 877 new.
 - **2026-07-13 session (JOB-56):** watchlist expansion — `src.discover` drained
   the candidate queue (145 probed, 83 newly confirmed, 0 left), adopted all 21
   not-yet-listed boards with ≥2 qualifying roles (ClassDojo, PermitFlow,

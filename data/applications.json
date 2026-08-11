@@ -3019,5 +3019,723 @@
     "date": "2026-07-20",
     "status": "submitted",
     "fields": []
+  },
+  {
+    "company": "Benchling",
+    "job_title": "Product Manager, Scientific Development Solutions",
+    "url": "https://jobs.ashbyhq.com/benchling/3b50ebb7-4e9e-4ede-aaf7-d5ce91ca7eb3/application",
+    "date": "2026-07-23",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "What AI tools are you currently using today and how are you using them?",
+        "answer": "I use AI in three ways today. First, in the product itself: at M Science I built an OCR and LLM-based QA pipeline for our KPI data product, which together with ML anomaly detection cut our annual error rate from over 2% to roughly 0%. Second, for automation: I design and build agentic workflows that integrate AI into my own and my team's processes, automating repetitive work end to end. Third, for prototyping: in my fractional PM role at Audare AI I used tools like Bolt and Lovable to turn concepts into working wireframes users could react to, rather than debating them in a doc."
+      },
+      {
+        "question": "Start typing...",
+        "answer": "South Asian (Bangladeshi, Bhutanese, Indian, Nepali, Pakistani, & Sri Lankan)"
+      }
+    ]
+  },
+  {
+    "company": "Sprinter Health",
+    "job_title": "Strategy & Operations, Healthcare - Patient Operations",
+    "url": "https://jobs.ashbyhq.com/sprinter-health/47a672f8-a7b1-4f2a-8639-7919245bf787/application",
+    "date": "2026-07-23",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Current company",
+        "answer": "M Science"
+      },
+      {
+        "question": "Current location",
+        "answer": "Los Angeles, CA"
+      },
+      {
+        "question": "Phone",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Additional information",
+        "answer": "I'm a strategy and operations operator who does the analytical and systems work behind growth. At M Science I led the cross-functional overhaul of our packaging and pricing model and stood up a pricing desk, which drove a ~35% ARR increase in the first quarter after rollout. As PM for our KPI API, I used customer discovery to find the blockers keeping quant funds from adopting the product, rebuilt the schema with engineering, and drove the GTM with sales and marketing leadership, doubling the teams using the data and growing ARR by roughly 80%. Market expansion work like this, sizing the opportunity, building the model, then executing across functions, is exactly what I want to keep doing, and Sprinter Health's mission of bringing care to people who can't easily get to it makes this an easy team to be excited about."
+      },
+      {
+        "question": "Which location are you applying for?",
+        "answer": "San Francisco, CA"
+      },
+      {
+        "question": "LinkedIn",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "GitHub",
+        "answer": "https://github.com/sbhaskaran0"
+      },
+      {
+        "question": "I am not based in the Bay Area, but open to relocating",
+        "answer": "on"
+      },
+      {
+        "question": "Asian or Asian American",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Vanta",
+    "job_title": "Senior GTM Strategy & Operations Manager",
+    "url": "https://jobs.ashbyhq.com/vanta/b70e3e50-1294-4b6c-b17e-8441fb89bbfb/application",
+    "date": "2026-07-23",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Full Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "No - I do not consent to receiving text messages",
+        "answer": "notGiven"
+      },
+      {
+        "question": "Current/Most Recent Company Name",
+        "answer": "M Science"
+      },
+      {
+        "question": "Current/Most Recent Job Title",
+        "answer": "Product Manager, Systematic Data"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles,CA,US"
+      },
+      {
+        "question": "What are your pronouns? (Optional)",
+        "answer": "He/Him"
+      }
+    ]
+  },
+  {
+    "company": "Stripe",
+    "job_title": "Product Manager - Compliance, Bridge",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=stripe&token=7979422",
+    "date": "2026-07-23",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Please select the country where you currently reside. *",
+        "answer": "US"
+      },
+      {
+        "question": "Are you authorized to work in the location(s) you selected in your previous response?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Will you require Stripe to sponsor you for a work permit now or in the future for the location(s) you selected in in your previous response? *",
+        "answer": "No"
+      },
+      {
+        "question": "If this role offers the option to work from a remote location, do you plan to work remotely?*",
+        "answer": "Yes, I intend to work remotely."
+      },
+      {
+        "question": "Have you ever been employed by Stripe or a Stripe affiliate?*",
+        "answer": "No"
+      },
+      {
+        "question": "Who is your current or previous employer?*",
+        "answer": "M Science"
+      },
+      {
+        "question": "What is your current or previous job title?*",
+        "answer": "Product Manager, Systematic Data"
+      },
+      {
+        "question": "What is the most recent school you attended?*",
+        "answer": "University of California-Los Angeles"
+      },
+      {
+        "question": "Do you opt-in to receive WhatsApp messages from Stripe Recruiting?*",
+        "answer": "No"
+      },
+      {
+        "question": "If located in the US, in what city and state do you reside?*",
+        "answer": "Los Angeles, CA"
+      },
+      {
+        "question": "What is the most recent degree you obtained?*",
+        "answer": "Bachelor's Degree"
+      },
+      {
+        "question": "Security code",
+        "answer": "H"
+      },
+      {
+        "question": "security input 1",
+        "answer": "E"
+      },
+      {
+        "question": "security input 2",
+        "answer": "k"
+      },
+      {
+        "question": "security input 3",
+        "answer": "l"
+      },
+      {
+        "question": "security input 4",
+        "answer": "i"
+      },
+      {
+        "question": "security input 5",
+        "answer": "m"
+      },
+      {
+        "question": "security input 6",
+        "answer": "X"
+      },
+      {
+        "question": "security input 7",
+        "answer": "p"
+      }
+    ]
+  },
+  {
+    "company": "Boulevard",
+    "job_title": "Senior Product Manager - Commerce",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=boulevard&token=4690572006",
+    "date": "2026-07-23",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      }
+    ]
+  },
+  {
+    "company": "Stripe",
+    "job_title": "Strategy and Operations Lead, Deal Pricing",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=stripe&token=8044391",
+    "date": "2026-07-31",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "(310) 343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Who is your current or previous employer?*",
+        "answer": "M Science"
+      },
+      {
+        "question": "What is your current or previous job title?*",
+        "answer": "Product Manager, Systematic Data"
+      },
+      {
+        "question": "Please select the country where you currently reside. *",
+        "answer": "US"
+      },
+      {
+        "question": "Are you authorized to work in the location(s) you selected in your previous response?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Will you require Stripe to sponsor you for a work permit now or in the future for the location(s) you selected in in your previous response? *",
+        "answer": "No"
+      },
+      {
+        "question": "If this role offers the option to work from a remote location, do you plan to work remotely?*",
+        "answer": "Yes, I intend to work remotely."
+      },
+      {
+        "question": "Have you ever been employed by Stripe or a Stripe affiliate?*",
+        "answer": "No"
+      },
+      {
+        "question": "What is the most recent school you attended?*",
+        "answer": "University of California-Los Angeles"
+      },
+      {
+        "question": "Do you opt-in to receive WhatsApp messages from Stripe Recruiting?*",
+        "answer": "No"
+      },
+      {
+        "question": "What is the most recent degree you obtained?*",
+        "answer": "Bachelor's Degree"
+      },
+      {
+        "question": "If located in the US, in what city and state do you reside?*",
+        "answer": "Los Angeles, CA"
+      },
+      {
+        "question": "Security code",
+        "answer": "w"
+      },
+      {
+        "question": "security input 1",
+        "answer": "z"
+      },
+      {
+        "question": "security input 2",
+        "answer": "t"
+      },
+      {
+        "question": "security input 3",
+        "answer": "Q"
+      },
+      {
+        "question": "security input 4",
+        "answer": "R"
+      },
+      {
+        "question": "security input 5",
+        "answer": "7"
+      },
+      {
+        "question": "security input 6",
+        "answer": "6"
+      },
+      {
+        "question": "security input 7",
+        "answer": "Z"
+      }
+    ]
+  },
+  {
+    "company": "OpenAI",
+    "job_title": "Sales Strategy & Operations - Central",
+    "url": "https://jobs.ashbyhq.com/openai/2881fcec-3ab8-480c-813f-14769dcbf963/application",
+    "date": "2026-07-31",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Legal Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Preferred Name (if applicable)",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles,CA,US"
+      },
+      {
+        "question": "Pick date...",
+        "answer": "08/16/2026"
+      },
+      {
+        "question": "Additional Information",
+        "answer": "I've spent my career as a strategy and operations operator, running the analytical and system-level work behind revenue growth. At M Science I led a cross-functional overhaul of our pricing and packaging model, aligning sales, data science, and research and standing up a pricing desk, which drove a ~35% ARR increase the quarter after launch. I then built the infrastructure to make it durable: a Salesforce master-data system for product metadata and entitlements, plus north-star metrics, Databricks pipelines, and executive dashboards, and I provided the strategic insights the executive team ran on. A central S&O role owning the forecasting and operating rhythm across GTM is exactly the kind of high-leverage, ambiguous problem I want to work on, and I'm self-sufficient in SQL and Python to do the analysis myself. Doing that work at OpenAI, where the go-to-market is scaling as fast as the technology, is what makes this one an easy yes."
+      },
+      {
+        "question": "I acknowledge that I have opened, read, and understood the Arbitration Agreement. I understand that by submitting my application, I am agreeing to be bound by the terms of the Arbitration Agreement.",
+        "answer": "on"
+      },
+      {
+        "question": "I confirm I have read the above.",
+        "answer": "on"
+      }
+    ]
+  },
+  {
+    "company": "Tailscale",
+    "job_title": "Product Manager, Tailscale-Native Apps",
+    "url": "https://boards.greenhouse.io/embed/job_app?for=tailscale&token=4720112005",
+    "date": "2026-07-31",
+    "status": "submitted",
+    "fields": []
+  },
+  {
+    "company": "Samsara",
+    "job_title": "Product Operations Manager",
+    "url": "https://boards.greenhouse.io/embed/job_app?for=samsara&token=7729297",
+    "date": "2026-07-31",
+    "status": "manual_submission",
+    "fields": []
+  },
+  {
+    "company": "Snowflake",
+    "job_title": "Product Manager - Traffic & Networking",
+    "url": "https://jobs.ashbyhq.com/snowflake/e39a441a-07e4-4ea3-a687-b483007deb94/application",
+    "date": "2026-07-31",
+    "status": "manual_submission",
+    "fields": []
+  },
+  {
+    "company": "Harvey",
+    "job_title": "Business Operations Associate",
+    "url": "https://jobs.ashbyhq.com/harvey/7ce37744-f88b-4e4b-8ce1-1d08402dab46/application",
+    "date": "2026-08-07",
+    "status": "submitted",
+    "fields": []
+  },
+  {
+    "company": "Harvey",
+    "job_title": "Senior Product Operations Manager, Evaluation Quality",
+    "url": "https://jobs.ashbyhq.com/harvey/f0e4e24a-2a7a-4fc4-8872-9a8a762fecf5/application",
+    "date": "2026-08-07",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "Legal First and Last Name",
+        "answer": "Siddharth Bhaskaran"
+      },
+      {
+        "question": "Preferred First Name",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Preferred Last Name",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Phone Number",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Start typing...",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Current or Most Recent Employer",
+        "answer": "M Science"
+      },
+      {
+        "question": "University or School Attended",
+        "answer": "University of California, Santa Barbara"
+      },
+      {
+        "question": "Pronouns",
+        "answer": "He/Him"
+      },
+      {
+        "question": "No, I do not require sponsorship to work in the country where this role is located",
+        "answer": "on"
+      },
+      {
+        "question": "No, I’m not based in this location but willing to relocate",
+        "answer": "on"
+      },
+      {
+        "question": "LinkedIn",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      }
+    ]
+  },
+  {
+    "company": "Mercury",
+    "job_title": "Senior Product Operations Specialist",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=mercury&token=6138978004",
+    "date": "2026-08-07",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "LinkedIn Profile",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Will you now or at any time in the future require visa sponsorship?*",
+        "answer": "No"
+      },
+      {
+        "question": "From where do you intend to work?*",
+        "answer": "Los Angeles, CA, United States"
+      }
+    ]
+  },
+  {
+    "company": "Coinbase",
+    "job_title": "Senior Manager Product Operations, FCM Ops",
+    "url": "https://job-boards.greenhouse.io/embed/job_app/confirmation?for=coinbase&token=8110496",
+    "date": "2026-08-07",
+    "status": "submitted",
+    "fields": [
+      {
+        "question": "First Name*",
+        "answer": "Siddharth"
+      },
+      {
+        "question": "Last Name*",
+        "answer": "Bhaskaran"
+      },
+      {
+        "question": "Email*",
+        "answer": "siddharth99.ram@gmail.com"
+      },
+      {
+        "question": "Country*",
+        "answer": "+1"
+      },
+      {
+        "question": "Phone*",
+        "answer": "310-343-9671"
+      },
+      {
+        "question": "Location (City)*",
+        "answer": "Los Angeles, California, United States"
+      },
+      {
+        "question": "Company name*",
+        "answer": "M Science"
+      },
+      {
+        "question": "Title*",
+        "answer": "Product Manager, Systematic Data"
+      },
+      {
+        "question": "Start date month*",
+        "answer": "April"
+      },
+      {
+        "question": "Start date year*",
+        "answer": "2023"
+      },
+      {
+        "question": "Current role",
+        "answer": "1"
+      },
+      {
+        "question": "School*",
+        "answer": "University of California - Santa Barbara"
+      },
+      {
+        "question": "Degree*",
+        "answer": "Bachelor's Degree"
+      },
+      {
+        "question": "Discipline*",
+        "answer": "Economics"
+      },
+      {
+        "question": "Linkedin Profile URL*",
+        "answer": "https://www.linkedin.com/in/siddharth-bhaskaran/"
+      },
+      {
+        "question": "Are you at least 18 years of age?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Have you previously been employed by Coinbase in any capacity?*",
+        "answer": "No"
+      },
+      {
+        "question": "How did you hear about this job?*",
+        "answer": "LinkedIn"
+      },
+      {
+        "question": "Please confirm receipt of the above linked Global Data Privacy Notice and US Arbitration Agreement.*",
+        "answer": "Confirmed"
+      },
+      {
+        "question": "I understand that Coinbase may use AI tools to assist in the application and interview process. *",
+        "answer": "Yes"
+      },
+      {
+        "question": "Which of the following best describes how you use AI tools today?*",
+        "answer": "I design or automate workflows with AI tools (e.g., building agents, integrating AI into team processes)."
+      },
+      {
+        "question": "Are you legally authorized to work in the country where this position is located?*",
+        "answer": "Yes"
+      },
+      {
+        "question": "Will you require sponsorship for employment visa status now or in the future?*",
+        "answer": "No"
+      },
+      {
+        "question": "Are you a current government official or were you a government official in the last five years (e.g., employee of a government agency or a government owned/controlled company, holder of public office or a civil service position)?*",
+        "answer": "No, I am not a current or former Government Official"
+      },
+      {
+        "question": "Are you a close relative of a government official (i.e., child/step-child, spouse/partner, parent/guardian, aunt/uncle, first cousin, in-law)?*",
+        "answer": "No, I am not a relative of a government official."
+      },
+      {
+        "question": "To your knowledge, do you or a close relative currently hold a role, have a significant financial interest in, or maintain a close personal relationship with a senior leader at a company connected to Coinbase that could create an actual or perceived conflict of interest?*",
+        "answer": "No"
+      },
+      {
+        "question": "To your knowledge, were you referred to this position by a senior leader or decision‑maker at a current or prospective institutional client, business partner, or vendor of Coinbase?*",
+        "answer": "No"
+      },
+      {
+        "question": "Security code",
+        "answer": "O"
+      },
+      {
+        "question": "security input 1",
+        "answer": "x"
+      },
+      {
+        "question": "security input 2",
+        "answer": "e"
+      },
+      {
+        "question": "security input 3",
+        "answer": "u"
+      },
+      {
+        "question": "security input 4",
+        "answer": "M"
+      },
+      {
+        "question": "security input 5",
+        "answer": "V"
+      },
+      {
+        "question": "security input 6",
+        "answer": "4"
+      },
+      {
+        "question": "security input 7",
+        "answer": "2"
+      }
+    ]
+  },
+  {
+    "company": "Samsara",
+    "job_title": "Sr. Business Operations Analyst - Post Sales",
+    "url": "https://boards.greenhouse.io/embed/job_app?for=samsara&token=8084045",
+    "date": "2026-08-07",
+    "status": "manual_submission",
+    "fields": []
   }
 ]

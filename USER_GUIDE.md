@@ -70,7 +70,7 @@ Then, in Claude Code, **open this project and reload it** so it loads
 | `**resume.pdf`** (add to project root) | The actual file **uploaded** to forms (preferred over `.txt`). On each apply, its text is auto-synced into `resume.txt`.                                         |
 | [context/](context/)                   | Your "knowledge base" — `background.md`, `stories.md`, `preferences.md`, and any `.md` / `.txt` / `**.pdf`** you add. Searched when crafting open-ended answers. |
 | [job_criteria.yaml](job_criteria.yaml) | The strict bar for `/find-jobs`: acceptable titles, seniority, locations/remote, and `salary_floor` (currently **$130k**; mid-level ops titles allowed and `Associate` not excluded, per JOB-26). |
-| [watchlist.yaml](watchlist.yaml)       | The ~67 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04, mid-level S&O/BizOps sources added 2026-07-05 for JOB-26, the 2026-07-12 batch — Harvey, Zip, Abridge, Mixpanel… — and 21 discovery adoptions added 2026-07-13). |
+| [watchlist.yaml](watchlist.yaml)       | The ~79 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04, mid-level S&O/BizOps sources added 2026-07-05 for JOB-26, the 2026-07-12 batch — Harvey, Zip, Abridge, Mixpanel… — 21 discovery adoptions added 2026-07-13, and 12 more added 2026-07-24 — Headway, Flock Safety, ClickUp, Cursor, Turquoise Health, Kong, SentiLink…). |
 | [data/history.json](data/history.json) | Past Q&A answers. Grows automatically as you approve crafted answers.                                                                                            |
 
 
@@ -226,7 +226,7 @@ The watchlist is the universe `/find-jobs` searches — curated for quality.
 board URL) — it detects the ATS and slug and appends the entry.
 - **Remove:** delete the entry from [watchlist.yaml](watchlist.yaml).
 
-Currently ~67 companies — the original seed (Stripe, Figma, Databricks,
+Currently ~79 companies — the original seed (Stripe, Figma, Databricks,
 Airtable, Brex, Mercury, Coinbase, Anthropic, Scale AI, Instacart, Airbnb,
 Robinhood, Samsara, Ramp, Notion, Plaid, Vanta, Linear, OpenAI, Snowflake)
 plus the JOB-26 S&O/BizOps additions, the 2026-07-12 batch (Harvey, Zip,
@@ -581,7 +581,7 @@ Job Applier/
 ├─ .mcp.json                     # registers the job-applier server for Claude Code
 ├─ user_profile.yaml             # your exact facts
 ├─ job_criteria.yaml             # strict search bar (titles/seniority/salary/location)
-├─ watchlist.yaml                # ~67 target companies
+├─ watchlist.yaml                # ~79 target companies
 ├─ discovery.yaml                # startup-discovery sources (YC + VC portfolio boards)
 ├─ resume.txt   (resume.pdf)     # reasoning text  (uploaded file)
 ├─ resume.docx                   # base template for /tailor-application (you add it)

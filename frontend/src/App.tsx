@@ -66,13 +66,26 @@ export default function App() {
 
   const selectedPostings = postings.filter((p) => selected.has(p.url))
 
-  const launchApply = (auto: boolean) => {
+  const launchApply = (auto: boolean, tailorUrls: string[] = []) => {
     const urls = selectedPostings.map((p) => p.url)
     if (!urls.length) return
     setModalOpen(false)
     setSelected(new Set())
     setPage('chat')
-    chat.send(`/apply-batch ${auto ? 'autonomous ' : ''}${urls.join(' ')}`)
+    const batch = `/apply-batch ${auto ? 'autonomous ' : ''}${urls.join(' ')}`
+    const tailor = tailorUrls.filter((u) => urls.includes(u))
+    if (!tailor.length) {
+      chat.send(batch)
+      return
+    }
+    // Tailor the ticked roles first (each pauses for cover-letter approval), then
+    // batch-apply the whole selection — apply-batch auto-picks up the tailored
+    // resume + cover letter for those roles via get_job_artifacts.
+    chat.send(
+      'Before applying, tailor a bespoke resume + cover letter for these roles — '
+      + 'run /tailor-application once for each (pause for my approval on each cover '
+      + `letter):\n${tailor.join('\n')}\n\nThen apply to the full selection: ${batch}`,
+    )
   }
 
   return (
@@ -118,7 +131,8 @@ export default function App() {
       {modalOpen && (
         <ApplyModal
           jobs={selectedPostings} autonomous={autonomous}
-          onClose={() => setModalOpen(false)} onConfirm={() => launchApply(autonomous)}
+          onClose={() => setModalOpen(false)}
+          onConfirm={(tailorUrls) => launchApply(autonomous, tailorUrls)}
         />
       )}
       {onboardingOpen && profile && (

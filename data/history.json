@@ -74,14 +74,14 @@
     "answer": "M Science",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-31"
   },
   {
     "question": "What is the most recent school you attended?*",
     "answer": "University of California-Los Angeles",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-04"
+    "date": "2026-07-31"
   },
   {
     "question": "Are you open to working in person in our San Francisco or New York office 3 times a week?",
@@ -109,7 +109,7 @@
     "answer": "Los Angeles,CA,US",
     "scope": "evergreen",
     "company": "Rula",
-    "date": "2026-07-20"
+    "date": "2026-08-07"
   },
   {
     "question": "Notion Website",
@@ -137,63 +137,63 @@
     "answer": "Los Angeles, CA, United States",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-09"
+    "date": "2026-08-07"
   },
   {
     "question": "Security code",
-    "answer": "Q",
+    "answer": "O",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-16"
+    "date": "2026-08-07"
   },
   {
     "question": "security input 1",
-    "answer": "a",
+    "answer": "x",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-16"
+    "date": "2026-08-07"
   },
   {
     "question": "security input 2",
-    "answer": "p",
+    "answer": "e",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-16"
+    "date": "2026-08-07"
   },
   {
     "question": "security input 3",
-    "answer": "n",
+    "answer": "u",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-16"
+    "date": "2026-08-07"
   },
   {
     "question": "security input 4",
-    "answer": "z",
+    "answer": "M",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-16"
+    "date": "2026-08-07"
   },
   {
     "question": "security input 5",
-    "answer": "4",
+    "answer": "V",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-16"
+    "date": "2026-08-07"
   },
   {
     "question": "security input 6",
-    "answer": "8",
+    "answer": "4",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-16"
+    "date": "2026-08-07"
   },
   {
     "question": "security input 7",
-    "answer": "k",
+    "answer": "2",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-16"
+    "date": "2026-08-07"
   },
   {
     "question": "Do have experience working with ISV, Cloud or SI partners?*",
@@ -207,7 +207,7 @@
     "answer": "Siddharth Bhaskaran",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-20"
+    "date": "2026-07-23"
   },
   {
     "question": "Middle Name",
@@ -238,11 +238,11 @@
     "date": "2026-07-20"
   },
   {
-    "question": "Degree",
+    "question": "Degree*",
     "answer": "Bachelor's Degree",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-20"
+    "date": "2026-08-07"
   },
   {
     "question": "Field of Study",
@@ -309,24 +309,24 @@
   },
   {
     "question": "Why are you interested in joining Tailscale? Thoughtful responses are encouraged.*",
-    "answer": "What draws me to Tailscale is the shape of the BizOps & Strategy mandate: being the embedded operator for the cross-functional problems that don't have a natural owner, and owning them from diagnosis through a durable, handed-off solution. That is exactly how I have worked. At M Science I led a cross-functional overhaul of our packaging and pricing model, aligning data science, sales, and research, standing up a pricing desk, and driving a ~35% ARR increase the quarter after launch, then built the infrastructure to make it stick: a Salesforce master-data system that unified our product metadata and automated entitlements, serving as the semantic layer behind our analytics and customer portal. I like building those structures early so they can be handed off as a company scales.\n\nThe specific problems in this role map directly to my experience: pricing and packaging strategy, maturing GTM systems alongside RevOps, reducing rework in business systems, and doing my own data analysis in SQL and Python rather than waiting on someone else. I am also genuinely excited by a PLG, developer-facing company: earning adoption bottom-up rewards exactly the kind of quantitative, first-principles operator I try to be. The written, async culture and high tolerance for ambiguity suit how I work best. I do my sharpest thinking when I get to define the problem, not just answer a scoped one. Tailscale's next chapter, from international/APAC expansion to cross-company AI adoption, is full of the ambiguous, high-leverage problems I want to spend my time on.",
+    "answer": "This role sits right where I've spent my career: a developer-facing product where the whole game is the on-ramp from \"I read a blog post\" to \"it's running inside my product,\" and where naming, defaults, error messages, and docs are the product. At M Science I own our KPI API end to end for a demanding, technical audience of quants and developers. Through discovery I found the two things keeping those users off the product: the restatement structure created look-ahead bias that invalidated their models, and they lacked the semantic context to actually use the data. I partnered with engineering to ship a new schema that fixed both, point-in-time history for restatements, standardized dimension tables for company and metric metadata, and external IDs linking to industry-standard datasets, which doubled the quant teams using the data and grew ARR by ~80%. I did the analysis myself in SQL and Python and lived with the design choices afterward.\n\nThat's the same job as making Tailscale-native the normal outcome for thousands of apps: turn an engineering-led, uneven developer journey into golden paths, reference patterns, and APIs that make people say \"wait, that's all it took?\" I read enough to hold a real conversation about SDK and API design, I like running the dogfood loop and mining GitHub and Discord for the pattern in the noise, and I care about the unglamorous ergonomics, auth key handling, upgrade paths that don't burn early adopters, examples that compile. Tailscale earning adoption bottom-up, developer by developer, is exactly the kind of product I want to own.",
     "scope": "company",
     "company": "Tailscale",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "We're always curious - have you used Tailscale before?*",
     "answer": "I haven’t used it, but I’m excited to learn more!",
     "scope": "company",
     "company": "Tailscale",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "I have read and understand Tailscale's \"Candidate Privacy Policy\" and \"AI Guidelines\" regarding the collection and use of my personal information and use of AI tools in the hiring and interviewing process. These can also be reviewed on the Tailscale career site. *",
     "answer": "Yes",
     "scope": "company",
     "company": "Tailscale",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "Please note the target compensation for this role in the job description above. Are you aligned with this compensation?",
@@ -340,14 +340,14 @@
     "answer": "Acknowledge/Confirm",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "What is the zip code of your primary residence?*",
     "answer": "90036",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "What is the highest level of education you have completed?*",
@@ -375,14 +375,14 @@
     "answer": "Yes",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "Have you previously worked at Samsara?*",
     "answer": "No",
     "scope": "company",
     "company": "Samsara",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "What is your postal code? (required)",
@@ -410,98 +410,98 @@
     "answer": "M Science",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Title*",
     "answer": "Product Manager, Systematic Data",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Start date month*",
     "answer": "April",
     "scope": "conditional",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Start date year*",
     "answer": "2023",
     "scope": "conditional",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "School*",
     "answer": "University of California - Santa Barbara",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Discipline*",
     "answer": "Economics",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Are you at least 18 years of age?*",
     "answer": "Yes",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Please confirm receipt of the above linked Global Data Privacy Notice and US Arbitration Agreement.*",
     "answer": "Confirmed",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "I understand that Coinbase may use AI tools to assist in the application and interview process. *",
     "answer": "Yes",
     "scope": "company",
     "company": "Coinbase",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Which of the following best describes how you use AI tools today?*",
     "answer": "I design or automate workflows with AI tools (e.g., building agents, integrating AI into team processes).",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Are you a current government official or were you a government official in the last five years (e.g., employee of a government agency or a government owned/controlled company, holder of public office or a civil service position)?*",
     "answer": "No, I am not a current or former Government Official",
     "scope": "conditional",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Are you a close relative of a government official (i.e., child/step-child, spouse/partner, parent/guardian, aunt/uncle, first cousin, in-law)?*",
     "answer": "No, I am not a relative of a government official.",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "To your knowledge, do you or a close relative currently hold a role, have a significant financial interest in, or maintain a close personal relationship with a senior leader at a company connected to Coinbase that could create an actual or perceived conflict of interest?*",
     "answer": "No",
     "scope": "company",
     "company": "Coinbase",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "To your knowledge, were you referred to this position by a senior leader or decision‑maker at a current or prospective institutional client, business partner, or vendor of Coinbase?*",
     "answer": "No",
     "scope": "company",
     "company": "Coinbase",
-    "date": "2026-07-10"
+    "date": "2026-08-07"
   },
   {
     "question": "Which OpEx categories have you directly owned? Feel free to be brief. *",
@@ -536,7 +536,7 @@
     "answer": "notGiven",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-20"
+    "date": "2026-08-07"
   },
   {
     "question": "3 - Above average",
@@ -624,31 +624,31 @@
   },
   {
     "question": "Pick date...",
-    "answer": "08/02/2026",
+    "answer": "08/16/2026",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-09"
+    "date": "2026-07-31"
   },
   {
-    "question": "Additional information",
-    "answer": "I'm a strategy and operations operator who does the analytical and systems work behind growth. At M Science I led the cross-functional overhaul of our packaging and pricing model and stood up a pricing desk, which drove a ~35% ARR increase in the first quarter after rollout. As PM for our KPI API, I used customer discovery to find the blockers keeping quant funds from adopting the product, rebuilt the schema with engineering, and drove the GTM with sales and marketing leadership, doubling the teams using the data and growing ARR by roughly 80%. Market expansion work like this, sizing the opportunity, building the model, then executing across functions, is exactly what I want to keep doing, and Sprinter Health's mission of bringing care to people who can't easily get to it makes this an easy team to be excited about.",
+    "question": "Additional Information",
+    "answer": "I've spent my career as a strategy and operations operator, running the analytical and system-level work behind revenue growth. At M Science I led a cross-functional overhaul of our pricing and packaging model, aligning sales, data science, and research and standing up a pricing desk, which drove a ~35% ARR increase the quarter after launch. I then built the infrastructure to make it durable: a Salesforce master-data system for product metadata and entitlements, plus north-star metrics, Databricks pipelines, and executive dashboards, and I provided the strategic insights the executive team ran on. A central S&O role owning the forecasting and operating rhythm across GTM is exactly the kind of high-leverage, ambiguous problem I want to work on, and I'm self-sufficient in SQL and Python to do the analysis myself. Doing that work at OpenAI, where the go-to-market is scaling as fast as the technology, is what makes this one an easy yes.",
     "scope": "company",
-    "company": "Sprinter Health",
-    "date": "2026-07-13"
+    "company": "OpenAI",
+    "date": "2026-07-31"
   },
   {
     "question": "I acknowledge that I have opened, read, and understood the Arbitration Agreement. I understand that by submitting my application, I am agreeing to be bound by the terms of the Arbitration Agreement.",
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-09"
+    "date": "2026-07-31"
   },
   {
     "question": "I confirm I have read the above.",
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-09"
+    "date": "2026-07-31"
   },
   {
     "question": "Additional Information (motivation to apply)",
@@ -816,7 +816,7 @@
     "answer": "M Science",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-23"
   },
   {
     "question": "What are your total compensation requirements?",
@@ -837,35 +837,35 @@
     "answer": "M Science",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "I am a U.S. person",
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "No - I have never been employed by PwC",
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "I Acknowledge",
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "I have read and agree to the Snowflake Candidate Privacy Notice.",
     "answer": "on",
     "scope": "company",
     "company": "Snowflake",
-    "date": "2026-07-10"
+    "date": "2026-07-31"
   },
   {
     "question": "Please acknowledge that you've read and understand Mixpanel's Recruitment Privacy Policy*",
@@ -893,14 +893,14 @@
     "answer": "M Science",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-12"
+    "date": "2026-08-07"
   },
   {
     "question": "University or School Attended",
     "answer": "University of California, Santa Barbara",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-12"
+    "date": "2026-08-07"
   },
   {
     "question": "Yes but I would need to relocate",
@@ -998,7 +998,7 @@
     "answer": "on",
     "scope": "evergreen",
     "company": "",
-    "date": "2026-07-13"
+    "date": "2026-07-23"
   },
   {
     "question": "Please provide full mailing address (permanent & shipping)",
@@ -1047,7 +1047,7 @@
     "answer": "on",
     "scope": "conditional",
     "company": "",
-    "date": "2026-07-13"
+    "date": "2026-07-23"
   },
   {
     "question": "Are you a U.S. citizen?",
@@ -1083,5 +1083,61 @@
     "scope": "company",
     "company": "Hadrian",
     "date": "2026-07-20"
+  },
+  {
+    "question": "What AI tools are you currently using today and how are you using them?",
+    "answer": "I use AI in three ways today. First, in the product itself: at M Science I built an OCR and LLM-based QA pipeline for our KPI data product, which together with ML anomaly detection cut our annual error rate from over 2% to roughly 0%. Second, for automation: I design and build agentic workflows that integrate AI into my own and my team's processes, automating repetitive work end to end. Third, for prototyping: in my fractional PM role at Audare AI I used tools like Bolt and Lovable to turn concepts into working wireframes users could react to, rather than debating them in a doc.",
+    "scope": "company",
+    "company": "Benchling",
+    "date": "2026-07-23"
+  },
+  {
+    "question": "If this role offers the option to work from a remote location, do you plan to work remotely?*",
+    "answer": "Yes, I intend to work remotely.",
+    "scope": "conditional",
+    "company": "",
+    "date": "2026-07-31"
+  },
+  {
+    "question": "Have you ever been employed by Stripe or a Stripe affiliate?*",
+    "answer": "No",
+    "scope": "company",
+    "company": "Stripe",
+    "date": "2026-07-31"
+  },
+  {
+    "question": "Do you opt-in to receive WhatsApp messages from Stripe Recruiting?*",
+    "answer": "No",
+    "scope": "company",
+    "company": "Stripe",
+    "date": "2026-07-31"
+  },
+  {
+    "question": "What is the most recent degree you obtained?*",
+    "answer": "Bachelor's Degree",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-31"
+  },
+  {
+    "question": "Postal/Zip Code*",
+    "answer": "90036",
+    "scope": "evergreen",
+    "company": "",
+    "date": "2026-07-31"
+  },
+  {
+    "question": "Please outline your experience in product management or product operations.",
+    "answer": "I'm a Product Manager on the Systematic Data team at M Science, where I've spent roughly the last two and a half years owning a KPI API product for quantitative investors. Through product discovery I found the data structure was creating look-ahead bias that invalidated the product for quant funds, so I worked with Engineering and Data Science to redesign the schema using point-in-time history and built standardized dimension tables for context. Paired with a GTM overhaul, that drove roughly an 80% increase in the product's ARR. Alongside the product work I operate as a generalist: I led a cross-functional pricing and packaging overhaul across Sales, Data Science, and Research that drove a 35% revenue increase, and I built a Salesforce master data system that automated a 40+ hour weekly entitlements process and became the semantic layer for our analytics and customer portal. My strength is taking an ambiguous problem to first principles and owning it end to end, from strategy through the systems that make execution repeatable.",
+    "scope": "company",
+    "company": "Ramp",
+    "date": "2026-08-07"
+  },
+  {
+    "question": "Describe an AI agent/workflow/app you built (internal tool is fine). Include:",
+    "answer": "I built an automated data-QA layer for our KPI API product at M Science. What it does: it validates incoming financial data before it reaches clients, catching errors that would otherwise corrupt the forecasts quant investors rely on. Who used it: it runs behind the product for our data and product teams, and its output protects every client consuming the API. Inputs to outputs: it ingests raw incoming KPI data and source documents and outputs flagged anomalies and corrected records for review. Tooling: an OCR/LLM pipeline to parse and extract from source documents, paired with an ML anomaly-detection model to catch outliers. Result: it cut the product's annual data error rate from over 2% to near zero. I don't have a public demo link since it's an internal system.",
+    "scope": "company",
+    "company": "Ramp",
+    "date": "2026-08-07"
   }
 ]
