@@ -161,8 +161,13 @@ def main():
     session_id = None
     args = sys.argv[1:]
     if args and args[0] == "--latest":
-        proj = os.path.join(os.path.expanduser("~"), ".claude", "projects",
-                            "c--Users-siddh-Job-Applier")
+        # Claude Code names the project dir after the repo path: lowercased
+        # drive letter, then ':' and separators/spaces flattened to '-'
+        # (e.g. C:\Users\x\Job Applier -> c--Users-x-Job-Applier).
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        repo = repo[0].lower() + repo[1:]
+        slug = repo.replace(":", "-").replace("\\", "-").replace("/", "-").replace(" ", "-")
+        proj = os.path.join(os.path.expanduser("~"), ".claude", "projects", slug)
         cands = sorted(glob.glob(os.path.join(proj, "*.jsonl")),
                        key=os.path.getmtime, reverse=True)
         path = cands[0] if cands else None

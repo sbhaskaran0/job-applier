@@ -130,7 +130,7 @@ def profile():
         "facts": facts,
         "eeo_fields_present": eeo_present,
         "completeness": round(100 * filled / max(1, len(EDITABLE_PROFILE_KEYS))),
-        "resume_pdf": (config.BASE_DIR / "resume.pdf").exists(),
+        "resume_pdf": config.active_profile().resume_pdf.exists(),
         "resume_docx": config.base_resume_docx() is not None,
         "context_files": _context_files(),
     }
@@ -329,7 +329,7 @@ def watchlist_add(body: WatchlistAdd):
 
 
 # --------------------------------------------------------------------------- #
-# uploads (resume → project root, knowledge docs → context/)
+# uploads (resume → profile root, knowledge docs → context/)
 # --------------------------------------------------------------------------- #
 _RESUME_EXTS = {".pdf", ".docx", ".txt"}
 _CONTEXT_EXTS = set(_CONTEXT_KINDS)
@@ -340,7 +340,7 @@ async def upload_resume(file: UploadFile):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in _RESUME_EXTS:
         raise HTTPException(400, f"resume must be one of {sorted(_RESUME_EXTS)}")
-    dest = config.BASE_DIR / f"resume{ext}"
+    dest = config.active_profile().root / f"resume{ext}"
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     synced = config.sync_resume_text_from_pdf() if ext == ".pdf" else False

@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-07-23.
+per-session narrative lives in `git log` + Linear. Last updated 2026-08-10.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -9,7 +9,7 @@ code until Claude Code restarts.
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
-`python -m src.mcp_server`, **33 tools**) provides a live Playwright browser +
+`python -m src.mcp_server`, **34 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
 - **`/find-jobs <query>`** — roles across a curated ~79-company watchlist
   (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
@@ -56,12 +56,34 @@ discovery/data layer (the compounding asset); lean on Cowork/Claude-in-Chrome
 for hard executor cases (auth walls, Workday wizards) instead of building them.
 
 ## Architecture / key files
-- `src/mcp_server.py` — the 33 FastMCP tools; thin wrappers. `snapshot_job`
+- **`src/profiles.py` — the profile system (M1, 2026-08-10).** ALL personal
+  data lives under `profiles/<id>/` (this machine: `profiles/siddharth/`):
+  `profile.yaml` (was `user_profile.yaml`), local-only `eeo.yaml` (EEO self-ID
+  split out, merged at read time, never synced), `criteria.yaml` (was
+  `job_criteria.yaml`), `resume.*`, `context/`, `data/{history.json,
+  applications.json, prep/}`, `resumes/<job-slug>/`, `runtime/` (screenshots +
+  persistent browser profile). Resolution: `JOB_APPLIER_PROFILE` env →
+  `applyer.local.json` (`{"profile": "id"}`, gitignored) → single `profiles/`
+  dir → legacy repo-root fallback. `src/config.py` serves the old constant
+  names (`config.HISTORY_PATH` etc.) lazily via module `__getattr__`, so call
+  sites didn't change; JSON saves are atomic (temp + `os.replace`);
+  `resume.txt` regeneration is mtime-guarded. Shared at repo root:
+  `watchlist.yaml`, `location_aliases.yaml`, `discovery.yaml`,
+  `data/postings.db`, digests. New-user onboarding: copy tracked
+  `profiles/_template/`; legacy checkouts: `scripts/migrate_profile.py`.
+  Multi-user roadmap (GCP data plane, auth, onboarding UI, per-user filtered
+  postings): `docs/backlog-multiuser.md`.
+- `src/mcp_server.py` — 34 FastMCP tools; thin wrappers. `get_profile_paths`
+  returns the active profile's resolved dirs (skills call it instead of
+  guessing paths). `snapshot_job`
   (JOB-52): opens+reads+writes a batch prep file server-side, returning only a
   compact receipt (incl. `freetext_count`) so form dumps + JD never enter the model.
 - `src/browser.py` — ATS-agnostic Playwright layer (`_SCAN_JS` reads page +
   iframes into generic field descriptors incl. a `multiline` free-text flag;
-  no per-site selectors; non-headless).
+  no per-site selectors; non-headless; **persistent Chromium profile** per
+  user at `profiles/<id>/runtime/browser/` — cookies/logins survive restarts,
+  anti-bot fingerprint stays stable; screenshots default to the profile's
+  `runtime/`).
   `_submission_confirmed` classifies submit outcome from **page text**:
   `submitted` / `rejected_spam` / `attempted` (vanished form ≠ success).
 - `src/data.py` — profile alias lookup, fuzzy history search, `save_answer`
@@ -160,6 +182,25 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-08-10 session (M1 profile system, branch `feat/profile-system-m1`):**
+  planned the full **multi-user generalization** (hybrid: GCP data plane +
+  local execution on each user's own Claude subscription; ~2–10 allowlisted
+  users; EEO local-only; shared global watchlist; roadmap + Linear-ready
+  stories in `docs/backlog-multiuser.md` — **Linear push pending**, MCP not
+  connected) and **built + verified M1**: `src/profiles.py` resolution layer,
+  lazy `config.py` paths, EEO split to local-only `eeo.yaml`, atomic JSON
+  writes, persistent browser profile, query-time seniority in
+  `passes_baseline` (stored `seniority_flag` now vestigial), de-personalized
+  skills/CLAUDE.md (identity read from profile + `context/background.md`;
+  Gmail-inbox-must-match-profile-email guard), `get_profile_paths` MCP tool,
+  `scripts/migrate_profile.py` + tracked `profiles/_template/`. Migration run
+  on real data: pre/post behavior snapshots **identical** (163 history / 75
+  apps / same field resolutions); post-migration `src.refresh` clean (8,762
+  scanned, 0 boards failed); second-profile isolation smoke passed; personal
+  files untracked from git (history NOT rewritten — accepted, private repo).
+  Leftover: two Word-locked `resumes/*/resume.docx` at the old repo-root
+  location (verified copied into the profile) — close Word, delete `resumes/`.
+  **Restart Claude Code** so the MCP server picks up the new `src/`.
 - **2026-07-23 session (data sync):** committed the 2026-07-20 apply run that
   was left uncommitted — 3 verified submits (**Hadrian** Global Product Manager
   + **Stepful** Chief of Staff, both Ashby; **Alpaca** Product Manager New
@@ -253,7 +294,9 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   Fixed via `Set-ScheduledTask` (`-AllowStartIfOnBatteries
   -DontStopIfGoingOnBatteries -StartWhenAvailable`) + `New-ScheduledTaskAction`.
   Scheduled console is cp1252 — `src/refresh.py` prints ASCII only.
-- **`open_job` overwrites `resume.txt`** from `resume.pdf` — don't hand-edit txt.
+- **`open_job` regenerates the profile's `resume.txt`** from `resume.pdf` when
+  the PDF is newer (mtime-guarded since M1) — still don't hand-edit txt while
+  a PDF exists.
 - **Ashby:** may spam-reject a real submit ("flagged as possible spam") — see the
   manual-submission design choice; never trust `submitted` on Ashby without page
   text/email confirmation until JOB-24 is verified live. Answered custom

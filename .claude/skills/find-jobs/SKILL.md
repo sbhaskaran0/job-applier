@@ -5,7 +5,7 @@ description: Find high-quality product/strategy roles across a curated company w
 
 # Find jobs (curated watchlist + semantic search)
 
-You search a **curated set of ~30 target companies** (in [watchlist.yaml](../../../watchlist.yaml))
+You search a **curated set of ~79 target companies** (in [watchlist.yaml](../../../watchlist.yaml))
 via the **local postings store** (`data/postings.db`, refreshed by
 `python -m src.refresh` — live ATS fetch only as a staleness fallback), then
 rank the survivors **semantically** against the user's query. The strict
@@ -31,7 +31,8 @@ manual-submission hand-off) apply. Steps 1–4 are unchanged.
    subagent**. Optionally pass `max_years` (e.g. the user's experience + 2) to
    drop roles whose JD asks for more. Store-backed results are ALREADY filtered
    for titles, excluded seniority, location/remote, and disclosed-salary floor
-   from `job_criteria.yaml`; each posting is `{company, title, location, remote,
+   from the active profile's `criteria.yaml` (`get_search_criteria` reads it);
+   each posting is `{company, title, location, remote,
    salary_min, salary_max, salary_listed, salary_source, min_years, first_seen,
    is_new, already_applied, url, snippet}`. Check `source`: `"store"` means
    filtered + enriched; `"live"` means the store was stale (report the `note`,
