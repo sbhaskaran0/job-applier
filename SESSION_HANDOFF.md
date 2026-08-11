@@ -185,9 +185,10 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
 - **2026-08-10 session (M1 profile system, branch `feat/profile-system-m1`):**
   planned the full **multi-user generalization** (hybrid: GCP data plane +
   local execution on each user's own Claude subscription; ~2–10 allowlisted
-  users; EEO local-only; shared global watchlist; roadmap + Linear-ready
-  stories in `docs/backlog-multiuser.md` — **Linear push pending**, MCP not
-  connected) and **built + verified M1**: `src/profiles.py` resolution layer,
+  users; EEO local-only; shared global watchlist; roadmap in
+  `docs/backlog-multiuser.md`, **pushed to Linear**: epics JOB-81 (M1, Done) /
+  JOB-82 (M2) / JOB-83 (M3) / JOB-84 (M4), stories JOB-85…98; JOB-33 closed as
+  superseded) and **built + verified M1**: `src/profiles.py` resolution layer,
   lazy `config.py` paths, EEO split to local-only `eeo.yaml`, atomic JSON
   writes, persistent browser profile, query-time seniority in
   `passes_baseline` (stored `seniority_flag` now vestigial), de-personalized
