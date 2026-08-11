@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-08-10.
+per-session narrative lives in `git log` + Linear. Last updated 2026-08-11.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -182,6 +182,24 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-08-11 (same session, post-restart):** Claude Code restarted → the
+  34-tool profile-aware MCP server is live (`get_profile_paths` resolves
+  `profiles/siddharth`). Word-locked `resumes/` leftovers deleted (contents
+  were hash-verified in the profile first). **Linear backlog pushed**: epics
+  JOB-81 (M1, **Done**) / JOB-82 (M2 GCP+auth) / JOB-83 (M3 onboarding) /
+  JOB-84 (M4 per-user postings), stories JOB-85…98 with blockedBy relations;
+  JOB-33 closed as superseded, JOB-34 commented, ids mirrored into
+  `docs/backlog-multiuser.md` (commit `81bf5fb`). **Webapp restarted on the
+  M1 backend**: killed a stale server squatting :8765 since 7/27 (the JOB-59
+  gotcha), relaunched; `/api/profile` serves the profile's facts/resume/19
+  context files; dist was fresh (no rebuild needed). The 09:00 scheduled
+  refresh ran clean on the migrated layout. **Profile-UI design brief**
+  written to `docs/design-brief-profile-ui.md` (screens: sidebar profile
+  switcher, 8-step onboarding wizard, Profile-page EEO + cloud-account cards,
+  postings filter banner; constrained to tokens.css + existing components) —
+  pending: user passes it to Claude design and brings the design back for
+  implementation (maps to JOB-92/93/94 + JOB-86 surfaces). Branch
+  `feat/profile-system-m1` (3 commits) still **unpushed, no PR**.
 - **2026-08-10 session (M1 profile system, branch `feat/profile-system-m1`):**
   planned the full **multi-user generalization** (hybrid: GCP data plane +
   local execution on each user's own Claude subscription; ~2–10 allowlisted
@@ -199,9 +217,8 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   apps / same field resolutions); post-migration `src.refresh` clean (8,762
   scanned, 0 boards failed); second-profile isolation smoke passed; personal
   files untracked from git (history NOT rewritten — accepted, private repo).
-  Leftover: two Word-locked `resumes/*/resume.docx` at the old repo-root
-  location (verified copied into the profile) — close Word, delete `resumes/`.
-  **Restart Claude Code** so the MCP server picks up the new `src/`.
+  (Follow-ups — Word-locked leftover cleanup and the MCP restart — both
+  resolved 2026-08-11, see the entry above.)
 - **2026-07-23 session (data sync):** committed the 2026-07-20 apply run that
   was left uncommitted — 3 verified submits (**Hadrian** Global Product Manager
   + **Stepful** Chief of Staff, both Ashby; **Alpaca** Product Manager New
@@ -262,21 +279,24 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   upload). Ground truth in `data/applications.json`.
 
 ## Open items / next steps
-1. **Update `resume.pdf` — DONE (2026-07-12):** the PDF (and synced
-   `resume.txt`) now shows "Audare AI … March 2025–November 2025"; the stale
-   "Ongoing" line is gone from retrieval.
-2. **(JOB-6) `resume.docx` base template — DONE (2026-07-11):** a real
-   `resume.docx` is now committed at the project root, so resume tailoring is
-   live (was inert). DOCX→PDF needs Word (present).
-3. **Backfill Scale AI submit** into `applications.json` (JOB-17 remainder).
-4. **Data wart — DONE (2026-07-20):** the "most recent school = UCLA" history
-   entry is gone; history now reads "University of California-Santa Barbara"
-   (UCLA MQE in progress, expected Dec 2027, unchanged in `background.md`).
+1. **Push `feat/profile-system-m1` + PR to `main`** (3 commits: `e38f06a`,
+   `8671269`, `81bf5fb`) — M1 is done and verified but local-only.
+2. **Profile-UI design round-trip:** pass `docs/design-brief-profile-ui.md`
+   to Claude design; bring the returned mockups/TSX back for implementation
+   (JOB-92/93/94 wizard + Profile cards, JOB-86 PAT surface).
+3. **M2 next up:** JOB-85 (Postgres schema + store port) ∥ JOB-86 (`/account`
+   + PAT) — the two unblocked M2 stories; full sequence in
+   `docs/backlog-multiuser.md`.
+4. **Backfill Scale AI submit** into the profile's `applications.json`
+   (JOB-17 remainder).
 5. **Linear open:** JOB-24 (submit verification — code shipped, verify live) ·
    JOB-32 (Phase 2 embeddings) · JOB-19 pt2 → JOB-32 · JOB-22/20 (queue
-   executor/parent) · JOB-33/34 (portability — filed, NOT executed) ·
-   JOB-59 (webapp stale-server guards: port 8765 check + 404 for unknown
-   /api/* — filed 2026-07-20, NOT built).
+   executor/parent) · JOB-34 (env setup hardening — partially eased by M1,
+   cross-platform bits deferred until a non-Windows user onboards) ·
+   JOB-59 (webapp stale-server guards — bit us again 2026-08-11: killed a
+   7/27 squatter on :8765; port check + API-404 guard still NOT built) ·
+   JOB-82…98 (multi-user M2–M4 backlog). JOB-33 closed 2026-08-10
+   (superseded by JOB-81).
 
 ## Proposed backlog (not built — bring back for approval)
 - **Data layer:** application tracker v2 (status transitions, follow-ups) ·
