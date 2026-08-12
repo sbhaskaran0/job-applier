@@ -45,9 +45,21 @@ the user's data. **No LLM API key** in the core flow. Skills:
   `bypassPermissions`, `setting_sources=["user","project"]` so skills +
   .mcp.json load). Data API reuses src.store/src.config directly. Write-back:
   watchlist add, whitelisted profile facts (regex line edits preserve YAML
-  comments; EEO never exposed), resume/context uploads. Design recreated from
-  the "Applyer" design handoff (warm espresso dark default + paper light,
-  Newsreader/Hanken Grotesk, semantic tokens in frontend/src/tokens.css).
+  comments), resume/context uploads + pasted answers/stories, profile
+  create/switch, EEO self-ID (write-only — statuses shown, values never
+  returned). Design recreated from the "Applyer" design handoff (warm
+  espresso dark default + paper light, Newsreader/Hanken Grotesk, semantic
+  tokens in frontend/src/tokens.css). **Profile-system UI (2026-08-11,
+  second design round-trip):** launch screen ("Who's applying?") when no
+  profile is active, sidebar profile switcher (popover + switch confirm +
+  toast), onboarding wizard extended 5→8 data-driven steps (Welcome / PAT
+  link-account with honest service-not-live state / Résumé with regex
+  prefill chips + review grid / Background & voice paste-story-drop /
+  Preferences with tri-state seniority chips / amber-banded Requirements /
+  Connections with Gmail-mismatch drawer / Done with completeness ring),
+  Profile page cards (active-profile header, EEO statuses-only card, cloud
+  account local-only card with linked-state markup ready), postings criteria
+  banner ("N hidden by your criteria").
 
 User: **Siddharth Bhaskaran**, Los Angeles, ~5-yr PM targeting mid/senior
 **product & tech-strategy / BizOps** roles. Repo: private GitHub
@@ -196,10 +208,34 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   refresh ran clean on the migrated layout. **Profile-UI design brief**
   written to `docs/design-brief-profile-ui.md` (screens: sidebar profile
   switcher, 8-step onboarding wizard, Profile-page EEO + cloud-account cards,
-  postings filter banner; constrained to tokens.css + existing components) —
-  pending: user passes it to Claude design and brings the design back for
-  implementation (maps to JOB-92/93/94 + JOB-86 surfaces). Branch
-  `feat/profile-system-m1` (3 commits) still **unpushed, no PR**.
+  postings filter banner; constrained to tokens.css + existing components).
+  **Design round-trip CLOSED same day:** the returned handoff (zip →
+  `design_handoff_profile_system/`: README spec + static `.dc.html` mockup)
+  was integrated — backend: `/api/profiles` list/activate/create (activate
+  writes `applyer.local.json`, sets `JOB_APPLIER_PROFILE`, `profiles.reset()`
+  so every lazy config path re-scopes in-process; create copies
+  `profiles/_template` + names it), `/api/eeo` GET/PUT/DELETE (statuses only —
+  values never returned; edit form starts blank by design), `/api/account` +
+  `/api/account/verify` (honest "cloud service isn't live yet" stub for
+  JOB-86), `/api/context/paste` + DELETE `/api/context/{name}`, resume-upload
+  regex prefill (email/phone), `hidden_by_criteria` count in
+  `list_postings_from_store`, comment-tolerant `_set_profile_fact` (old regex
+  missed the template's trailing-comment lines → would have appended dupes);
+  frontend: LaunchScreen, Sidebar switcher popover + SwitchConfirm/NewProfile
+  modals + toast, Onboarding rewritten to 8 data-driven steps, EEOCard,
+  CloudAccountCard, Profile header, postings banner. Verified live with
+  browser screenshots: profile page, postings banner (8,487 hidden), wizard
+  steps 2/5/6/8, launch screen (via a temporary `priya-raman` test profile —
+  created through the real API, then deleted; `applyer.local.json` now
+  exists, pinned to `siddharth`), create→activate full-stack re-scope,
+  context paste/delete round-trip. QA hooks: `#page` hash read once at load;
+  `?wizard=N` opens the wizard at step N. NOT built (needs backend that
+  doesn't exist yet): real agent-session résumé/story extraction (the design's
+  "extracting with your local agent" states — no fake spinners shipped),
+  stories-from-submitted-applications loop (design §5), Gmail-account
+  detection for the mismatch drawer (`gmail_account` is wired end-to-end but
+  the backend reports `null`). Branch `feat/profile-system-m1` still
+  **unpushed, no PR**.
 - **2026-08-10 session (M1 profile system, branch `feat/profile-system-m1`):**
   planned the full **multi-user generalization** (hybrid: GCP data plane +
   local execution on each user's own Claude subscription; ~2–10 allowlisted
@@ -279,14 +315,16 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   upload). Ground truth in `data/applications.json`.
 
 ## Open items / next steps
-1. **Push `feat/profile-system-m1` + PR to `main`** (3 commits: `e38f06a`,
-   `8671269`, `81bf5fb`) — M1 is done and verified but local-only.
-2. **Profile-UI design round-trip:** pass `docs/design-brief-profile-ui.md`
-   to Claude design; bring the returned mockups/TSX back for implementation
-   (JOB-92/93/94 wizard + Profile cards, JOB-86 PAT surface).
+1. **Push `feat/profile-system-m1` + PR to `main`** (now 4 commits incl. the
+   profile-system UI) — done and verified but local-only.
+2. ~~Profile-UI design round-trip~~ — **closed 2026-08-11**: design returned
+   and implemented (see the session entry). Remaining UI gaps that need new
+   backend: agent-session résumé/story extraction states, stories loop
+   (design §5), Gmail-account detection for the mismatch drawer.
 3. **M2 next up:** JOB-85 (Postgres schema + store port) ∥ JOB-86 (`/account`
-   + PAT) — the two unblocked M2 stories; full sequence in
-   `docs/backlog-multiuser.md`.
+   + PAT — the UI half now exists: wizard step 2 + cloud account card render
+   every state, `/api/account/verify` is the honest stub to replace) — full
+   sequence in `docs/backlog-multiuser.md`.
 4. **Backfill Scale AI submit** into the profile's `applications.json`
    (JOB-17 remainder).
 5. **Linear open:** JOB-24 (submit verification — code shipped, verify live) ·

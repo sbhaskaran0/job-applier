@@ -1,6 +1,7 @@
 import type {
-  ApplicationRecord, Connection, Criteria, Posting, PostingDetail, Profile,
-  Status, WatchlistCompany,
+  AccountStatus, ApplicationRecord, ConnectionsPayload, ContextFile, Criteria,
+  EEOStatus, Posting, PostingDetail, Profile, ProfilesPayload, Status,
+  TokenVerifyResult, WatchlistCompany,
 } from './types'
 
 async function get<T>(path: string): Promise<T> {
@@ -9,15 +10,57 @@ async function get<T>(path: string): Promise<T> {
   return r.json()
 }
 
+async function send<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  if (!r.ok) {
+    let detail = ''
+    try { detail = (await r.json()).detail } catch { /* non-JSON error body */ }
+    throw new Error(detail || `${path}: ${r.status}`)
+  }
+  return r.json()
+}
+
 export const fetchStatus = () => get<Status>('/api/status')
 export const fetchPostings = () =>
-  get<{ postings: Posting[]; last_refresh: string | null; note?: string }>('/api/postings')
+  get<{
+    postings: Posting[]; last_refresh: string | null; note?: string
+    hidden_by_criteria?: number
+  }>('/api/postings')
 export const fetchApplications = () =>
   get<{ applications: ApplicationRecord[] }>('/api/applications')
 export const fetchProfile = () => get<Profile>('/api/profile')
 export const fetchWatchlist = () => get<{ companies: WatchlistCompany[] }>('/api/watchlist')
-export const fetchConnections = () =>
-  get<{ connections: Connection[]; note: string }>('/api/connections')
+export const fetchConnections = () => get<ConnectionsPayload>('/api/connections')
+
+/* profiles (multi-user) */
+export const fetchProfiles = () => get<ProfilesPayload>('/api/profiles')
+export const activateProfile = (id: string) =>
+  send<ProfilesPayload>('/api/profiles/activate', 'POST', { id })
+export const createProfile = (name: string) =>
+  send<ProfilesPayload>('/api/profiles', 'POST', { name })
+
+/* EEO self-identification — statuses only; values never come back */
+export const fetchEEO = () => get<EEOStatus>('/api/eeo')
+export const saveEEO = (values: Record<string, string>) =>
+  send<EEOStatus>('/api/eeo', 'PUT', { values })
+export const removeEEO = () => send<EEOStatus>('/api/eeo', 'DELETE')
+
+/* cloud account (M2 — local-only until the hosted backend exists) */
+export const fetchAccount = () => get<AccountStatus>('/api/account')
+export const verifyToken = (token: string) =>
+  send<TokenVerifyResult>('/api/account/verify', 'POST', { token })
+
+/* knowledge base paste + remove (wizard step 4) */
+export const pasteContext = (text: string, kind: 'pasted' | 'story', title = '') =>
+  send<{ saved: string; context_files: ContextFile[] }>(
+    '/api/context/paste', 'POST', { text, kind, title })
+export const deleteContext = (name: string) =>
+  send<{ removed: string; context_files: ContextFile[] }>(
+    `/api/context/${encodeURIComponent(name)}`, 'DELETE')
 
 export async function addWatchlistCompany(url: string) {
   const r = await fetch('/api/watchlist', {

@@ -364,9 +364,11 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
     by_key: dict[tuple, dict] = {}
     light: list[dict] = []
     dropped_years = 0
+    failed_baseline = 0
     for r in rows:
         ok, _why = passes_baseline(r, baseline)
         if not ok:
+            failed_baseline += 1
             continue
         if max_years and r.get("min_years") and r["min_years"] > max_years:
             dropped_years += 1
@@ -409,6 +411,7 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         "postings": light, "source": "store",
         "last_refresh": run_at,
         "total_scanned": len(rows), "matched": matched, "returned": len(light),
+        "hidden_by_criteria": failed_baseline,
         "dropped_over_max_years": dropped_years,
         "companies_failed": json.loads(run["companies_failed"]) if run else [],
     }

@@ -37,10 +37,14 @@ interface Props {
   setAutonomous: (v: boolean) => void
   openApply: () => void
   reload: () => void
+  profileName?: string
+  hiddenByCriteria?: number
+  openCriteria: () => void
 }
 
 export default function PostingsPage({
   postings, note, selected, setSelected, autonomous, setAutonomous, openApply, reload,
+  profileName, hiddenByCriteria, openCriteria,
 }: Props) {
   const [titles, setTitles] = useState<string[]>([])
   const [locations, setLocations] = useState<string[]>([])
@@ -53,6 +57,7 @@ export default function PostingsPage({
   const [hideApplied, setHideApplied] = useState(false)
   const [titleOptions, setTitleOptions] = useState<string[]>([])
   const [locationOptions, setLocationOptions] = useState<string[]>(COMMON_METROS)
+  const [hasCriteria, setHasCriteria] = useState<boolean | null>(null)
   const [detail, setDetail] = useState<Posting | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshNote, setRefreshNote] = useState<{ text: string; error: boolean } | null>(null)
@@ -82,6 +87,7 @@ export default function PostingsPage({
     fetchCriteria().then((c) => {
       setTitleOptions([...new Set([...c.search_titles, ...c.titles])])
       setLocationOptions([...new Set([...c.locations, ...COMMON_METROS])])
+      setHasCriteria(c.titles.length > 0 || c.salary_floor != null)
     }).catch(() => setTitleOptions([]))
   }, [])
 
@@ -298,6 +304,39 @@ export default function PostingsPage({
 
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '18px 34px 120px' }}>
         <div style={{ maxWidth: 920 }}>
+          {/* per-profile criteria banner — quieter than a posting row: it's chrome */}
+          {hasCriteria !== null && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12,
+              background: 'var(--bg-app)', border: '1px solid var(--border-2)',
+              borderRadius: 11, padding: '10px 15px',
+            }}>
+              <span style={{
+                width: 7, height: 7, borderRadius: '50%', flex: 'none',
+                background: hasCriteria ? 'var(--clay)' : 'var(--dot-faint)',
+              }} />
+              <span style={{ fontSize: 13, color: 'var(--text-3)', flex: 1, minWidth: 0 }}>
+                {hasCriteria ? (
+                  <>
+                    Showing roles matching{' '}
+                    <b style={{ color: 'var(--text-2)' }}>
+                      {profileName ? `${profileName}’s criteria` : 'your criteria'}
+                    </b>
+                    {hiddenByCriteria != null
+                      && ` — ${hiddenByCriteria.toLocaleString()} hidden by your criteria`}
+                  </>
+                ) : (
+                  'No criteria set yet — showing every role on the watchlist'
+                )}
+              </span>
+              <button onClick={openCriteria} style={{
+                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                fontSize: 12.5, fontWeight: 600, color: 'var(--clay-text)', flex: 'none',
+              }}>
+                {hasCriteria ? 'Edit criteria' : 'Set your criteria'}
+              </button>
+            </div>
+          )}
           {visible.map((p) => {
             const applied = p.already_applied
             const sel = !applied && selected.has(p.url)

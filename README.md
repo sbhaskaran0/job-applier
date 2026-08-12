@@ -56,9 +56,11 @@ python -m src.refresh    # fetch all boards → data/postings.db + data/digest-l
 > `profiles/<id>/eeo.yaml`** — gitignored, merged into the profile at read
 > time, and never synced or uploaded anywhere. When present the agent
 > auto-answers the corresponding *voluntary* self-ID sections on applications.
-> Providing it is always optional — delete the values to have those sections
-> left blank instead. EEO answers are never written to the answer history or
-> the application log.
+> Providing it is always optional — delete the values (or use **Remove all**
+> on the Applyer Profile page) to have those sections left blank instead.
+> The web UI only ever shows *which* questions are answered, never the
+> answers. EEO answers are never written to the answer history or the
+> application log.
 
 ## Profiles (per-user data)
 
@@ -323,10 +325,11 @@ scripts\webapp.cmd                     # serves http://localhost:8765 and opens 
 ```mermaid
 flowchart LR
     subgraph UI["frontend/ — React SPA (Vite, TS)"]
+        LS["Launch screen + profile switcher<br/>(who's applying?)"]
         J["Jobs chat + watchlist rail"]
-        P["Postings (filters · JD modal ·<br/>refresh → select → queue)"]
+        P["Postings (criteria banner · filters ·<br/>JD modal · refresh → select → queue)"]
         A["Applications monitor"]
-        PR["Profile + onboarding<br/>+ job-criteria editor"]
+        PR["Profile (header · EEO · criteria ·<br/>cloud account) + 8-step wizard"]
         CN["Connections"]
     end
     subgraph BE["server/ — FastAPI :8765"]
@@ -343,16 +346,37 @@ flowchart LR
 
 The Postings page filters roles by title, location (normalized tokens — "SF"
 and "San Francisco, CA" match together), YoE/salary ranges, and posted date;
-a chevron opens the full JD in a modal, and a **Refresh** button runs the same
-board sweep as `python -m src.refresh` right from the UI. Selecting postings
-and confirming the apply modal launches a **real** `/apply-batch` (the
-autonomous variant shows an explicit warning modal first). Write-back from the
-UI is deliberately narrow: watchlist add (same logic as `add_company`),
-whitelisted profile string facts (comment-preserving edits to the active
-profile's `profile.yaml`; EEO entries are never shown or written), the
+a **criteria banner** above the list names whose criteria scope the feed and
+how many roles they hide; a chevron opens the full JD in a modal, and a
+**Refresh** button runs the same board sweep as `python -m src.refresh` right
+from the UI. Selecting postings and confirming the apply modal launches a
+**real** `/apply-batch` (the autonomous variant shows an explicit warning
+modal first). Write-back from the UI is deliberately narrow: watchlist add
+(same logic as `add_company`), whitelisted profile string facts
+(comment-preserving edits to the active profile's `profile.yaml`), the
 job-criteria card on Profile (comment-preserving edits to the profile's
-`criteria.yaml`), and resume /
-context uploads. Connections is status-only — authorization still happens in
+`criteria.yaml`), resume / context uploads (incl. pasted answers/stories from
+the wizard), profile create/switch (below), and the EEO self-ID card —
+**write-only**: the UI shows which questions are answered, the edit form
+always starts blank, and the values themselves never leave the local
+`eeo.yaml`. Connections is status-only — authorization still happens in
 Claude Code.
+
+The UI is **profile-aware end to end** (the design handoff's profile-system
+round-trip): a launch screen when no profile is active, a sidebar profile
+switcher with a confirm step, and an 8-step setup wizard that auto-opens on
+an incomplete profile.
+
+```mermaid
+flowchart TD
+    L["app load → GET /api/profiles"] -->|"a profile is active"| SHELL["app shell — every page<br/>scoped to the active profile"]
+    L -->|"no active profile<br/>(several and none chosen, or none)"| LS["launch screen<br/>“Who's applying?”"]
+    LS -->|"pick a tile"| ACT["POST /api/profiles/activate<br/>writes applyer.local.json ·<br/>re-resolves every config path in place"]
+    LS -->|"New profile"| NEW["POST /api/profiles<br/>copy profiles/_template → name it"]
+    NEW --> ACT
+    ACT --> SHELL
+    SHELL -->|"sidebar switcher →<br/>one confirm"| ACT
+    SHELL -->|"profile has no<br/>name/email yet"| WIZ["8-step setup wizard<br/>auto-opens · dismissible · resumable<br/>(steps are data-driven — the PAT step<br/>deletes cleanly when Google auth ships)"]
+```
 
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**

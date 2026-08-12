@@ -463,10 +463,39 @@ Then launch with **`scripts\webapp.cmd`** (or `python -m server`) and open
 | Surface | What it shows / does |
 | --- | --- |
 | **Jobs** | A chat that runs **real Claude Code sessions** in this repo (Agent SDK, your existing auth). Type `/find-jobs fintech strategy` or plain English; tool calls stream in as live run-card steps. The right rail edits the watchlist (`+` calls the same `add_company` logic). |
-| **Postings** | Every baseline-passing role from the local store, with NEW tags, salary, and ATS (already-applied roles are excluded — they live on Applications). A filter card narrows by job title, location (normalized city/remote tokens, so "SF" and "San Francisco, CA" match together), years-of-experience and salary ranges, posted date, and an include-missing-data toggle. The **chevron** next to a title opens the full job description in a modal (from the store when cached, live ATS read otherwise). The **Refresh** button next to the page title runs the same board sweep as `python -m src.refresh` (spinner while running, then a scanned/new/removed summary; a second click during a run is refused). Multi-select → **Apply via Claude Code** launches a real `/apply-batch` with those URLs. The **Autonomous** toggle switches the confirm modal to the amber hands-off variant (explicit "can't be undone" warning). |
+| **Postings** | Every baseline-passing role from the local store, with NEW tags, salary, and ATS (already-applied roles are excluded — they live on Applications). A filter card narrows by job title, location (normalized city/remote tokens, so "SF" and "San Francisco, CA" match together), years-of-experience and salary ranges, posted date, and an include-missing-data toggle. A one-line **criteria banner** above the list names whose criteria scope the feed ("Showing roles matching **Siddharth's criteria** — 8,487 hidden by your criteria") with a jump to the criteria editor; when no criteria are set it says so and offers to set them. The **chevron** next to a title opens the full job description in a modal (from the store when cached, live ATS read otherwise). The **Refresh** button next to the page title runs the same board sweep as `python -m src.refresh` (spinner while running, then a scanned/new/removed summary; a second click during a run is refused). Multi-select → **Apply via Claude Code** launches a real `/apply-batch` with those URLs. The **Autonomous** toggle switches the confirm modal to the amber hands-off variant (explicit "can't be undone" warning). |
 | **Applications** | The tracker from the profile's `data/applications.json` — stat cards + status pills (`submitted` / `manual submit` / `attempted` / `parked`). |
-| **Profile** | The active profile's `profile.yaml` facts, résumé state, and `context/` knowledge base. "Edit setup" opens a 5-step onboarding that writes whitelisted facts back to the profile's YAML (comments preserved) and uploads résumé/context files into the profile — all writes go to `profiles/<id>/`, never the repo root. EEO values (the local-only `eeo.yaml`) never appear in the UI and can't be edited from it. Below the facts, a **Job criteria** card edits the profile's `criteria.yaml` (titles, locations, seniority, salary floor, YoE window, posted-within, remote) with the same comment-preserving write-back — saving re-scopes the Postings page, the digest, and `/find-jobs` immediately. |
+| **Profile** | Opens on an **active-profile header** (monogram, name, `profiles/<id>` path, created date, completeness bar) above the `profile.yaml` facts, résumé state, and `context/` knowledge base. "Edit setup" opens the **8-step setup wizard** (see below). A **Self-identification card** manages the local-only `eeo.yaml`: it shows only *which* of the five EEO questions are answered (Set / Prefer not to say / Not set) — **the values themselves are never displayed anywhere in the app** — and offers Add / Edit (a form that always starts blank) / Remove all (deletes the file after one confirm). A **Job criteria** card edits the profile's `criteria.yaml` (titles, locations, seniority, salary floor, YoE window, posted-within, remote) with comment-preserving write-back — saving re-scopes the Postings page, the digest, and `/find-jobs` immediately. A **Cloud account card** shows the local-only state (linking ships with the hosted M2 backend; the linked state — Google email, device table, offline pill — is already rendered whenever the API starts reporting it). |
 | **Connections** | Detected status of Claude Code, the job-applier MCP server, Gmail, and Linear. Status-only — authorize in Claude Code (`/mcp`) or claude.ai connector settings. |
+
+**Profiles in the UI.** The app is profile-aware end to end:
+
+- **Launch screen** — when several profiles exist and none is chosen (or none
+  exists at all), the app opens on "Who's applying?" instead of the shell:
+  one tile per profile (applications · % set up · last used) plus a **New
+  profile** tile. A lone, already-chosen profile skips straight past it.
+- **Sidebar switcher** — the avatar block shows the active profile; clicking
+  it opens a popover listing every profile on the machine, plus "New
+  profile…" and "Manage profile". Switching asks for one confirmation
+  (every page re-scopes; the other profile's data is untouched), then
+  toasts "Now applying as <name>". The switch persists to
+  `applyer.local.json` and re-scopes the backend in place; MCP servers pick
+  it up on their next start.
+- **New-profile wizard** — creating a profile copies `profiles/_template/`,
+  names it, activates it, and opens an **8-step wizard**: Welcome · Link
+  account (paste a PAT — skippable, and honest about the cloud service not
+  being live yet) · Résumé (upload + instant email/phone prefill chips +
+  an editable review grid; nothing saves until you continue) · Background &
+  voice (paste past answers, tell a story, or drop files — each lands in
+  `context/` immediately, removable per row) · Preferences (title chips,
+  **tri-state seniority chips** — tap once to include, twice to exclude —
+  locations, remote, salary floor → `criteria.yaml`) · Requirements (the
+  amber-banded hard filters: work authorization, sponsorship, relocation,
+  notice period, desired salary → profile facts) · Connections (with a
+  Gmail-address-mismatch warning when detectable) · Done (summary +
+  completeness ring). Every skippable step skips via a footer text link —
+  a skip is a valid finish. The wizard auto-opens on a profile with no
+  name/email yet, is dismissible, and resumes at the step you left.
 
 Notes:
 

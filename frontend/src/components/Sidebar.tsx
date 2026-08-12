@@ -1,5 +1,6 @@
+import { useEffect, useRef, useState } from 'react'
 import { agoHours } from '../api'
-import type { Page, Profile, Status } from '../types'
+import type { Page, Profile, ProfileSummary, Status } from '../types'
 
 const NAV: { key: Page; label: string; icon: JSX.Element }[] = [
   {
@@ -29,19 +30,32 @@ interface Props {
   setPage: (p: Page) => void
   status: Status | null
   profile: Profile | null
+  profiles: ProfileSummary[]
   newCount: number
   pendingConnections: number
   theme: 'light' | 'dark'
   setTheme: (t: 'light' | 'dark') => void
-  openOnboarding: () => void
+  onSwitchRequest: (p: ProfileSummary) => void
+  onNewProfile: () => void
 }
 
 export default function Sidebar({
-  page, setPage, status, profile, newCount, pendingConnections,
-  theme, setTheme, openOnboarding,
+  page, setPage, status, profile, profiles, newCount, pendingConnections,
+  theme, setTheme, onSwitchRequest, onNewProfile,
 }: Props) {
-  const name = profile?.facts.full_name ?? '—'
+  const name = profile?.facts.full_name?.trim() || profile?.profile_id || '—'
   const initials = name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [menuOpen])
 
   return (
     <aside style={{
@@ -129,21 +143,114 @@ export default function Sidebar({
             {' '}· {status?.new_qualifying ?? 0} new roles
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button onClick={openOnboarding} style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 9, background: 'transparent',
-            border: 'none', padding: '6px 8px', borderRadius: 9, cursor: 'pointer',
-            color: 'var(--text-3)',
-          }}>
+        <div ref={menuRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4 }}>
+          {menuOpen && (
+            <div style={{
+              position: 'absolute', bottom: 'calc(100% + 10px)', left: 0, width: 290,
+              background: 'var(--bg-card)', border: '1px solid var(--border-3)',
+              borderRadius: 14, boxShadow: '0 18px 44px rgba(0,0,0,.42)',
+              padding: 8, zIndex: 60, animation: 'fadeUp .18s ease',
+            }}>
+              <div style={{
+                fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em',
+                textTransform: 'uppercase', color: 'var(--text-5)', padding: '7px 10px 5px',
+              }}>Profiles on this machine</div>
+              {profiles.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    if (!p.active) onSwitchRequest(p)
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                    padding: '9px 10px', borderRadius: 10, border: 'none',
+                    cursor: p.active ? 'default' : 'pointer', textAlign: 'left',
+                    background: p.active ? 'var(--row-selected)' : 'transparent',
+                  }}
+                >
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%', flex: 'none',
+                    background: p.active ? 'var(--clay)' : 'var(--accent-soft)',
+                    color: p.active ? 'var(--on-clay)' : 'var(--clay-text)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 600, fontSize: 11,
+                  }}>
+                    {p.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, lineHeight: 1.25 }}>
+                    <div style={{
+                      fontSize: 13, fontWeight: 600, color: 'var(--ink)',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-4)' }}>
+                      {p.applications} application{p.applications === 1 ? '' : 's'} ·{' '}
+                      {p.resume ? 'resume synced' : `setup ${p.completeness}%`}
+                    </div>
+                  </div>
+                  {p.active && (
+                    <span style={{
+                      display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5,
+                      fontWeight: 600, color: 'var(--sage-text)', flex: 'none',
+                    }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--sage)' }} />
+                      Active
+                    </span>
+                  )}
+                </button>
+              ))}
+              <div style={{ height: 1, background: 'var(--divider)', margin: '6px 4px' }} />
+              <button
+                onClick={() => { setMenuOpen(false); onNewProfile() }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '9px 10px', borderRadius: 10, border: 'none',
+                  cursor: 'pointer', textAlign: 'left', background: 'transparent',
+                }}
+              >
+                <div style={{
+                  width: 28, height: 28, borderRadius: '50%', flex: 'none',
+                  border: '2px dashed var(--border-4)', color: 'var(--text-4)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15,
+                }}>+</div>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)' }}>New profile…</span>
+              </button>
+              <button
+                onClick={() => { setMenuOpen(false); setPage('profile') }}
+                style={{
+                  display: 'block', width: '100%', padding: '7px 10px 8px 48px',
+                  borderRadius: 10, border: 'none', cursor: 'pointer', textAlign: 'left',
+                  background: 'transparent', fontSize: 12.5, fontWeight: 600,
+                  color: 'var(--text-3)',
+                }}
+              >Manage profile</button>
+            </div>
+          )}
+          <button
+            onClick={() => setMenuOpen((o) => !o)}
+            style={{
+              flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 9,
+              background: menuOpen ? 'var(--chip)' : 'transparent',
+              border: 'none', padding: '6px 8px', borderRadius: 9, cursor: 'pointer',
+              color: 'var(--text-3)',
+            }}
+          >
             <div style={{
               width: 30, height: 30, borderRadius: '50%', background: 'var(--clay)',
               color: 'var(--on-clay)', display: 'flex', alignItems: 'center',
               justifyContent: 'center', fontWeight: 600, fontSize: 12, flex: 'none',
             }}>{initials}</div>
-            <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{name}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-4)' }}>View setup</div>
+            <div style={{ textAlign: 'left', lineHeight: 1.2, flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: 13, fontWeight: 600, color: 'var(--ink)',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}>{name}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-4)' }}>Active profile</div>
             </div>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)"
+              strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none' }}>
+              <path d={menuOpen ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'} />
+            </svg>
           </button>
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
