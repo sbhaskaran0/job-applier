@@ -7,12 +7,13 @@ counts is the Claude Code session transcript (JSONL), which records
 `message.usage` per assistant turn. This script reads that transcript, sums
 usage, attributes each turn to the posting being worked at the time (via the
 `url`/`company`/`job_title` on open_job / snapshot_job / submit_application /
-log_application tool calls), prices it at Opus 4.8 rates, and appends one JSON
-line to data/token_usage.jsonl. It also prints a compact per-run summary.
+log_application tool calls), prices it per the model each message actually
+ran on, and upserts one JSON line into the ACTIVE PROFILE's
+data/token_usage.jsonl. It also prints a compact per-run summary.
 
 Usage:
   - As a Claude Code Stop hook: receives {transcript_path, session_id} as JSON
-    on stdin. Add via .claude/settings.json (see USER_GUIDE).
+    on stdin. Wired via .claude/settings.json.
   - Manually:  python scripts/token_report.py <transcript.jsonl>
                python scripts/token_report.py --latest
 Exits 0 even on error so it never blocks a session.
@@ -22,27 +23,54 @@ import os
 import sys
 import glob
 
-# Opus 4.8 pricing, USD per 1M tokens. No long-context premium on the 1M tier.
-# (input $5 / output $25; cache write ~1.25x input; cache read ~0.1x input.)
-PRICE = {"input": 5.0, "output": 25.0, "cache_write": 6.25, "cache_read": 0.50}
+# USD per 1M tokens, keyed by model-id prefix (first match wins; order
+# matters — check longer/newer prefixes first). Cache write ~1.25x input
+# (5-min TTL); cache read ~0.1x input. No long-context premium on the 1M
+# models. Rates per Anthropic published pricing, updated 2026-08-14.
+PRICES = [
+    ("claude-fable-5",  {"input": 10.0, "output": 50.0, "cache_write": 12.50, "cache_read": 1.00}),
+    ("claude-mythos-5", {"input": 10.0, "output": 50.0, "cache_write": 12.50, "cache_read": 1.00}),
+    ("claude-opus",     {"input": 5.0,  "output": 25.0, "cache_write": 6.25,  "cache_read": 0.50}),
+    ("claude-sonnet",   {"input": 3.0,  "output": 15.0, "cache_write": 3.75,  "cache_read": 0.30}),
+    ("claude-haiku",    {"input": 1.0,  "output": 5.0,  "cache_write": 1.25,  "cache_read": 0.10}),
+]
+_DEFAULT_PRICE = PRICES[2][1]  # unknown model -> Opus-tier rates
+
+
+def _price_for(model):
+    m = (model or "").lower()
+    # session models may carry suffixes like "[1m]" — prefix match handles it
+    for prefix, price in PRICES:
+        if m.startswith(prefix):
+            return price
+    return _DEFAULT_PRICE
 
 # Tool calls that identify which posting is being worked.
 _JOB_TOOLS = ("open_job", "snapshot_job", "submit_application",
               "log_application", "tailor_resume", "read_form")
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_OUT = os.path.join(_REPO, "data", "token_usage.jsonl")
+
+
+def _out_path():
+    """The active profile's data/token_usage.jsonl (falls back to repo-level
+    data/ if the profile system can't be imported, e.g. a stripped checkout)."""
+    try:
+        sys.path.insert(0, _REPO)
+        from src import profiles
+        return str(profiles.active().data_dir / "token_usage.jsonl")
+    except Exception:
+        return os.path.join(_REPO, "data", "token_usage.jsonl")
 
 
 def _empty():
-    return {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0, "turns": 0}
+    return {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0,
+            "turns": 0, "cost": 0.0}
 
 
 def _cost(t):
-    return round(t["input"] / 1e6 * PRICE["input"]
-                 + t["output"] / 1e6 * PRICE["output"]
-                 + t["cache_write"] / 1e6 * PRICE["cache_write"]
-                 + t["cache_read"] / 1e6 * PRICE["cache_read"], 4)
+    # per-turn costs are accumulated at each message's own model rates
+    return round(t["cost"], 4)
 
 
 def _tokens(t):
@@ -126,7 +154,10 @@ def parse(path):
                 "cache_write": u.get("cache_creation_input_tokens", 0) or 0,
                 "cache_read": u.get("cache_read_input_tokens", 0) or 0,
             }
-            turns.append({"add": add, "key": key(), "label": label(), "had_job": had_job})
+            price = _price_for(msg.get("model"))
+            cost = sum(add[f] / 1e6 * price[f] for f in add)
+            turns.append({"add": add, "cost": cost, "model": msg.get("model"),
+                          "key": key(), "label": label(), "had_job": had_job})
 
     # Everything after the final job-identifying tool call is wrap-up/reporting,
     # not the last application (avoids dumping the audit + reporting tail on it).
@@ -135,6 +166,7 @@ def parse(path):
     run = _empty()
     per = {}
     labels = {}
+    models = {}
     context_peak = 0
     for i, t in enumerate(turns):
         k, lbl = t["key"], t["label"]
@@ -145,14 +177,18 @@ def parse(path):
         for f in ("input", "output", "cache_write", "cache_read"):
             run[f] += t["add"][f]
             per[k][f] += t["add"][f]
+        run["cost"] += t["cost"]
+        per[k]["cost"] += t["cost"]
         run["turns"] += 1
         per[k]["turns"] += 1
+        if t.get("model"):
+            models[t["model"]] = models.get(t["model"], 0) + 1
         # Single-request prompt size = fresh input + cache read + cache write.
         prompt = t["add"]["input"] + t["add"]["cache_read"] + t["add"]["cache_write"]
         if prompt > context_peak:
             context_peak = prompt
     run["context_peak"] = context_peak
-    return run, per, labels
+    return run, per, labels, models
 
 
 def main():
@@ -183,10 +219,11 @@ def main():
     if not path or not os.path.exists(path):
         return 0
 
-    run, per, labels = parse(path)
+    run, per, labels, models = parse(path)
     if run["turns"] == 0:
         return 0
     run_cost = _cost(run)
+    model = max(models, key=models.get) if models else "unknown"
 
     # Per-application breakdown, biggest cost first.
     apps = sorted(per.items(), key=lambda kv: _cost(kv[1]), reverse=True)
@@ -206,7 +243,7 @@ def main():
     rec = {
         "session_id": session_id or os.path.splitext(os.path.basename(path))[0],
         "transcript": os.path.basename(path),
-        "model": "claude-opus-4-8",
+        "model": model,
         "turns": run["turns"],
         "tokens": {**{k: run[k] for k in ("input", "output", "cache_write", "cache_read")},
                    "billed_throughput": _tokens(run),
@@ -217,11 +254,12 @@ def main():
     }
     # Upsert one line per session (Stop fires each turn-end; keep the latest
     # cumulative total rather than appending a snapshot every time).
+    out = _out_path()
     try:
-        os.makedirs(os.path.dirname(_OUT), exist_ok=True)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
         kept = []
-        if os.path.exists(_OUT):
-            with open(_OUT, "r", encoding="utf-8") as fh:
+        if os.path.exists(out):
+            with open(out, "r", encoding="utf-8") as fh:
                 for ln in fh:
                     ln = ln.strip()
                     if not ln:
@@ -233,7 +271,7 @@ def main():
                     if prev.get("session_id") != rec["session_id"]:
                         kept.append(prev)
         kept.append(rec)
-        with open(_OUT, "w", encoding="utf-8") as fh:
+        with open(out, "w", encoding="utf-8") as fh:
             for r in kept:
                 fh.write(json.dumps(r) + "\n")
     except Exception:
@@ -242,14 +280,14 @@ def main():
     # Compact human summary (ASCII only) to stderr.
     tk = run
     sys.stderr.write(
-        "[token_report] {turns} turns | ${cost:.2f} @ Opus 4.8\n"
+        "[token_report] {turns} turns | ${cost:.2f} @ {model}\n"
         "  billed throughput {tot:,} (mostly cache reads, re-billed each turn)\n"
         "  distinct/new      {dist:,} (cache-write {cw:,} + input {i:,} + output {o:,})\n"
         "  context peak      {peak:,} of 1,000,000 window\n"
-        "  -> data/token_usage.jsonl\n".format(
-            turns=tk["turns"], cost=run_cost, tot=_tokens(tk), dist=distinct,
-            cw=tk["cache_write"], i=tk["input"], o=tk["output"],
-            peak=tk["context_peak"]))
+        "  -> {out}\n".format(
+            turns=tk["turns"], cost=run_cost, model=model, tot=_tokens(tk),
+            dist=distinct, cw=tk["cache_write"], i=tk["input"], o=tk["output"],
+            peak=tk["context_peak"], out=out))
     for a in breakdown[:8]:
         sys.stderr.write("  ${c:>6.2f}  {tks:>8,} tok  {lbl}\n".format(
             c=a["cost_usd"], tks=a["total_tokens"], lbl=a["label"][:52]))

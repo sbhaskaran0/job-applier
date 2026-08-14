@@ -499,6 +499,17 @@ Then launch with **`scripts\webapp.cmd`** (or `python -m server`) and open
 
 Notes:
 
+- **Report a bug** — the bug icon next to the sidebar theme toggle opens a
+  small modal; reports append to the local `data/bug-reports.jsonl`
+  (timestamp, profile, page, text, `status: open`). Nothing leaves the
+  machine — the nightly dev-loop agent reads the file and triages reports
+  into Linear stories. `GET /api/bug-reports` lists them.
+- **Token accounting** — a Claude Code `Stop` hook (`.claude/settings.json` →
+  `scripts/token_report.py`) prices every session in this repo from its
+  transcript (per the model each message ran on) and upserts one line per
+  session into the active profile's `data/token_usage.jsonl`; web-chat turns
+  additionally append SDK-reported `source: webchat` records. This feeds the
+  dev-loop's cost metric.
 - The chat session runs with the same trust as a terminal session in this
   repo (`bypassPermissions` inside the project). Approval gates are
   **conversational** — the skills still pause and ask before submitting, and

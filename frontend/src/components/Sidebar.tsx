@@ -37,11 +37,12 @@ interface Props {
   setTheme: (t: 'light' | 'dark') => void
   onSwitchRequest: (p: ProfileSummary) => void
   onNewProfile: () => void
+  onReportBug: () => void
 }
 
 export default function Sidebar({
   page, setPage, status, profile, profiles, newCount, pendingConnections,
-  theme, setTheme, onSwitchRequest, onNewProfile,
+  theme, setTheme, onSwitchRequest, onNewProfile, onReportBug,
 }: Props) {
   const name = profile?.facts.full_name?.trim() || profile?.profile_id || '—'
   const initials = name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
@@ -250,6 +251,22 @@ export default function Sidebar({
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)"
               strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none' }}>
               <path d={menuOpen ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'} />
+            </svg>
+          </button>
+          <button
+            onClick={onReportBug}
+            title="Report a bug"
+            style={{
+              background: 'transparent', border: '1px solid var(--border-2)',
+              borderRadius: 9, width: 30, height: 30, cursor: 'pointer',
+              color: 'var(--text-4)', flex: 'none', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="8" y="6" width="8" height="12" rx="4" />
+              <path d="M10 6a2 2 0 0 1 4 0M3 13h5m8 0h5M5 6l3 2m11-2-3 2M5 20l3-2m11 2-3-2" />
             </svg>
           </button>
           <button

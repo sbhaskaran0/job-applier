@@ -15,6 +15,7 @@ import ApplicationsPage from './components/ApplicationsPage'
 import ProfilePage from './components/ProfilePage'
 import ConnectionsPage from './components/ConnectionsPage'
 import ApplyModal from './components/ApplyModal'
+import BugReportModal from './components/BugReportModal'
 import Onboarding from './components/Onboarding'
 import LaunchScreen from './components/LaunchScreen'
 import { NewProfileModal, SwitchConfirmModal } from './components/ProfileModals'
@@ -51,6 +52,7 @@ export default function App() {
   const [profilesLoaded, setProfilesLoaded] = useState(false)
   const [switchTarget, setSwitchTarget] = useState<ProfileSummary | null>(null)
   const [newProfileOpen, setNewProfileOpen] = useState(false)
+  const [bugModalOpen, setBugModalOpen] = useState(false)
   const [toast, setToast] = useState('')
   const toastTimer = useRef<number | undefined>(undefined)
   const autoOpenedFor = useRef<Set<string>>(new Set())
@@ -207,6 +209,7 @@ export default function App() {
         theme={theme} setTheme={setTheme}
         onSwitchRequest={setSwitchTarget}
         onNewProfile={() => setNewProfileOpen(true)}
+        onReportBug={() => setBugModalOpen(true)}
       />
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {page === 'chat' && (
@@ -261,6 +264,13 @@ export default function App() {
       )}
       {newProfileOpen && (
         <NewProfileModal onCancel={() => setNewProfileOpen(false)} onCreate={onCreateProfile} />
+      )}
+      {bugModalOpen && (
+        <BugReportModal
+          page={page}
+          onCancel={() => setBugModalOpen(false)}
+          onSent={() => { setBugModalOpen(false); showToast('Thanks — bug logged for the next improvement run') }}
+        />
       )}
       {toast && (
         <div style={{

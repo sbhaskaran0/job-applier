@@ -365,7 +365,26 @@ Claude Code.
 The UI is **profile-aware end to end** (the design handoff's profile-system
 round-trip): a launch screen when no profile is active, a sidebar profile
 switcher with a confirm step, and an 8-step setup wizard that auto-opens on
-an incomplete profile.
+an incomplete profile. A **Report bug** button in the sidebar logs issues to
+a local `data/bug-reports.jsonl` for the nightly improvement loop to triage.
+
+## Metrics instrumentation (feeds the autonomous dev loop)
+
+The app records the health signals a daily improvement agent (the external
+**dev-loop** repo) evaluates each morning. All of it is local and passive:
+
+```mermaid
+flowchart LR
+    RF["python -m src.refresh<br/>(daily 09:00)"] --> RR[("refresh_runs<br/>+ new_qualifying ·<br/>new_title_matched (v3)")]
+    RR --> YH["store.yield_history(days)<br/>per-day sourcing yield"]
+    UI["Applyer UI<br/>Report bug button"] --> BR[("data/bug-reports.jsonl<br/>ts · profile · page · status")]
+    CC["any Claude Code session<br/>in this repo"] -- "Stop hook<br/>scripts/token_report.py" --> TU[("profiles/&lt;id&gt;/data/<br/>token_usage.jsonl<br/>per-session cost @ real model rates")]
+    WS["webapp chat turns<br/>(Agent SDK ResultMessage)"] --> TU
+    APPS[("applications.json<br/>(submits — success ledger)")] --> LOOP
+    YH --> LOOP["dev-loop repo:<br/>morning evaluation →<br/>Linear stories → PRs"]
+    BR --> LOOP
+    TU --> LOOP
+```
 
 ```mermaid
 flowchart TD

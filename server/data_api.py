@@ -647,6 +647,52 @@ def context_delete(name: str):
 
 
 # --------------------------------------------------------------------------- #
+# bug reports — append-only JSONL the daily dev-loop agent triages. Repo-level
+# data/ (not per-profile): bugs are about the app, not the person applying.
+# --------------------------------------------------------------------------- #
+class BugReport(BaseModel):
+    text: str
+    page: str = ""
+
+
+@router.post("/bug-report")
+def bug_report(body: BugReport):
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "nothing to report")
+    try:
+        profile_id = profiles_mod.active().profile_id
+    except Exception:
+        profile_id = None
+    rec = {
+        "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "profile": profile_id,
+        "page": body.page.strip()[:40],
+        "text": text[:4000],
+        "status": "open",
+    }
+    path = config.DATA_DIR / "bug-reports.jsonl"
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return {"saved": True}
+
+
+@router.get("/bug-reports")
+def bug_reports():
+    path = config.DATA_DIR / "bug-reports.jsonl"
+    if not path.exists():
+        return {"reports": []}
+    reports = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            try:
+                reports.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # a torn/corrupt line must not hide the rest
+    return {"reports": reports}
+
+
+# --------------------------------------------------------------------------- #
 # connections (status display; authorization itself happens in Claude Code)
 # --------------------------------------------------------------------------- #
 def _claude_cli_available() -> bool:

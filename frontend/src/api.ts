@@ -54,6 +54,10 @@ export const fetchAccount = () => get<AccountStatus>('/api/account')
 export const verifyToken = (token: string) =>
   send<TokenVerifyResult>('/api/account/verify', 'POST', { token })
 
+/* bug reports — local JSONL the daily dev-loop agent triages */
+export const reportBug = (text: string, page: string) =>
+  send<{ saved: boolean }>('/api/bug-report', 'POST', { text, page })
+
 /* knowledge base paste + remove (wizard step 4) */
 export const pasteContext = (text: string, kind: 'pasted' | 'story', title = '') =>
   send<{ saved: string; context_files: ContextFile[] }>(

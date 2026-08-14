@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-08-11.
+per-session narrative lives in `git log` + Linear. Last updated 2026-08-14.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -194,6 +194,28 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-08-14 session (dev-loop instrumentation, branch `feat/profile-system-m1`):**
+  Building the **autonomous daily dev loop** (external sibling repo
+  `c:\Users\siddh\dev-loop` — evaluates app metrics each morning at 09:30,
+  files Linear stories, later executes them via parallel `claude -p` lanes in
+  worktrees; plan in `~/.claude/plans/read-the-readme-and-fuzzy-kernighan.md`).
+  In-repo instrumentation landed this session: **(1) chat resilience fix
+  committed** (the 2026-08-11 uncommitted wedge fix: concurrent WS/turn tasks,
+  session-fatal transport errors + `restarting` protocol, 32 MiB SDK buffer);
+  **(2) yield persistence** — store schema v3 (`refresh_runs` gains
+  `new_qualifying`/`new_title_matched`, previously computed for the digest and
+  discarded) + `store.yield_history(days)`; verified on a real refresh (18 new
+  / 1 qualifying / 3 title-matched); **(3) Report-bug button** — sidebar icon →
+  modal → `POST /api/bug-report` appends to gitignored `data/bug-reports.jsonl`
+  (ts/profile/page/status), `GET /api/bug-reports` lists (TestClient-verified;
+  the live server needs a restart to serve it — JOB-59); **(4) token accounting
+  wired** — `.claude/settings.json` Stop hook → `scripts/token_report.py`
+  (now model-aware pricing per message incl. Fable 5, profile-aware output
+  path `profiles/<id>/data/token_usage.jsonl`), plus `server/chat.py`
+  `_log_usage` appends SDK `ResultMessage.usage`/`total_cost_usd` as
+  `source: webchat` records (readers prefer hook records, dedupe by
+  session_id). **Branch pushed, PR #7 open** (merge left to the user —
+  includes profile-system M1 + UI + these commits).
 - **2026-08-11 (same session, post-restart):** Claude Code restarted → the
   34-tool profile-aware MCP server is live (`get_profile_paths` resolves
   `profiles/siddharth`). Word-locked `resumes/` leftovers deleted (contents
@@ -315,8 +337,11 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   upload). Ground truth in `data/applications.json`.
 
 ## Open items / next steps
-1. **Push `feat/profile-system-m1` + PR to `main`** (now 4 commits incl. the
-   profile-system UI) — done and verified but local-only.
+1. ~~Push `feat/profile-system-m1` + PR~~ — **pushed 2026-08-14, PR #7 open**
+   (profile-system M1 + UI + chat resilience + dev-loop instrumentation).
+   **Merge is yours to click.**
+1b. **Restart the webapp server** after merging/pulling so `/api/bug-report`
+   and the chat usage capture go live (JOB-59 stale-server gotcha).
 2. ~~Profile-UI design round-trip~~ — **closed 2026-08-11**: design returned
    and implemented (see the session entry). Remaining UI gaps that need new
    backend: agent-session résumé/story extraction states, stories loop

@@ -36,13 +36,15 @@ Two structural rules, both learned from a real wedge (2026-08-11):
 """
 
 import asyncio
+import json
 import shutil
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from src import config
+from src import config, profiles
 
 TOOL_PREFIX = "mcp__job-applier__"
 
@@ -80,6 +82,29 @@ def find_cli() -> str | None:
         return None
     # Highest version-ish path wins (lexicographic on the version dir name)
     return str(sorted(candidates, key=lambda p: p.parent.as_posix())[-1])
+def _log_usage(result) -> None:
+    """Append the SDK-reported usage/cost for one web-chat turn to the active
+    profile's token_usage.jsonl (dev-loop cost metric). Tagged source=webchat:
+    the repo's Stop hook (token_report.py) also fires for SDK-spawned sessions
+    and upserts a per-session total keyed by the same session_id, so readers
+    should prefer hook records and use these only for uncovered sessions.
+    Best-effort — accounting must never break a chat turn."""
+    try:
+        rec = {
+            "session_id": getattr(result, "session_id", None),
+            "source": "webchat",
+            "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "turns": 1,
+            "usage": getattr(result, "usage", None),
+            "cost_usd": getattr(result, "total_cost_usd", None),
+        }
+        out = profiles.active().data_dir / "token_usage.jsonl"
+        with out.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, default=str) + "\n")
+    except Exception:
+        pass
+
+
 _DETAIL_KEYS = ("url", "label", "question", "company", "query", "skill", "path",
                 "file_path", "command")
 
@@ -149,6 +174,7 @@ async def chat_session(ws: WebSocket) -> None:
                             await send(_tool_step(block.name, block.input))
                 elif isinstance(message, ResultMessage):
                     got_result = True
+                    _log_usage(message)
                     await send({
                         "type": "done",
                         "ok": not message.is_error,
