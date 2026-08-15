@@ -240,9 +240,11 @@ def main():
     #                       this is the "how big was the session" number.
     #   context_peak      = largest single request; compare to the 1M window.
     distinct = run["cache_write"] + run["input"] + run["output"]
+    import datetime
     rec = {
         "session_id": session_id or os.path.splitext(os.path.basename(path))[0],
         "transcript": os.path.basename(path),
+        "updated_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
         "model": model,
         "turns": run["turns"],
         "tokens": {**{k: run[k] for k in ("input", "output", "cache_write", "cache_read")},
