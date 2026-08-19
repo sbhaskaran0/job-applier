@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-07-20.
+per-session narrative lives in `git log` + Linear. Last updated 2026-08-19.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -85,7 +85,13 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `list_postings_from_store` (union locations, most-flexible work mode).
   `posting_description(url)` serves the Applyer JD modal. Also the discovery
   `candidate_boards` ledger (PK `(source, source_key)`) + `count_board_baseline`
-  / `load_candidates` / `upsert_candidate`.
+  / `load_candidates` / `upsert_candidate`. Schema v3/v4 (2026-08-19, JOB-59):
+  `refresh_runs` gained `new_qualifying`/`new_title_matched` (raw, v3) and
+  `new_qualifying_roles`/`new_title_matched_roles` (distinct-role, v4) columns
+  + `yield_history(days)` to read them back per-day; `_role_key()` (company +
+  lowercased title) is now the single dedupe identity shared by
+  `list_postings_from_store`, `count_board_baseline`, and `yield_stats`, all of
+  which count distinct roles rather than raw city-variant rows.
 - `src/providers/locations.py` (JOB-55) — deterministic location normalization:
   raw ATS location strings → canonical city/remote tokens + work_mode
   (regex canonicalization + curated `location_aliases.yaml`; observations
@@ -160,6 +166,25 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-08-19 dev-loop run (JOB-59):** the autonomous dev loop's lane-1 fixed
+  a sourcing-yield miscount — `yield_stats`, `count_board_baseline`, and the
+  digest's per-company table were counting raw posting rows, so a role
+  cross-posted to several cities inflated every number (Brex's "BizOps Senior
+  Manager (Technical)" alone occupied 6 rows across 6 cities). All three now
+  count **distinct roles** (company + lowercased title, via a shared
+  `_role_key()`), filtering first and collapsing second so a role that only
+  qualifies in one of its cities still counts — 236 qualifying vs 260 raw on
+  the 2026-08-19 corpus. `refresh_runs` also gained `new_qualifying_roles`/
+  `new_title_matched_roles` (schema v4) alongside the existing raw
+  `new_qualifying`/`new_title_matched` (schema v3, brought in as a
+  prerequisite — this branch was cut before that work landed on `main`) plus
+  a `yield_history(days)` reader; both raw and deduped counts are kept so the
+  discontinuity is visible rather than silent. `list_postings_from_store`'s
+  output is unchanged (verified byte-identical). The digest footnote now
+  flags that its "Yield per company" table won't sum against the "New
+  postings" list above it, since the latter still lists every city variant
+  separately. `yield_history()` has no caller yet (plumbing only, no UI/route
+  change this run).
 - **2026-07-20 session (JOB-58/59, landed JOB-55):** committed the pending
   webapp tree — **JOB-55 postings UX** (postings filter card: title/location/
   YoE/salary/posted-date/include-missing; JD modal via `/api/posting`;
