@@ -121,6 +121,21 @@ def load_location_aliases() -> dict:
     return {str(k).lower(): str(v) for k, v in (data.get("aliases") or {}).items()}
 
 
+def load_foreign_scope() -> dict:
+    """Load the `foreign_scope` block of location_aliases.yaml →
+    {"metros": {country: [lowercased metro, ...]}}. The curated metro
+    vocabulary behind the remote-scope check (JOB-123); keyed by country so
+    allowing a country also stops its metros counting as foreign. Additive to
+    the alias map above, which it deliberately leaves alone."""
+    if not LOCATION_ALIASES_PATH.exists():
+        return {"metros": {}}
+    with open(LOCATION_ALIASES_PATH, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    scope = data.get("foreign_scope") or {}
+    return {"metros": {str(country): [str(m).lower() for m in (metros or [])]
+                       for country, metros in (scope.get("metros") or {}).items()}}
+
+
 def load_search_criteria() -> dict:
     """Load job_criteria.yaml (search defaults + the strict baseline bar)."""
     if not JOB_CRITERIA_PATH.exists():
