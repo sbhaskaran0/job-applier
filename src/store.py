@@ -295,12 +295,33 @@ def _title_matches(title: str, keywords: list[str] | None) -> bool:
 
 
 def _location_ok(row: dict, baseline: dict) -> bool:
-    if row.get("remote") and baseline.get("remote_allowed", True):
-        return True
+    return not _location_reason(row, baseline)
+
+
+def _location_reason(row: dict, baseline: dict) -> str:
+    """Empty when the row's location is workable, else the failure reason.
+
+    A remote row is workable unless it is positively scoped to a country the
+    user cannot work from (JOB-123): "Remote - India" and "Canada - Remote (ON,
+    AB, BC, or NS Only)" are remote, but not remote *for this user*. The check
+    lives in providers/locations (it owns the location vocabulary) and is a
+    DENY-list — it needs positive foreign evidence AND no allowed signal, so
+    bare "Remote", empty, and anything unparseable keep passing.
+
+    Which countries count as allowed is the baseline's optional
+    `allowed_countries` knob; when absent it derives to the US plus any country
+    named in locations_allowed / relocation_targets. Non-remote rows are
+    untouched: they still take the locations_allowed substring match.
+    """
     allowed = ((baseline.get("locations_allowed") or [])
                + (baseline.get("relocation_targets") or []))
+    if row.get("remote") and baseline.get("remote_allowed", True):
+        if locations.foreign_scope(row.get("location") or "",
+                                   baseline.get("allowed_countries"), allowed):
+            return "location:foreign_remote"
+        return ""
     loc = (row.get("location") or "").lower()
-    return any(a.lower() in loc for a in allowed)
+    return "" if any(a.lower() in loc for a in allowed) else "location"
 
 
 def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
@@ -310,8 +331,9 @@ def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
         return False, "title"
     if row.get("seniority_flag"):
         return False, f"seniority:{row['seniority_flag']}"
-    if not _location_ok(row, baseline):
-        return False, "location"
+    why = _location_reason(row, baseline)
+    if why:
+        return False, why
     floor = baseline.get("salary_floor")
     if floor and row.get("salary_max") is not None and row["salary_max"] < floor:
         return False, "salary_below_floor"
@@ -359,9 +381,13 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
     by_key: dict[tuple, dict] = {}
     light: list[dict] = []
     dropped_years = 0
+    failed_baseline = 0
+    hidden_by_reason: dict[str, int] = {}
     for r in rows:
         ok, _why = passes_baseline(r, baseline)
         if not ok:
+            failed_baseline += 1
+            hidden_by_reason[_why] = hidden_by_reason.get(_why, 0) + 1
             continue
         if max_years and r.get("min_years") and r["min_years"] > max_years:
             dropped_years += 1
@@ -404,6 +430,10 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         "postings": light, "source": "store",
         "last_refresh": run_at,
         "total_scanned": len(rows), "matched": matched, "returned": len(light),
+        # hidden_by_criteria is the total; hidden_by_reason breaks it down by
+        # passes_baseline reason (JOB-123) and sums to it.
+        "hidden_by_criteria": failed_baseline,
+        "hidden_by_reason": hidden_by_reason,
         "dropped_over_max_years": dropped_years,
         "companies_failed": json.loads(run["companies_failed"]) if run else [],
     }
