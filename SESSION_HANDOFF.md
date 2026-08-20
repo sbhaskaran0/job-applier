@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-07-20.
+per-session narrative lives in `git log` + Linear. Last updated 2026-08-20.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -90,7 +90,13 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   raw ATS location strings → canonical city/remote tokens + work_mode
   (regex canonicalization + curated `location_aliases.yaml`; observations
   logged to the store for later curation). No LLM, same philosophy as
-  `extract.py`.
+  `extract.py`. `foreign_scope()` (JOB-123): a remote row still fails the
+  baseline if it's positively scoped to a country the user can't work from
+  ("Remote - India", "Canada - Remote (ON, AB, BC, or NS Only)"). Deny-list on
+  the RAW string (not the lossy `normalize()` output), fails open on anything
+  ambiguous or unparseable. Allowed countries derive from the baseline's
+  optional `allowed_countries` knob, else US + whatever `locations_allowed`/
+  `relocation_targets` already name — no profile edit needed.
 - `src/providers/watchlist.py` — fetch/normalize boards (incl. `job_id`+`slug`),
   live `list_postings`, `get_posting(s)`, `add_company`, `detect_ats_slug`,
   `_FETCHERS` (reused by discovery to probe candidate boards).
@@ -160,6 +166,17 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-08-20 dev-loop run (JOB-123):** fixed the baseline's remote-location
+  check — `_location_ok` short-circuited on `row["remote"]`, so foreign-scoped
+  remote roles ("Remote - India", "Canada - Remote (ON, AB, BC, or NS Only)",
+  "United Kingdom (Remote)") were entering the qualifying corpus. Added
+  `locations.foreign_scope()` (deny-list over the raw location string, fails
+  open) + `config.load_foreign_scope()` + a curated `foreign_scope.metros`
+  block in `location_aliases.yaml`; `_location_reason()` now returns
+  `"location:foreign_remote"` for these, and `list_postings_from_store`
+  reports `hidden_by_reason` alongside `hidden_by_criteria`. Standalone AC
+  suite in `tests/test_location_scope.py`. Run via the dev-loop orchestrator
+  (single lane); merged to this branch, no profile/doc surface changed.
 - **2026-07-20 session (JOB-58/59, landed JOB-55):** committed the pending
   webapp tree — **JOB-55 postings UX** (postings filter card: title/location/
   YoE/salary/posted-date/include-missing; JD modal via `/api/posting`;
