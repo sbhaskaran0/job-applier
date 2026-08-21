@@ -143,6 +143,23 @@ mass-deletes), and regenerates **`data/digest-latest.md`**:
   (stale slug → fix or drop).
 - **Yield per company** — active / title-matched / qualifying counts, the
   evidence for deciding which boards earn their watchlist slot.
+- **Company concentration** — total / distinct companies / top-5 share, for
+  both the qualifying corpus (deduped by role, not raw per-city rows) and the
+  application log (every logged record, submitted or manual) — answers "are
+  we fishing in one pond?" without a hand count.
+
+**Auditing the title gate:** it's by far the largest filter — on a full store
+it discards most active rows, and none of that used to be reviewable.
+`python -m src.refresh --near-misses` (or standalone, `python
+scripts/near_misses.py`) re-runs the individual predicates read-only and
+writes **`data/near-misses-latest.md`**: postings that fail the title gate
+*alone* (seniority, location and salary floor all pass), split into
+non-contiguous phrase hits ("Product Marketing Manager" vs the configured
+phrase "Product Manager" — actionable, a word-order miss) and generic
+single-token hits (shares a token, matches no whole phrase — mostly noise,
+but shows which tokens are too generic to widen on). Grouped by company and by
+matched token/phrase, each capped at 8 example titles with the remainder
+stated explicitly.
 
 **Schedule it daily** so the digest is waiting for you:
 
@@ -592,8 +609,10 @@ Job Applier/
 ├─ data/applications.json        # application tracker (verified submits)
 ├─ data/postings.db              # local postings store (gitignored cache; §5)
 ├─ data/digest-latest.md         # refresh digest (gitignored, regenerated)
+├─ data/near-misses-latest.md    # title-gate audit report (gitignored, regenerated; §5)
 ├─ data/prep/                    # batch-mode prep files/sheets (gitignored)
 ├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows)
+├─ scripts/near_misses.py        # title-gate near-miss audit (python scripts/near_misses.py; §5)
 ├─ scripts/webapp.cmd            # launch the Applyer web wrapper (§7b)
 ├─ server/                       # FastAPI backend: /api/* + /ws/chat (Agent SDK bridge)
 ├─ frontend/                     # Applyer React SPA (Vite + TS; npm run build → dist/)

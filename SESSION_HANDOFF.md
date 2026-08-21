@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-07-20.
+per-session narrative lives in `git log` + Linear. Last updated 2026-08-21.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -160,6 +160,21 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-08-21 dev-loop run (JOB-113, JOB-115):** `store.company_spread()`
+  adds company-concentration stats (total / distinct companies / top-5 share)
+  to `data/digest-latest.md`, for both the qualifying corpus (deduped by
+  (company, title), not raw per-city rows) and the application log (every
+  logged record, submitted or manual) — answers "are we fishing in one pond?"
+  without a hand count. Purely additive; `passes_baseline`/yield_stats
+  untouched. New `scripts/near_misses.py` (`python -m src.refresh
+  --near-misses` or standalone) audits what the title gate — the largest
+  filter in the deterministic baseline — silently discards: re-runs the
+  predicates read-only and reports postings that fail on title *alone*, split
+  into actionable non-contiguous-phrase hits and noisy generic-token hits,
+  written to gitignored `data/near-misses-latest.md`. Both landed via the
+  autonomous dev-loop pipeline (`loop/2026-08-21/lane-1`); no `src/config.py`
+  schema bump, deliberately, to avoid colliding with the unmerged
+  `feat/profile-system-m1` branch's `user_version 3`.
 - **2026-07-20 session (JOB-58/59, landed JOB-55):** committed the pending
   webapp tree — **JOB-55 postings UX** (postings filter card: title/location/
   YoE/salary/posted-date/include-missing; JD modal via `/api/posting`;
