@@ -1,6 +1,6 @@
 import type {
-  ApplicationRecord, Connection, Criteria, Posting, PostingDetail, Profile,
-  Status, WatchlistCompany,
+  ApplicationRecord, ApplicationStats, Connection, Criteria, Posting,
+  PostingDetail, Profile, Status, WatchlistCompany,
 } from './types'
 
 async function get<T>(path: string): Promise<T> {
@@ -9,15 +9,32 @@ async function get<T>(path: string): Promise<T> {
   return r.json()
 }
 
+async function send<T>(path: string, method: string, body: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error((await r.json()).detail ?? `${path}: ${r.status}`)
+  return r.json()
+}
+
 export const fetchStatus = () => get<Status>('/api/status')
 export const fetchPostings = () =>
   get<{ postings: Posting[]; last_refresh: string | null; note?: string }>('/api/postings')
+// `stats` stays optional so callers that only want the array keep typechecking.
 export const fetchApplications = () =>
-  get<{ applications: ApplicationRecord[] }>('/api/applications')
+  get<{ applications: ApplicationRecord[]; stats?: ApplicationStats }>('/api/applications')
 export const fetchProfile = () => get<Profile>('/api/profile')
 export const fetchWatchlist = () => get<{ companies: WatchlistCompany[] }>('/api/watchlist')
 export const fetchConnections = () =>
   get<{ connections: Connection[]; note: string }>('/api/connections')
+
+// Records the company's response on one application (JOB-107). `key` is the
+// opaque identity the GET stamps on each row — never construct one client-side.
+export const setApplicationOutcome = (key: string, outcome: string, outcome_date = '') =>
+  send<{ application: ApplicationRecord; stats: ApplicationStats }>(
+    '/api/applications/outcome', 'POST', { key, outcome, outcome_date })
 
 export async function addWatchlistCompany(url: string) {
   const r = await fetch('/api/watchlist', {

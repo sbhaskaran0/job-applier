@@ -302,6 +302,13 @@ def log_application_record(company: str = "", job_title: str = "", url: str = ""
     for a in applications:
         if _application_key(a.get("company", ""), a.get("job_title", ""),
                             a.get("url", "")) == key:
+            # Mutate the matched record in place; never rebuild it as a fresh
+            # dict. The submit vocabulary (`status`) and the reply vocabulary
+            # (`outcome`/`outcome_date`, JOB-107) are orthogonal and are written
+            # by different actors: an apply run re-logging an already-tracked
+            # job knows nothing about the outcome a human recorded later. A
+            # dict-replacement here would silently erase that reply — and with
+            # it the response-rate numerator — every time a retry re-logged.
             a["status"] = status
             a["date"] = date.today().isoformat()
             if fields:
@@ -313,3 +320,121 @@ def log_application_record(company: str = "", job_title: str = "", url: str = ""
                          "fields": fields or []})
     config.save_applications(applications)
     return {"status": "added", "applications_count": len(applications)}
+
+
+# --------------------------------------------------------------------------- #
+# application outcomes (JOB-107)
+# --------------------------------------------------------------------------- #
+# `status` records whether WE finished the form; `outcome` records whether the
+# company ever came back. The two are orthogonal on purpose — a flawless submit
+# that is never answered is still a zero. Both keys are purely additive: a
+# record written before this existed has no `outcome` key and every reader below
+# defaults it to "none", so there is no migration and no schema version.
+APPLICATION_OUTCOMES = ("none", "rejected", "screen", "interview", "offer",
+                        "ghosted")
+
+# "Did they respond at all?" — a rejection IS a response (they read it and
+# decided); "ghosted" is an explicit human note that silence has gone on long
+# enough to call, and stays a non-response.
+_RESPONDED_OUTCOMES = frozenset(APPLICATION_OUTCOMES) - {"none", "ghosted"}
+
+# The response-rate denominator: statuses meaning a form we actually completed.
+# "attempted"/"parked" applications were never delivered, so counting them would
+# depress the rate with jobs no employer ever saw.
+SUBMITTED_STATUSES = ("submitted", "manual_submission")
+
+
+def set_application_outcome(company: str = "", job_title: str = "", url: str = "",
+                            outcome: str = "none", outcome_date: str = "") -> dict:
+    """Record the company's response on one application record (JOB-107).
+
+    The target is resolved with `_application_key` — the SAME dedupe identity
+    the apply path logs under — so an outcome set from the UI lands on the very
+    record a later re-log will update, and the two can never drift apart.
+
+    `outcome_date` defaults to today for any real outcome; setting the outcome
+    back to "none" blanks it, because a date with no outcome is a lie about when
+    something happened. Returns {"status": "updated"|"not_found"|"invalid"} plus
+    the stored record on success so a caller can echo it without re-reading."""
+    outcome = (outcome or "none").strip().lower()
+    if outcome not in APPLICATION_OUTCOMES:
+        return {"status": "invalid",
+                "reason": f"outcome must be one of {list(APPLICATION_OUTCOMES)}",
+                "outcome": outcome}
+    applications = config.load_applications()
+    key = _application_key(company, job_title, url)
+    for a in applications:
+        if not isinstance(a, dict):
+            continue
+        if _application_key(a.get("company", ""), a.get("job_title", ""),
+                            a.get("url", "")) == key:
+            a["outcome"] = outcome
+            a["outcome_date"] = ("" if outcome == "none"
+                                 else (outcome_date or "").strip()
+                                 or date.today().isoformat())
+            config.save_applications(applications)
+            return {"status": "updated", "application": dict(a),
+                    "applications_count": len(applications)}
+    return {"status": "not_found", "company": company, "job_title": job_title,
+            "applications_count": len(applications)}
+
+
+def application_outcome_stats(applications: list | None = None) -> dict:
+    """Response rate as a number, not a vibe (JOB-107).
+
+    Pure and side-effect free: pass a list of records already parsed elsewhere
+    (an external metric collector reading data/applications.json directly does
+    exactly that — no profile resolution, no filesystem access), or pass nothing
+    and the active profile's log is loaded. The records handed in are never
+    mutated; defaults are applied to local copies of the values only.
+
+    Denominator choice, stated once here so every surface agrees: `submitted`
+    counts records whose `status` is in SUBMITTED_STATUSES — a form we actually
+    completed. `attempted`/`parked` records never reached an employer, so they
+    cannot fairly count against us. `responded` counts every record whose
+    outcome is a real reply (see _RESPONDED_OUTCOMES); it is deliberately NOT
+    filtered to submitted records, because a reply is evidence the employer saw
+    the application whatever we recorded about the submit.
+
+    `response_rate` is `responded / submitted` rounded to 4 places, and is 0.0
+    — never None, never a ZeroDivisionError — when nothing has been submitted.
+    0.0 is an honest answer and callers must render it as one. Junk is tolerated
+    rather than raised on: non-dict entries are skipped, a missing status is not
+    a submit, and an unrecognized outcome counts under "none" rather than
+    inventing a bucket that would quietly widen the vocabulary."""
+    if applications is None:
+        applications = config.load_applications()
+
+    def _empty_outcomes() -> dict:
+        return {o: 0 for o in APPLICATION_OUTCOMES}
+
+    by_outcome = _empty_outcomes()
+    by_company: dict[str, dict] = {}
+    total = submitted = responded = 0
+    for a in applications or []:
+        if not isinstance(a, dict):
+            continue
+        total += 1
+        outcome = str(a.get("outcome") or "none").strip().lower()
+        if outcome not in by_outcome:
+            outcome = "none"
+        by_outcome[outcome] += 1
+        company = str(a.get("company") or "").strip() or "(unknown)"
+        row = by_company.setdefault(company, {"submitted": 0, "responded": 0,
+                                              "by_outcome": _empty_outcomes()})
+        row["by_outcome"][outcome] += 1
+        if str(a.get("status") or "") in SUBMITTED_STATUSES:
+            submitted += 1
+            row["submitted"] += 1
+        if outcome in _RESPONDED_OUTCOMES:
+            responded += 1
+            row["responded"] += 1
+
+    return {
+        "total": total,
+        "submitted": submitted,
+        "responded": responded,
+        "response_rate": round(responded / submitted, 4) if submitted else 0.0,
+        "by_outcome": by_outcome,
+        "by_company": by_company,
+    }
