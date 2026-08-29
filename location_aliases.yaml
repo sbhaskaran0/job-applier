@@ -42,3 +42,100 @@ aliases:
   tbd: ""
   anywhere: ""
   flexible: ""
+
+# Curated metros OUTSIDE the countries the user can work in (JOB-123), grouped
+# by the country they belong to. Used only by the remote-scope deny-list in
+# src/providers/locations.foreign_scope: a REMOTE posting is dropped when its
+# raw location string carries one of these (or a non-allowed country / remote
+# scope) and NO allowed signal. Cities that also exist in the US (Dublin,
+# Berlin, Paris, Vienna) are safe here because a US listing carries a state
+# qualifier (", CA", "Ohio") that wins first.
+#
+# The grouping is what makes the baseline's optional `allowed_countries` knob
+# (job_criteria.yaml -> baseline) work in both directions: allow "Canada" and
+# the Canadian metros below stop counting as foreign. When the knob is absent
+# it derives to the US plus any country already named in locations_allowed /
+# relocation_targets.
+
+foreign_scope:
+  metros:
+    Canada:
+      - toronto
+      - vancouver
+      - montreal
+      - ottawa
+    United Kingdom:
+      - london
+    France:
+      - paris
+    Germany:
+      - berlin
+      - munich
+    Netherlands:
+      - amsterdam
+    Ireland:
+      - dublin
+    Spain:
+      - madrid
+      - barcelona
+    Portugal:
+      - lisbon
+    Switzerland:
+      - zurich
+    Sweden:
+      - stockholm
+    Denmark:
+      - copenhagen
+    Norway:
+      - oslo
+    Finland:
+      - helsinki
+    Poland:
+      - warsaw
+    Czechia:
+      - prague
+    Austria:
+      - vienna
+    Italy:
+      - milan
+      - rome
+    Israel:
+      - tel aviv
+    United Arab Emirates:
+      - dubai
+    India:
+      - bengaluru
+      - bangalore
+      - mumbai
+      - delhi
+      - hyderabad
+    Singapore:
+      - singapore
+    Japan:
+      - tokyo
+    South Korea:
+      - seoul
+    China:
+      - shanghai
+      - beijing
+    Hong Kong:
+      - hong kong
+    Taiwan:
+      - taipei
+    Australia:
+      - sydney
+      - melbourne
+    New Zealand:
+      - auckland
+    Brazil:
+      - sao paulo
+    Mexico:
+      - mexico city
+    Colombia:
+      - bogota
+    Philippines:
+      - manila
+    Indonesia:
+      - jakarta
+    Thailand:
+      - bangkok

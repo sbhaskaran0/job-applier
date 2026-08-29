@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-08-19.
+per-session narrative lives in `git log` + Linear. Last updated 2026-08-20.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -130,7 +130,13 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   raw ATS location strings → canonical city/remote tokens + work_mode
   (regex canonicalization + curated `location_aliases.yaml`; observations
   logged to the store for later curation). No LLM, same philosophy as
-  `extract.py`.
+  `extract.py`. `foreign_scope()` (JOB-123): a remote row still fails the
+  baseline if it's positively scoped to a country the user can't work from
+  ("Remote - India", "Canada - Remote (ON, AB, BC, or NS Only)"). Deny-list on
+  the RAW string (not the lossy `normalize()` output), fails open on anything
+  ambiguous or unparseable. Allowed countries derive from the baseline's
+  optional `allowed_countries` knob, else US + whatever `locations_allowed`/
+  `relocation_targets` already name — no profile edit needed.
 - `src/providers/watchlist.py` — fetch/normalize boards (incl. `job_id`+`slug`),
   live `list_postings`, `get_posting(s)`, `add_company`, `detect_ats_slug`,
   `_FETCHERS` (reused by discovery to probe candidate boards).
@@ -200,117 +206,17 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
-- **2026-08-19 dev-loop run (JOB-59):** the autonomous dev loop's lane-1 fixed
-  a sourcing-yield miscount — `yield_stats`, `count_board_baseline`, and the
-  digest's per-company table were counting raw posting rows, so a role
-  cross-posted to several cities inflated every number (Brex's "BizOps Senior
-  Manager (Technical)" alone occupied 6 rows across 6 cities). All three now
-  count **distinct roles** (company + lowercased title, via a shared
-  `_role_key()`), filtering first and collapsing second so a role that only
-  qualifies in one of its cities still counts — 236 qualifying vs 260 raw on
-  the 2026-08-19 corpus. `refresh_runs` also gained `new_qualifying_roles`/
-  `new_title_matched_roles` (schema v4) alongside the existing raw
-  `new_qualifying`/`new_title_matched` (schema v3, brought in as a
-  prerequisite — this branch was cut before that work landed on `main`) plus
-  a `yield_history(days)` reader; both raw and deduped counts are kept so the
-  discontinuity is visible rather than silent. `list_postings_from_store`'s
-  output is unchanged (verified byte-identical). The digest footnote now
-  flags that its "Yield per company" table won't sum against the "New
-  postings" list above it, since the latter still lists every city variant
-  separately. `yield_history()` has no caller yet (plumbing only, no UI/route
-  change this run).
-- **2026-08-14 session (dev-loop instrumentation, branch `feat/profile-system-m1`):**
-  Building the **autonomous daily dev loop** (external sibling repo
-  `c:\Users\siddh\dev-loop` — evaluates app metrics each morning at 09:30,
-  files Linear stories, later executes them via parallel `claude -p` lanes in
-  worktrees; plan in `~/.claude/plans/read-the-readme-and-fuzzy-kernighan.md`).
-  In-repo instrumentation landed this session: **(1) chat resilience fix
-  committed** (the 2026-08-11 uncommitted wedge fix: concurrent WS/turn tasks,
-  session-fatal transport errors + `restarting` protocol, 32 MiB SDK buffer);
-  **(2) yield persistence** — store schema v3 (`refresh_runs` gains
-  `new_qualifying`/`new_title_matched`, previously computed for the digest and
-  discarded) + `store.yield_history(days)`; verified on a real refresh (18 new
-  / 1 qualifying / 3 title-matched); **(3) Report-bug button** — sidebar icon →
-  modal → `POST /api/bug-report` appends to gitignored `data/bug-reports.jsonl`
-  (ts/profile/page/status), `GET /api/bug-reports` lists (TestClient-verified;
-  the live server needs a restart to serve it — JOB-59); **(4) token accounting
-  wired** — `.claude/settings.json` Stop hook → `scripts/token_report.py`
-  (now model-aware pricing per message incl. Fable 5, profile-aware output
-  path `profiles/<id>/data/token_usage.jsonl`), plus `server/chat.py`
-  `_log_usage` appends SDK `ResultMessage.usage`/`total_cost_usd` as
-  `source: webchat` records (readers prefer hook records, dedupe by
-  session_id). **Branch pushed, PR #7 open** (merge left to the user —
-  includes profile-system M1 + UI + these commits).
-- **2026-08-11 (same session, post-restart):** Claude Code restarted → the
-  34-tool profile-aware MCP server is live (`get_profile_paths` resolves
-  `profiles/siddharth`). Word-locked `resumes/` leftovers deleted (contents
-  were hash-verified in the profile first). **Linear backlog pushed**: epics
-  JOB-81 (M1, **Done**) / JOB-82 (M2 GCP+auth) / JOB-83 (M3 onboarding) /
-  JOB-84 (M4 per-user postings), stories JOB-85…98 with blockedBy relations;
-  JOB-33 closed as superseded, JOB-34 commented, ids mirrored into
-  `docs/backlog-multiuser.md` (commit `81bf5fb`). **Webapp restarted on the
-  M1 backend**: killed a stale server squatting :8765 since 7/27 (the JOB-59
-  gotcha), relaunched; `/api/profile` serves the profile's facts/resume/19
-  context files; dist was fresh (no rebuild needed). The 09:00 scheduled
-  refresh ran clean on the migrated layout. **Profile-UI design brief**
-  written to `docs/design-brief-profile-ui.md` (screens: sidebar profile
-  switcher, 8-step onboarding wizard, Profile-page EEO + cloud-account cards,
-  postings filter banner; constrained to tokens.css + existing components).
-  **Design round-trip CLOSED same day:** the returned handoff (zip →
-  `design_handoff_profile_system/`: README spec + static `.dc.html` mockup)
-  was integrated — backend: `/api/profiles` list/activate/create (activate
-  writes `applyer.local.json`, sets `JOB_APPLIER_PROFILE`, `profiles.reset()`
-  so every lazy config path re-scopes in-process; create copies
-  `profiles/_template` + names it), `/api/eeo` GET/PUT/DELETE (statuses only —
-  values never returned; edit form starts blank by design), `/api/account` +
-  `/api/account/verify` (honest "cloud service isn't live yet" stub for
-  JOB-86), `/api/context/paste` + DELETE `/api/context/{name}`, resume-upload
-  regex prefill (email/phone), `hidden_by_criteria` count in
-  `list_postings_from_store`, comment-tolerant `_set_profile_fact` (old regex
-  missed the template's trailing-comment lines → would have appended dupes);
-  frontend: LaunchScreen, Sidebar switcher popover + SwitchConfirm/NewProfile
-  modals + toast, Onboarding rewritten to 8 data-driven steps, EEOCard,
-  CloudAccountCard, Profile header, postings banner. Verified live with
-  browser screenshots: profile page, postings banner (8,487 hidden), wizard
-  steps 2/5/6/8, launch screen (via a temporary `priya-raman` test profile —
-  created through the real API, then deleted; `applyer.local.json` now
-  exists, pinned to `siddharth`), create→activate full-stack re-scope,
-  context paste/delete round-trip. QA hooks: `#page` hash read once at load;
-  `?wizard=N` opens the wizard at step N. NOT built (needs backend that
-  doesn't exist yet): real agent-session résumé/story extraction (the design's
-  "extracting with your local agent" states — no fake spinners shipped),
-  stories-from-submitted-applications loop (design §5), Gmail-account
-  detection for the mismatch drawer (`gmail_account` is wired end-to-end but
-  the backend reports `null`). Branch `feat/profile-system-m1` still
-  **unpushed, no PR**.
-- **2026-08-10 session (M1 profile system, branch `feat/profile-system-m1`):**
-  planned the full **multi-user generalization** (hybrid: GCP data plane +
-  local execution on each user's own Claude subscription; ~2–10 allowlisted
-  users; EEO local-only; shared global watchlist; roadmap in
-  `docs/backlog-multiuser.md`, **pushed to Linear**: epics JOB-81 (M1, Done) /
-  JOB-82 (M2) / JOB-83 (M3) / JOB-84 (M4), stories JOB-85…98; JOB-33 closed as
-  superseded) and **built + verified M1**: `src/profiles.py` resolution layer,
-  lazy `config.py` paths, EEO split to local-only `eeo.yaml`, atomic JSON
-  writes, persistent browser profile, query-time seniority in
-  `passes_baseline` (stored `seniority_flag` now vestigial), de-personalized
-  skills/CLAUDE.md (identity read from profile + `context/background.md`;
-  Gmail-inbox-must-match-profile-email guard), `get_profile_paths` MCP tool,
-  `scripts/migrate_profile.py` + tracked `profiles/_template/`. Migration run
-  on real data: pre/post behavior snapshots **identical** (163 history / 75
-  apps / same field resolutions); post-migration `src.refresh` clean (8,762
-  scanned, 0 boards failed); second-profile isolation smoke passed; personal
-  files untracked from git (history NOT rewritten — accepted, private repo).
-  (Follow-ups — Word-locked leftover cleanup and the MCP restart — both
-  resolved 2026-08-11, see the entry above.)
-- **2026-07-23 session (data sync):** committed the 2026-07-20 apply run that
-  was left uncommitted — 3 verified submits (**Hadrian** Global Product Manager
-  + **Stepful** Chief of Staff, both Ashby; **Alpaca** Product Manager New
-  Assets, Greenhouse) → tracker at **60 records**. `history.json` gained the
-  evergreen ITAR/EAR "U.S. person" answer, Hadrian why-us/fit essays
-  (company-scoped), and the school-name fix ("University of
-  California-Santa Barbara" — the UCLA wart, open item 4, is gone). Linear
-  close-outs for the run are **pending** (Linear MCP not connected in the
-  sync session).
+- **2026-08-20 dev-loop run (JOB-123):** fixed the baseline's remote-location
+  check — `_location_ok` short-circuited on `row["remote"]`, so foreign-scoped
+  remote roles ("Remote - India", "Canada - Remote (ON, AB, BC, or NS Only)",
+  "United Kingdom (Remote)") were entering the qualifying corpus. Added
+  `locations.foreign_scope()` (deny-list over the raw location string, fails
+  open) + `config.load_foreign_scope()` + a curated `foreign_scope.metros`
+  block in `location_aliases.yaml`; `_location_reason()` now returns
+  `"location:foreign_remote"` for these, and `list_postings_from_store`
+  reports `hidden_by_reason` alongside `hidden_by_criteria`. Standalone AC
+  suite in `tests/test_location_scope.py`. Run via the dev-loop orchestrator
+  (single lane); merged to this branch, no profile/doc surface changed.
 - **2026-07-20 session (JOB-58/59, landed JOB-55):** committed the pending
   webapp tree — **JOB-55 postings UX** (postings filter card: title/location/
   YoE/salary/posted-date/include-missing; JD modal via `/api/posting`;
