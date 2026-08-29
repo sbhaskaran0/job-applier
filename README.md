@@ -107,7 +107,7 @@ flowchart TD
         B["~79 watchlist boards<br/>public Greenhouse/Lever/Ashby APIs"] --> N["normalize<br/>(ats, slug, job_id)"]
         N --> X["extract once per posting:<br/>salary from JD text · min-years (advisory)<br/>· excluded-seniority flag · locations →<br/>canonical tokens + work_mode<br/>(regex + location_aliases.yaml)"]
         X --> DB[("data/postings.db<br/>first_seen · last_seen · removed_at<br/>(removals only from boards that fetched OK)")]
-        DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield per company"]
+        DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield & company<br/>concentration per side of the funnel"]
     end
     DB --> Q["list_watchlist_postings<br/>deterministic baseline filter<br/>+ already_applied · is_new<br/>(live-fetch fallback if store > 36h old)"]
     Q --> R["/find-jobs: Claude ranks semantically,<br/>deep-reads finalists, returns apply URLs"]
@@ -116,7 +116,10 @@ flowchart TD
 The store is a cache of public data — delete `data/postings.db` and the next
 refresh rebuilds it. Schedule the refresh daily (Windows Task Scheduler via
 `scripts/refresh.cmd`, or cron/launchd) to get a standing digest of new
-matching roles; see the USER_GUIDE.
+matching roles; see the USER_GUIDE. `python -m src.refresh --near-misses` (or
+`python scripts/near_misses.py`) audits what the title gate in
+`job_criteria.yaml` is silently discarding, in case `acceptable_titles` is
+drawn too tightly.
 
 ## Growing the watchlist automatically
 

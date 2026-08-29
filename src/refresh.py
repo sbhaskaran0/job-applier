@@ -67,11 +67,29 @@ def build_digest(summary: dict) -> str:
         lines.append(f"| {s['company']} | {s['active']} | "
                      f"{s['title_matched']} | {s['qualifying']} |")
     lines += ["", "_Qualifying = passes titles/seniority/location/salary-floor "
-              "deterministically. All three columns count distinct roles — a "
-              "role cross-posted to several cities counts once, unlike the "
-              "'New postings' list above which still lists every city variant "
-              "separately, so the two sections won't add up. Yield informs "
-              "the JOB-26 watchlist rework._", ""]
+              "deterministically. Yield informs the JOB-26 watchlist rework._", ""]
+
+    # Company concentration (JOB-113): the yield table above answers "which
+    # boards produce?" but not "are we fishing in one pond?" -- that took a
+    # hand count until now.
+    spread = store.company_spread()
+    lines += ["## Company concentration", ""]
+    for label, side, unit in (
+            ("Qualifying corpus", spread["qualifying"], "distinct roles"),
+            ("Applications logged", spread["applications"], "records")):
+        top = ", ".join(f"{t['company']} {t['count']}" for t in side["top5"])
+        lines.append(f"- **{label}:** {side['total']:,} {unit} across "
+                     f"{side['companies']} companies — top 5 = "
+                     f"{side['top5_share_pct']}%"
+                     + (f" ({top})" if top else ""))
+    status_mix = ", ".join(f"{k} {v}" for k, v in
+                           spread["applications"]["by_status"].items())
+    if status_mix:
+        lines.append(f"  - application status mix: {status_mix}")
+    lines += ["", "_Qualifying roles are deduped by (company, title): one role "
+              "listed in several cities counts once, unlike the per-city rows in "
+              "the yield table above. Applications count every logged record, "
+              "submitted or manual._", ""]
     return "\n".join(lines)
 
 
@@ -83,6 +101,19 @@ async def run() -> dict:
 
 
 def main() -> int:
+    # `--near-misses` reports on what the title gate already discarded (JOB-115)
+    # and returns without touching the network. Checked by hand rather than with
+    # argparse to keep the no-flag path byte-for-byte what it has always been.
+    if "--near-misses" in sys.argv[1:]:
+        # Loaded by path off BASE_DIR rather than imported: scripts/ is not a
+        # package, and this keeps the flag working from any working directory.
+        import importlib.util
+        path = config.BASE_DIR / "scripts" / "near_misses.py"
+        spec = importlib.util.spec_from_file_location("near_misses", path)
+        near_misses = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(near_misses)
+        return near_misses.main()
+
     summary = asyncio.run(run())
     # ASCII only: scheduled runs print to a cp1252 Windows console, which
     # cannot encode unicode punctuation.
