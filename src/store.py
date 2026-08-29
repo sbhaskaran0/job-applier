@@ -367,11 +367,16 @@ def _location_ok(row: dict, baseline: dict) -> bool:
 
 def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
     """(passes, reason-if-not). Salary rule: a DISCLOSED range whose TOP end is
-    below the floor is dropped; undisclosed passes (flagged elsewhere)."""
+    below the floor is dropped; undisclosed passes (flagged elsewhere).
+    Seniority is computed here from the row's title and THIS baseline's
+    excluded_seniority — never from the stored seniority_flag column, which
+    reflects whichever profile's criteria ran the last refresh."""
     if not _title_matches(row.get("title", ""), baseline.get("acceptable_titles")):
         return False, "title"
-    if row.get("seniority_flag"):
-        return False, f"seniority:{row['seniority_flag']}"
+    flag = extract.seniority_flag(row.get("title", ""),
+                                  baseline.get("excluded_seniority"))
+    if flag:
+        return False, f"seniority:{flag}"
     if not _location_ok(row, baseline):
         return False, "location"
     floor = baseline.get("salary_floor")
@@ -421,9 +426,11 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
     by_key: dict[tuple, dict] = {}
     light: list[dict] = []
     dropped_years = 0
+    failed_baseline = 0
     for r in rows:
         ok, _why = passes_baseline(r, baseline)
         if not ok:
+            failed_baseline += 1
             continue
         if max_years and r.get("min_years") and r["min_years"] > max_years:
             dropped_years += 1
@@ -466,6 +473,7 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         "postings": light, "source": "store",
         "last_refresh": run_at,
         "total_scanned": len(rows), "matched": matched, "returned": len(light),
+        "hidden_by_criteria": failed_baseline,
         "dropped_over_max_years": dropped_years,
         "companies_failed": json.loads(run["companies_failed"]) if run else [],
     }

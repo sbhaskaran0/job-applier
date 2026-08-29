@@ -37,10 +37,14 @@ interface Props {
   setAutonomous: (v: boolean) => void
   openApply: () => void
   reload: () => void
+  profileName?: string
+  hiddenByCriteria?: number
+  openCriteria: () => void
 }
 
 export default function PostingsPage({
   postings, note, selected, setSelected, autonomous, setAutonomous, openApply, reload,
+  profileName, hiddenByCriteria, openCriteria,
 }: Props) {
   const [titles, setTitles] = useState<string[]>([])
   const [locations, setLocations] = useState<string[]>([])
@@ -50,8 +54,10 @@ export default function PostingsPage({
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [includeMissing, setIncludeMissing] = useState(true)
+  const [hideApplied, setHideApplied] = useState(false)
   const [titleOptions, setTitleOptions] = useState<string[]>([])
   const [locationOptions, setLocationOptions] = useState<string[]>(COMMON_METROS)
+  const [hasCriteria, setHasCriteria] = useState<boolean | null>(null)
   const [detail, setDetail] = useState<Posting | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshNote, setRefreshNote] = useState<{ text: string; error: boolean } | null>(null)
@@ -81,6 +87,7 @@ export default function PostingsPage({
     fetchCriteria().then((c) => {
       setTitleOptions([...new Set([...c.search_titles, ...c.titles])])
       setLocationOptions([...new Set([...c.locations, ...COMMON_METROS])])
+      setHasCriteria(c.titles.length > 0 || c.salary_floor != null)
     }).catch(() => setTitleOptions([]))
   }, [])
 
@@ -88,7 +95,7 @@ export default function PostingsPage({
     setTitles([]); setLocations([])
     setYoe(YOE_RANGE); setSalary(SALARY_RANGE)
     setDatePreset('any'); setDateFrom(''); setDateTo('')
-    setIncludeMissing(true)
+    setIncludeMissing(true); setHideApplied(false)
   }
 
   const matchesFilters = (p: Posting): boolean => {
@@ -121,15 +128,17 @@ export default function PostingsPage({
     return true
   }
 
-  // already-applied roles are excluded outright — they live on the
-  // Applications page, not in the apply queue
-  const pool = postings.filter((p) => !p.already_applied)
+  // already-applied roles stay in the list (marked with an APPLIED badge and
+  // non-selectable) unless the user opts to hide them via the filter toggle
+  const pool = hideApplied ? postings.filter((p) => !p.already_applied) : postings
   const visible = pool.filter(matchesFilters)
+  const appliedShown = visible.filter((p) => p.already_applied).length
 
-  const toggle = (url: string) => {
+  const toggle = (p: Posting) => {
+    if (p.already_applied) return // applied roles aren't re-queueable
     const next = new Set(selected)
-    if (next.has(url)) next.delete(url)
-    else next.add(url)
+    if (next.has(p.url)) next.delete(p.url)
+    else next.add(p.url)
     setSelected(next)
   }
 
@@ -169,7 +178,11 @@ export default function PostingsPage({
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
-        <p>{visible.length} of {pool.length} roles match · select to queue an application</p>
+        <p>
+          {visible.length} of {pool.length} roles match
+          {appliedShown > 0 && ` · ${appliedShown} already applied`}
+          {' · select to queue an application'}
+        </p>
         {refreshing && (
           <p style={{ color: 'var(--text-4)' }}>
             Sweeping the watchlist boards — this takes a minute…
@@ -269,27 +282,79 @@ export default function PostingsPage({
                 </div>
               </div>
             </div>
+
+            <div style={{
+              gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 11,
+              borderTop: '1px solid var(--divider)', paddingTop: 14,
+            }}>
+              <Toggle on={hideApplied} onChange={setHideApplied} />
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-2)' }}>
+                  Hide roles you've already applied to
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-4)' }}>
+                  Applied roles are shown with an APPLIED badge and can't be re-queued;
+                  turn this on to drop them from the list.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </header>
 
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '18px 34px 120px' }}>
         <div style={{ maxWidth: 920 }}>
+          {/* per-profile criteria banner — quieter than a posting row: it's chrome */}
+          {hasCriteria !== null && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12,
+              background: 'var(--bg-app)', border: '1px solid var(--border-2)',
+              borderRadius: 11, padding: '10px 15px',
+            }}>
+              <span style={{
+                width: 7, height: 7, borderRadius: '50%', flex: 'none',
+                background: hasCriteria ? 'var(--clay)' : 'var(--dot-faint)',
+              }} />
+              <span style={{ fontSize: 13, color: 'var(--text-3)', flex: 1, minWidth: 0 }}>
+                {hasCriteria ? (
+                  <>
+                    Showing roles matching{' '}
+                    <b style={{ color: 'var(--text-2)' }}>
+                      {profileName ? `${profileName}’s criteria` : 'your criteria'}
+                    </b>
+                    {hiddenByCriteria != null
+                      && ` — ${hiddenByCriteria.toLocaleString()} hidden by your criteria`}
+                  </>
+                ) : (
+                  'No criteria set yet — showing every role on the watchlist'
+                )}
+              </span>
+              <button onClick={openCriteria} style={{
+                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                fontSize: 12.5, fontWeight: 600, color: 'var(--clay-text)', flex: 'none',
+              }}>
+                {hasCriteria ? 'Edit criteria' : 'Set your criteria'}
+              </button>
+            </div>
+          )}
           {visible.map((p) => {
-            const sel = selected.has(p.url)
+            const applied = p.already_applied
+            const sel = !applied && selected.has(p.url)
             return (
-              <div key={p.url} onClick={() => toggle(p.url)} style={{
+              <div key={p.url} onClick={() => toggle(p)} style={{
                 display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
-                marginBottom: 8, borderRadius: 14, cursor: 'pointer',
+                marginBottom: 8, borderRadius: 14, cursor: applied ? 'default' : 'pointer',
                 border: `1px solid ${sel ? 'var(--clay)' : 'var(--border-1)'}`,
                 background: sel ? 'var(--row-selected)' : 'var(--bg-card)',
                 boxShadow: '0 1px 2px rgba(80,60,30,0.03)',
+                opacity: applied ? 0.62 : 1,
               }}>
                 <div style={{
                   width: 22, height: 22, borderRadius: 7, flex: 'none', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
                   border: `2px solid ${sel ? 'var(--clay)' : 'var(--border-4)'}`,
                   background: sel ? 'var(--clay)' : 'transparent',
+                  visibility: applied ? 'hidden' : 'visible',
                 }}>
                   {sel && (
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--on-clay)"
@@ -317,8 +382,11 @@ export default function PostingsPage({
                         <path d="m9 18 6-6-6-6" />
                       </svg>
                     </button>
-                    {p.is_new && (
+                    {p.is_new && !applied && (
                       <span className="tag" style={{ color: 'var(--sage-text)', background: 'var(--sage-soft)' }}>NEW</span>
+                    )}
+                    {applied && (
+                      <span className="tag" style={{ color: 'var(--clay-text)', background: 'var(--accent-soft)' }}>APPLIED</span>
                     )}
                   </div>
                   <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 3 }}>

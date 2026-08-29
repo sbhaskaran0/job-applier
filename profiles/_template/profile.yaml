@@ -1,0 +1,46 @@
+# Profile facts — exact, factual answers used to fill application forms.
+# get_profile_field() maps form labels onto these keys via the alias table in
+# src/data.py. Leave a value empty ("") to have the agent fall back to your
+# history/context knowledge base instead of filling that field directly.
+# Voluntary EEO self-identification does NOT live here — see eeo.yaml
+# (local-only) alongside this file.
+
+# --- identity ---------------------------------------------------------------
+first_name: ""
+last_name: ""
+full_name: ""
+email: ""
+phone: ""                 # e.g. "310-555-0100"
+
+# --- address ----------------------------------------------------------------
+address: ""               # street address, e.g. "123 Main St Apt 4"
+city: ""
+state: ""                 # spelled out, e.g. "California"
+country: ""               # e.g. "United States"
+location: ""              # short display form, e.g. "Los Angeles, CA"
+
+# --- links ------------------------------------------------------------------
+linkedin_url: ""
+github_url: ""
+portfolio_url: ""
+website_url: ""
+
+# --- current role -----------------------------------------------------------
+current_company: ""
+current_title: ""
+years_experience: ""      # number as a string, e.g. "5"
+
+# --- eligibility / logistics ------------------------------------------------
+work_authorization: ""    # full-sentence answer, e.g. "Yes, I am legally
+                          # authorized to work in the United States ..."
+requires_sponsorship: ""  # "Yes" or "No"
+willing_to_relocate: ""   # "Yes" or "No"
+how_did_you_hear: ""      # e.g. "Company careers page"
+
+# --- compensation / availability -------------------------------------------
+desired_salary: ""        # number as a string, e.g. "130000"
+notice_period: ""         # e.g. "2 weeks"
+
+# --- misc -------------------------------------------------------------------
+pronouns: ""              # e.g. "She/Her" — not an EEO field; filled into
+                          # ordinary (non-self-ID) pronoun fields when present
