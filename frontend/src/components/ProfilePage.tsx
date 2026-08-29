@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { uploadFile } from '../api'
 import type { Profile } from '../types'
+import CloudAccountCard from './CloudAccountCard'
+import EEOCard from './EEOCard'
 import JobCriteriaCard from './JobCriteriaCard'
 
 const FACT_ROWS: { label: string; value: (f: Record<string, string>) => string }[] = [
@@ -52,26 +54,40 @@ export default function ProfilePage({ profile, openOnboarding }: Props) {
       </header>
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '26px 34px 60px' }}>
         <div style={{ maxWidth: 820, display: 'flex', flexDirection: 'column', gap: 22 }}>
-          <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '18px 22px' }}>
+          <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '20px 22px' }}>
             <div style={{
-              width: 52, height: 52, borderRadius: '50%',
-              background: `conic-gradient(var(--sage) 0 ${pct}%, var(--border-1) ${pct}% 100%)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+              width: 56, height: 56, borderRadius: '50%', background: 'var(--clay)',
+              color: 'var(--on-clay)', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', fontFamily: "'Newsreader',serif",
+              fontWeight: 600, fontSize: 20, flex: 'none',
             }}>
-              <div style={{
-                width: 40, height: 40, borderRadius: '50%', background: 'var(--bg-card)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 12.5, fontWeight: 700, color: 'var(--sage-text)',
-              }}>{pct}%</div>
+              {(profile.facts.full_name?.trim() || profile.profile_id)
+                .split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()}
             </div>
-            <div style={{ flex: 1 }}>
-              <div className="serif" style={{ fontSize: 17, fontWeight: 600 }}>
-                {pct >= 90 ? 'Profile is nearly complete' : 'Profile has gaps'}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="serif" style={{ fontSize: 21, fontWeight: 600, letterSpacing: '-0.01em' }}>
+                  {profile.facts.full_name?.trim() || profile.profile_id}
+                </span>
+                <span className="badge-pill" style={{ background: 'var(--sage-soft)', color: 'var(--sage-text)' }}>
+                  Active
+                </span>
               </div>
-              <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 2 }}>
-                {profile.facts.desired_salary?.trim()
-                  ? 'Every editable fact is auto-answered on matching form fields.'
-                  : 'Add a desired salary and notice period to unlock a few more auto-answers.'}
+              <div style={{
+                fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 11.5,
+                color: 'var(--text-4)', marginTop: 4,
+              }}>
+                {profile.profile_dir} · created {profile.created}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', flex: 'none' }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>
+                {pct}% complete
+              </div>
+              <div style={{ width: 120, height: 6, borderRadius: 3, background: 'var(--bar-track)' }}>
+                <div style={{
+                  width: `${pct}%`, height: '100%', borderRadius: 3, background: 'var(--sage)',
+                }} />
               </div>
             </div>
             <button className="btn-soft" onClick={openOnboarding}>Edit setup</button>
@@ -95,17 +111,9 @@ export default function ProfilePage({ profile, openOnboarding }: Props) {
                 </div>
               ))}
             </div>
-            {profile.eeo_fields_present.length > 0 && (
-              <div style={{
-                fontSize: 11.5, color: 'var(--text-4)', marginTop: 16, lineHeight: 1.5,
-                borderTop: '1px solid var(--divider)', paddingTop: 12,
-              }}>
-                {profile.eeo_fields_present.length} voluntary EEO self-ID values are set in
-                {' '}<b style={{ color: 'var(--text-2)' }}>user_profile.yaml</b> — used only in
-                voluntary self-ID sections and never shown or edited here.
-              </div>
-            )}
           </div>
+
+          <EEOCard />
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
             <div className="card" style={{ padding: '20px 22px' }}>
@@ -159,6 +167,8 @@ export default function ProfilePage({ profile, openOnboarding }: Props) {
           </div>
 
           <JobCriteriaCard />
+
+          <CloudAccountCard openLinkFlow={openOnboarding} />
         </div>
       </div>
     </div>

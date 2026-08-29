@@ -326,7 +326,6 @@ _CODE_INPUTS_JS = r"""
 class BrowserSession:
     def __init__(self) -> None:
         self._pw = None
-        self.browser = None
         self.context = None
         # Multi-tab: each queued job can get its own tab so a filled form is
         # never destroyed by opening the next job. A tab is
@@ -355,10 +354,12 @@ class BrowserSession:
         # automated tests.
         if self._pw is None:
             self._pw = await async_playwright().start()
-        if self.browser is None:
-            self.browser = await self._pw.chromium.launch(
-                headless=headless, args=["--start-maximized"])
-            self.context = await self.browser.new_context(
+        if self.context is None:
+            # Persistent profile: cookies/logins survive across sessions.
+            config.BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+            self.context = await self._pw.chromium.launch_persistent_context(
+                user_data_dir=str(config.BROWSER_PROFILE_DIR),
+                headless=headless, args=["--start-maximized"],
                 user_agent=_UA, no_viewport=True)
 
     async def _open_tab(self) -> int:
@@ -705,7 +706,7 @@ class BrowserSession:
     async def screenshot(self, path: str | None = None) -> dict:
         if self.page is None:
             raise RuntimeError("No page open.")
-        out = path or str(config.BASE_DIR / "current_page.png")
+        out = path or str(config.RUNTIME_DIR / "current_page.png")
         await self.page.screenshot(path=out, full_page=True)
         return {"path": out}
 
@@ -940,9 +941,10 @@ class BrowserSession:
                 "form_snapshot": form_snapshot}
 
     async def close(self) -> None:
-        if self.browser is not None:
-            await self.browser.close()
-            self.browser = None
+        if self.context is not None:
+            # Closing the persistent context closes the browser it launched.
+            await self.context.close()
+            self.context = None
         if self._pw is not None:
             await self._pw.stop()
             self._pw = None
