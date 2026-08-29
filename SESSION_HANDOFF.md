@@ -9,9 +9,9 @@ code until Claude Code restarts.
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
-`python -m src.mcp_server`, **33 tools**) provides a live Playwright browser +
+`python -m src.mcp_server`, **34 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
-- **`/find-jobs <query>`** — roles across a curated ~67-company watchlist
+- **`/find-jobs <query>`** — roles across a curated ~79-company watchlist
   (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
   strict-filtered by `job_criteria.yaml`, ranked semantically by Claude.
 - **`/apply-to-job <url>`** — fills from profile→history→context with
@@ -45,9 +45,21 @@ the user's data. **No LLM API key** in the core flow. Skills:
   `bypassPermissions`, `setting_sources=["user","project"]` so skills +
   .mcp.json load). Data API reuses src.store/src.config directly. Write-back:
   watchlist add, whitelisted profile facts (regex line edits preserve YAML
-  comments; EEO never exposed), resume/context uploads. Design recreated from
-  the "Applyer" design handoff (warm espresso dark default + paper light,
-  Newsreader/Hanken Grotesk, semantic tokens in frontend/src/tokens.css).
+  comments), resume/context uploads + pasted answers/stories, profile
+  create/switch, EEO self-ID (write-only — statuses shown, values never
+  returned). Design recreated from the "Applyer" design handoff (warm
+  espresso dark default + paper light, Newsreader/Hanken Grotesk, semantic
+  tokens in frontend/src/tokens.css). **Profile-system UI (2026-08-11,
+  second design round-trip):** launch screen ("Who's applying?") when no
+  profile is active, sidebar profile switcher (popover + switch confirm +
+  toast), onboarding wizard extended 5→8 data-driven steps (Welcome / PAT
+  link-account with honest service-not-live state / Résumé with regex
+  prefill chips + review grid / Background & voice paste-story-drop /
+  Preferences with tri-state seniority chips / amber-banded Requirements /
+  Connections with Gmail-mismatch drawer / Done with completeness ring),
+  Profile page cards (active-profile header, EEO statuses-only card, cloud
+  account local-only card with linked-state markup ready), postings criteria
+  banner ("N hidden by your criteria").
 
 User: **Siddharth Bhaskaran**, Los Angeles, ~5-yr PM targeting mid/senior
 **product & tech-strategy / BizOps** roles. Repo: private GitHub
@@ -56,12 +68,34 @@ discovery/data layer (the compounding asset); lean on Cowork/Claude-in-Chrome
 for hard executor cases (auth walls, Workday wizards) instead of building them.
 
 ## Architecture / key files
-- `src/mcp_server.py` — the 33 FastMCP tools; thin wrappers. `snapshot_job`
+- **`src/profiles.py` — the profile system (M1, 2026-08-10).** ALL personal
+  data lives under `profiles/<id>/` (this machine: `profiles/siddharth/`):
+  `profile.yaml` (was `user_profile.yaml`), local-only `eeo.yaml` (EEO self-ID
+  split out, merged at read time, never synced), `criteria.yaml` (was
+  `job_criteria.yaml`), `resume.*`, `context/`, `data/{history.json,
+  applications.json, prep/}`, `resumes/<job-slug>/`, `runtime/` (screenshots +
+  persistent browser profile). Resolution: `JOB_APPLIER_PROFILE` env →
+  `applyer.local.json` (`{"profile": "id"}`, gitignored) → single `profiles/`
+  dir → legacy repo-root fallback. `src/config.py` serves the old constant
+  names (`config.HISTORY_PATH` etc.) lazily via module `__getattr__`, so call
+  sites didn't change; JSON saves are atomic (temp + `os.replace`);
+  `resume.txt` regeneration is mtime-guarded. Shared at repo root:
+  `watchlist.yaml`, `location_aliases.yaml`, `discovery.yaml`,
+  `data/postings.db`, digests. New-user onboarding: copy tracked
+  `profiles/_template/`; legacy checkouts: `scripts/migrate_profile.py`.
+  Multi-user roadmap (GCP data plane, auth, onboarding UI, per-user filtered
+  postings): `docs/backlog-multiuser.md`.
+- `src/mcp_server.py` — 34 FastMCP tools; thin wrappers. `get_profile_paths`
+  returns the active profile's resolved dirs (skills call it instead of
+  guessing paths). `snapshot_job`
   (JOB-52): opens+reads+writes a batch prep file server-side, returning only a
   compact receipt (incl. `freetext_count`) so form dumps + JD never enter the model.
 - `src/browser.py` — ATS-agnostic Playwright layer (`_SCAN_JS` reads page +
   iframes into generic field descriptors incl. a `multiline` free-text flag;
-  no per-site selectors; non-headless).
+  no per-site selectors; non-headless; **persistent Chromium profile** per
+  user at `profiles/<id>/runtime/browser/` — cookies/logins survive restarts,
+  anti-bot fingerprint stays stable; screenshots default to the profile's
+  `runtime/`).
   `_submission_confirmed` classifies submit outcome from **page text**:
   `submitted` / `rejected_spam` / `attempted` (vanished form ≠ success).
 - `src/data.py` — profile alias lookup, fuzzy history search, `save_answer`
@@ -90,12 +124,24 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `list_postings_from_store` (union locations, most-flexible work mode).
   `posting_description(url)` serves the Applyer JD modal. Also the discovery
   `candidate_boards` ledger (PK `(source, source_key)`) + `count_board_baseline`
-  / `load_candidates` / `upsert_candidate`.
+  / `load_candidates` / `upsert_candidate`. Schema v3/v4 (2026-08-19, JOB-59):
+  `refresh_runs` gained `new_qualifying`/`new_title_matched` (raw, v3) and
+  `new_qualifying_roles`/`new_title_matched_roles` (distinct-role, v4) columns
+  + `yield_history(days)` to read them back per-day; `_role_key()` (company +
+  lowercased title) is now the single dedupe identity shared by
+  `list_postings_from_store`, `count_board_baseline`, and `yield_stats`, all of
+  which count distinct roles rather than raw city-variant rows.
 - `src/providers/locations.py` (JOB-55) — deterministic location normalization:
   raw ATS location strings → canonical city/remote tokens + work_mode
   (regex canonicalization + curated `location_aliases.yaml`; observations
   logged to the store for later curation). No LLM, same philosophy as
-  `extract.py`.
+  `extract.py`. `foreign_scope()` (JOB-123): a remote row still fails the
+  baseline if it's positively scoped to a country the user can't work from
+  ("Remote - India", "Canada - Remote (ON, AB, BC, or NS Only)"). Deny-list on
+  the RAW string (not the lossy `normalize()` output), fails open on anything
+  ambiguous or unparseable. Allowed countries derive from the baseline's
+  optional `allowed_countries` knob, else US + whatever `locations_allowed`/
+  `relocation_targets` already name — no profile edit needed.
 - `src/providers/watchlist.py` — fetch/normalize boards (incl. `job_id`+`slug`),
   live `list_postings`, `get_posting(s)`, `add_company`, `detect_ats_slug`,
   `_FETCHERS` (reused by discovery to probe candidate boards).
@@ -190,6 +236,12 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   made the user's restart silently fail to bind — killed it, relaunched;
   **JOB-59 filed** (port guard + API-404 guard, backlog). Also synced skills'
   screenshot-unique-path rules (2026-07-13 hang) + data files.
+- **2026-07-24 session:** watchlist expansion — `src.discover` drained the
+  candidate queue again (250 probed, 4 left), adopted 12 not-yet-listed boards
+  (all ≥2 qualifying roles, plus Decagon/Mistral for AI title-match depth):
+  Headway, Flock Safety, Yuno, ClickUp, Cursor, Turquoise Health, Kong,
+  HappyRobot, SentiLink, Splice, Decagon, Mistral AI → **79 boards**.
+  `src.refresh` verified all 79 fetch clean (0 failed); 8,609 scanned, 877 new.
 - **2026-07-13 session (JOB-56):** watchlist expansion — `src.discover` drained
   the candidate queue (145 probed, 83 newly confirmed, 0 left), adopted all 21
   not-yet-listed boards with ≥2 qualifying roles (ClassDojo, PermitFlow,
@@ -211,7 +263,7 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   JOB-51 batch Stage B token cut, JOB-6 per-job tailoring, JOB-26 sourcing
   rework, postings store (JOB-27..31). `.env` untracked/never committed.
 - **Applications submitted** (ground truth: `data/applications.json`):
-  **52 records as of 2026-07-12** (48 `submitted`, 4 `manual_submission`) —
+  **60 records as of 2026-07-20** (56 `submitted`, 4 `manual_submission`) —
   too many to enumerate here; read the JSON. Scale AI — Growth S&O Lead:
   **confirmed live but UNLOGGED** (backfill pending, JOB-17).
 - **2026-07-11 run (JOB-52):** autonomous `/apply-batch` over 20 BizOps/S&O
@@ -222,21 +274,29 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   upload). Ground truth in `data/applications.json`.
 
 ## Open items / next steps
-1. **Update `resume.pdf` — DONE (2026-07-12):** the PDF (and synced
-   `resume.txt`) now shows "Audare AI … March 2025–November 2025"; the stale
-   "Ongoing" line is gone from retrieval.
-2. **(JOB-6) `resume.docx` base template — DONE (2026-07-11):** a real
-   `resume.docx` is now committed at the project root, so resume tailoring is
-   live (was inert). DOCX→PDF needs Word (present).
-3. **Backfill Scale AI submit** into `applications.json` (JOB-17 remainder).
-4. **Data wart:** a history entry says "most recent school = UCLA"; correct is
-   **UC Santa Barbara** (UCLA MQE in progress, expected Dec 2027). Prep agents
-   route around it; the entry still needs fixing.
+1. ~~Push `feat/profile-system-m1` + PR~~ — **pushed 2026-08-14, PR #7 open**
+   (profile-system M1 + UI + chat resilience + dev-loop instrumentation).
+   **Merge is yours to click.**
+1b. **Restart the webapp server** after merging/pulling so `/api/bug-report`
+   and the chat usage capture go live (JOB-59 stale-server gotcha).
+2. ~~Profile-UI design round-trip~~ — **closed 2026-08-11**: design returned
+   and implemented (see the session entry). Remaining UI gaps that need new
+   backend: agent-session résumé/story extraction states, stories loop
+   (design §5), Gmail-account detection for the mismatch drawer.
+3. **M2 next up:** JOB-85 (Postgres schema + store port) ∥ JOB-86 (`/account`
+   + PAT — the UI half now exists: wizard step 2 + cloud account card render
+   every state, `/api/account/verify` is the honest stub to replace) — full
+   sequence in `docs/backlog-multiuser.md`.
+4. **Backfill Scale AI submit** into the profile's `applications.json`
+   (JOB-17 remainder).
 5. **Linear open:** JOB-24 (submit verification — code shipped, verify live) ·
    JOB-32 (Phase 2 embeddings) · JOB-19 pt2 → JOB-32 · JOB-22/20 (queue
-   executor/parent) · JOB-33/34 (portability — filed, NOT executed) ·
-   JOB-59 (webapp stale-server guards: port 8765 check + 404 for unknown
-   /api/* — filed 2026-07-20, NOT built).
+   executor/parent) · JOB-34 (env setup hardening — partially eased by M1,
+   cross-platform bits deferred until a non-Windows user onboards) ·
+   JOB-59 (webapp stale-server guards — bit us again 2026-08-11: killed a
+   7/27 squatter on :8765; port check + API-404 guard still NOT built) ·
+   JOB-82…98 (multi-user M2–M4 backlog). JOB-33 closed 2026-08-10
+   (superseded by JOB-81).
 
 ## Proposed backlog (not built — bring back for approval)
 - **Data layer:** application tracker v2 (status transitions, follow-ups) ·
@@ -255,7 +315,9 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   Fixed via `Set-ScheduledTask` (`-AllowStartIfOnBatteries
   -DontStopIfGoingOnBatteries -StartWhenAvailable`) + `New-ScheduledTaskAction`.
   Scheduled console is cp1252 — `src/refresh.py` prints ASCII only.
-- **`open_job` overwrites `resume.txt`** from `resume.pdf` — don't hand-edit txt.
+- **`open_job` regenerates the profile's `resume.txt`** from `resume.pdf` when
+  the PDF is newer (mtime-guarded since M1) — still don't hand-edit txt while
+  a PDF exists.
 - **Ashby:** may spam-reject a real submit ("flagged as possible spam") — see the
   manual-submission design choice; never trust `submitted` on Ashby without page
   text/email confirmation until JOB-24 is verified live. Answered custom

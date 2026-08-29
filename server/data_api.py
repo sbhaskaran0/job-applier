@@ -8,8 +8,10 @@ string fields (comment-preserving line edits), and resume/context uploads.
 
 import asyncio
 import json
+import os
 import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -179,6 +181,7 @@ def set_outcome(body: OutcomeSet):
 @router.get("/profile")
 def profile():
     prof = config.load_user_profile()
+    ap = config.active_profile()
     facts = {k: v for k, v in prof.items()
              if k in EDITABLE_PROFILE_KEYS and isinstance(v, str)}
     eeo_present = sorted(k for k, v in prof.items()
@@ -188,9 +191,15 @@ def profile():
         "facts": facts,
         "eeo_fields_present": eeo_present,
         "completeness": round(100 * filled / max(1, len(EDITABLE_PROFILE_KEYS))),
-        "resume_pdf": (config.BASE_DIR / "resume.pdf").exists(),
+        "resume_pdf": ap.resume_pdf.exists(),
         "resume_docx": config.base_resume_docx() is not None,
         "context_files": _context_files(),
+        "profile_id": ap.profile_id,
+        "profile_dir": ("repo root (legacy)" if ap.legacy
+                        else f"profiles/{ap.profile_id}"),
+        # Windows st_ctime is directory creation time — good enough for a label
+        "created": datetime.fromtimestamp(ap.root.stat().st_ctime)
+                           .strftime("%d %b %Y"),
     }
 
 
@@ -208,22 +217,29 @@ class ProfileUpdate(BaseModel):
     facts: dict[str, str]
 
 
+def _set_profile_fact(text: str, key: str, value: str) -> str:
+    """Comment-preserving line edit: replace the value of a `key: "..."` line
+    (keeping any trailing comment — the template annotates most lines); append
+    the key at EOF when it doesn't exist yet."""
+    value = value.replace('"', "'").strip()
+    pattern = re.compile(
+        rf'^({re.escape(key)}:\s*)"[^"]*"(\s*(?:#.*)?)$', re.MULTILINE)
+    if pattern.search(text):
+        return pattern.sub(
+            lambda m: f'{m.group(1)}"{value}"{m.group(2)}', text, count=1)
+    return text.rstrip("\n") + f'\n{key}: "{value}"\n'
+
+
 @router.put("/profile")
 def update_profile(body: ProfileUpdate):
-    """Comment-preserving line edits: replace the value of whitelisted
-    `key: "..."` lines in user_profile.yaml; append missing keys at the end
-    of the flat-facts section (before the EEO block)."""
+    """Comment-preserving line edits to the active profile's profile.yaml,
+    whitelisted keys only."""
     bad = [k for k in body.facts if k not in EDITABLE_PROFILE_KEYS]
     if bad:
         raise HTTPException(400, f"non-editable keys: {bad}")
     text = config.USER_PROFILE_PATH.read_text(encoding="utf-8")
     for key, value in body.facts.items():
-        value = value.replace('"', "'").strip()
-        pattern = re.compile(rf'^{re.escape(key)}:\s*".*"\s*$', re.MULTILINE)
-        if pattern.search(text):
-            text = pattern.sub(f'{key}: "{value}"', text, count=1)
-        else:
-            text = text.rstrip("\n") + f'\n{key}: "{value}"\n'
+        text = _set_profile_fact(text, key, value)
     config.USER_PROFILE_PATH.write_text(text, encoding="utf-8")
     return profile()
 
@@ -387,10 +403,235 @@ def watchlist_add(body: WatchlistAdd):
 
 
 # --------------------------------------------------------------------------- #
-# uploads (resume → project root, knowledge docs → context/)
+# profiles — list / activate / create (profile-system UI)
+# --------------------------------------------------------------------------- #
+def _read_yaml(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return {}
+
+
+def _profile_summary(root: Path, active_id: str | None) -> dict:
+    prof = _read_yaml(root / "profile.yaml")
+    facts = {k: v for k, v in prof.items()
+             if k in EDITABLE_PROFILE_KEYS and isinstance(v, str)}
+    filled = sum(1 for v in facts.values() if v.strip())
+    apps_path = root / "data" / "applications.json"
+    try:
+        apps = json.loads(apps_path.read_text(encoding="utf-8")) \
+            if apps_path.exists() else []
+    except (json.JSONDecodeError, OSError):
+        apps = []
+    tracked = [apps_path, root / "data" / "history.json", root / "profile.yaml"]
+    mtimes = [p.stat().st_mtime for p in tracked if p.exists()]
+    name = (prof.get("full_name") or "").strip() or root.name
+    return {
+        "id": root.name,
+        "name": name,
+        "applications": len(apps) if isinstance(apps, list) else 0,
+        "completeness": round(100 * filled / max(1, len(EDITABLE_PROFILE_KEYS))),
+        "resume": (root / "resume.pdf").exists() or (root / "resume.docx").exists(),
+        "last_used": (datetime.fromtimestamp(max(mtimes)).isoformat()
+                      if mtimes else None),
+        "created": datetime.fromtimestamp(root.stat().st_ctime).isoformat(),
+        "active": root.name == active_id,
+    }
+
+
+@router.get("/profiles")
+def profiles_list():
+    """Every profile on this machine + which one is active. `active_id: null`
+    means the launch screen must interrupt (several profiles and none chosen,
+    or none at all)."""
+    try:
+        active_id = config.active_profile().profile_id
+    except profiles_mod.ProfileError:
+        active_id = None
+    dirs = [p for p in sorted(profiles_mod.PROFILES_DIR.iterdir())
+            if p.is_dir() and not p.name.startswith("_")] \
+        if profiles_mod.PROFILES_DIR.exists() else []
+    out = [_profile_summary(d, active_id) for d in dirs]
+    if not out and active_id == profiles_mod.LEGACY_ID:
+        # pre-migration checkout: surface the repo-root layout as one profile
+        prof = _read_yaml(profiles_mod.REPO_DIR / "user_profile.yaml")
+        out = [{"id": active_id,
+                "name": (prof.get("full_name") or "").strip() or "This machine",
+                "applications": 0, "completeness": 0, "resume": True,
+                "last_used": None, "created": None, "active": True}]
+    return {"profiles": out, "active_id": active_id}
+
+
+class ProfileSelect(BaseModel):
+    id: str
+
+
+@router.post("/profiles/activate")
+def profiles_activate(body: ProfileSelect):
+    """Switch the active profile: persist the machine default and re-resolve
+    every lazily-bound config path in this process. Spawned chat sessions
+    inherit the env var, and the MCP server picks up applyer.local.json on its
+    next start."""
+    pid = body.id.strip()
+    root = profiles_mod.PROFILES_DIR / pid
+    if pid.startswith("_") or not root.is_dir():
+        raise HTTPException(404, f"profile '{pid}' not found")
+    profiles_mod.LOCAL_CONFIG_PATH.write_text(
+        json.dumps({"profile": pid}, indent=2) + "\n", encoding="utf-8")
+    os.environ["JOB_APPLIER_PROFILE"] = pid
+    profiles_mod.reset()
+    return profiles_list()
+
+
+class ProfileCreate(BaseModel):
+    name: str
+
+
+@router.post("/profiles")
+def profiles_create(body: ProfileCreate):
+    """New profile = copy of the tracked profiles/_template, named, activated."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "a name is required")
+    pid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "profile"
+    root = profiles_mod.PROFILES_DIR / pid
+    if root.exists():
+        raise HTTPException(409, f"profile '{pid}' already exists")
+    template = profiles_mod.PROFILES_DIR / "_template"
+    if not template.is_dir():
+        raise HTTPException(500, "profiles/_template is missing from this checkout")
+    shutil.copytree(template, root)
+    ppath = root / "profile.yaml"
+    if ppath.exists():
+        text = ppath.read_text(encoding="utf-8")
+        first, _, last = name.partition(" ")
+        for key, value in (("full_name", name), ("first_name", first),
+                           ("last_name", last.strip())):
+            text = _set_profile_fact(text, key, value)
+        ppath.write_text(text, encoding="utf-8")
+    return profiles_activate(ProfileSelect(id=pid))
+
+
+# --------------------------------------------------------------------------- #
+# EEO self-identification — statuses only; values never leave the server
+# --------------------------------------------------------------------------- #
+EEO_FIELDS = [
+    ("gender", "Gender"),
+    ("race_ethnicity", "Race / ethnicity"),
+    ("hispanic_latino", "Hispanic or Latino"),
+    ("veteran_status", "Veteran status"),
+    ("disability_status", "Disability"),
+]
+
+_PREFER_NOT_RE = re.compile(r"decline|prefer not|don'?t wish|not to answer", re.I)
+
+
+@router.get("/eeo")
+def eeo_status():
+    """Which voluntary self-ID questions are answered in the profile's
+    local-only eeo.yaml — Set / Prefer not to say / Not set. The values
+    themselves are never returned by any endpoint."""
+    data = _read_yaml(config.EEO_PATH)
+    fields = []
+    for key, label in EEO_FIELDS:
+        raw = data.get(key)
+        value = raw.get("value") if isinstance(raw, dict) else raw
+        s = str(value or "").strip()
+        state = ("not_set" if not s
+                 else "prefer_not" if _PREFER_NOT_RE.search(s) else "set")
+        fields.append({"key": key, "label": label, "status": state})
+    return {"present": any(f["status"] != "not_set" for f in fields),
+            "fields": fields}
+
+
+class EEOUpdate(BaseModel):
+    values: dict[str, str]
+
+
+@router.put("/eeo")
+def eeo_update(body: EEOUpdate):
+    """Write self-ID answers to the local-only eeo.yaml. Only keys present in
+    the body are touched; an empty string clears that answer. The edit form
+    never pre-fills, so current values stay off the wire."""
+    valid = {k for k, _ in EEO_FIELDS}
+    bad = [k for k in body.values if k not in valid]
+    if bad:
+        raise HTTPException(400, f"unknown EEO keys: {bad}")
+    data = _read_yaml(config.EEO_PATH)
+    for key, value in body.values.items():
+        value = value.strip()
+        if value:
+            data[key] = {"value": value, "eeo": True}
+        else:
+            data.pop(key, None)
+    if data:
+        header = (
+            "# Voluntary EEO self-identification — LOCAL-ONLY.\n"
+            "# Merged into the profile at read time; never synced or uploaded,\n"
+            "# never written to answer history or the application log.\n")
+        config.EEO_PATH.write_text(
+            header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+            encoding="utf-8")
+    elif config.EEO_PATH.exists():
+        config.EEO_PATH.unlink()
+    return eeo_status()
+
+
+@router.delete("/eeo")
+def eeo_remove():
+    """Delete the local eeo.yaml outright — the agent then leaves voluntary
+    self-ID sections blank."""
+    if config.EEO_PATH.exists():
+        config.EEO_PATH.unlink()
+    return eeo_status()
+
+
+# --------------------------------------------------------------------------- #
+# cloud account (M2/JOB-86 — no cloud service yet, answer honestly)
+# --------------------------------------------------------------------------- #
+@router.get("/account")
+def account():
+    return {"linked": False,
+            "note": "Cloud sync ships with the hosted backend (M2). "
+                    "Local-only is a fully supported end state."}
+
+
+class TokenVerify(BaseModel):
+    token: str
+
+
+@router.post("/account/verify")
+def account_verify(body: TokenVerify):
+    # applyer.app doesn't exist yet (JOB-86): there is nothing to contact, so
+    # report the service unreachable rather than pretending to verify.
+    return {"ok": False, "reason": "unreachable",
+            "detail": "Applyer's cloud service isn't live yet — keep "
+                      "everything on this device for now."}
+
+
+# --------------------------------------------------------------------------- #
+# uploads (resume → profile root, knowledge docs → context/)
 # --------------------------------------------------------------------------- #
 _RESUME_EXTS = {".pdf", ".docx", ".txt"}
 _CONTEXT_EXTS = set(_CONTEXT_KINDS)
+
+
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_PHONE_RE = re.compile(
+    r"(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}")
+
+
+def _resume_prefill(text: str) -> dict[str, str]:
+    """Instant regex-level prefill from the résumé text (email/phone) — the
+    wizard shows these as found-fact chips the moment the upload lands."""
+    out = {}
+    if m := _EMAIL_RE.search(text):
+        out["email"] = m.group(0)
+    if m := _PHONE_RE.search(text):
+        out["phone"] = m.group(0).strip()
+    return out
 
 
 @router.post("/upload/resume")
@@ -398,11 +639,18 @@ async def upload_resume(file: UploadFile):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in _RESUME_EXTS:
         raise HTTPException(400, f"resume must be one of {sorted(_RESUME_EXTS)}")
-    dest = config.BASE_DIR / f"resume{ext}"
+    dest = config.active_profile().root / f"resume{ext}"
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     synced = config.sync_resume_text_from_pdf() if ext == ".pdf" else False
-    return {"saved": dest.name, "text_synced": synced}
+    text = ""
+    if ext == ".txt":
+        text = dest.read_text(encoding="utf-8", errors="replace")
+    elif config.RESUME_TEXT_PATH.exists():
+        text = config.RESUME_TEXT_PATH.read_text(encoding="utf-8",
+                                                 errors="replace")
+    return {"saved": dest.name, "text_synced": synced,
+            "prefill": _resume_prefill(text)}
 
 
 @router.post("/upload/context")
@@ -415,6 +663,91 @@ async def upload_context(file: UploadFile):
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     return {"saved": name, "context_files": _context_files()}
+
+
+class ContextPaste(BaseModel):
+    title: str = ""
+    text: str
+    kind: str = "pasted"  # 'pasted' (past answers) | 'story' (told here)
+
+
+@router.post("/context/paste")
+def context_paste(body: ContextPaste):
+    """Wizard step 4: pasted past answers / stories land in the knowledge base
+    as markdown files — immediately searchable (search_context scans live)."""
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "nothing to add")
+    prefix = "story" if body.kind == "story" else "pasted"
+    stem = re.sub(r"[^A-Za-z0-9]+", "-", body.title.strip()).strip("-")[:60]
+    base = f"{prefix}-{stem}" if stem else \
+        f"{prefix}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    dest = config.CONTEXT_DIR / f"{base}.md"
+    n = 2
+    while dest.exists():
+        dest = config.CONTEXT_DIR / f"{base}-{n}.md"
+        n += 1
+    title = body.title.strip() or ("A story" if body.kind == "story"
+                                   else "Pasted answer")
+    dest.write_text(f"# {title}\n\n{text}\n", encoding="utf-8")
+    return {"saved": dest.name, "context_files": _context_files()}
+
+
+@router.delete("/context/{name}")
+def context_delete(name: str):
+    clean = Path(name).name
+    target = config.CONTEXT_DIR / clean
+    if clean != name or target.suffix.lower() not in _CONTEXT_EXTS \
+            or not target.is_file():
+        raise HTTPException(404, "no such context file")
+    target.unlink()
+    return {"removed": clean, "context_files": _context_files()}
+
+
+# --------------------------------------------------------------------------- #
+# bug reports — append-only JSONL the daily dev-loop agent triages. Repo-level
+# data/ (not per-profile): bugs are about the app, not the person applying.
+# --------------------------------------------------------------------------- #
+class BugReport(BaseModel):
+    text: str
+    page: str = ""
+
+
+@router.post("/bug-report")
+def bug_report(body: BugReport):
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "nothing to report")
+    try:
+        profile_id = profiles_mod.active().profile_id
+    except Exception:
+        profile_id = None
+    rec = {
+        "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "profile": profile_id,
+        "page": body.page.strip()[:40],
+        "text": text[:4000],
+        "status": "open",
+    }
+    path = config.DATA_DIR / "bug-reports.jsonl"
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return {"saved": True}
+
+
+@router.get("/bug-reports")
+def bug_reports():
+    path = config.DATA_DIR / "bug-reports.jsonl"
+    if not path.exists():
+        return {"reports": []}
+    reports = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            try:
+                reports.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # a torn/corrupt line must not hide the rest
+    return {"reports": reports}
 
 
 # --------------------------------------------------------------------------- #
@@ -474,5 +807,10 @@ def connections():
          "short": "Optional task tracking",
          "desc": "Keeps the JOB-* backlog in sync when the agent completes "
                  "dev tasks. Not needed for applying."},
-    ], "note": "Connect/disconnect is done in Claude Code (/mcp or claude.ai "
-               "connector settings); this page reflects detected status."}
+    ],
+        # The Gmail connector's account email isn't discoverable locally (it
+        # lives in claude.ai connector state). When a future check can read
+        # it, set it here — the wizard's step-7 mismatch drawer keys off it.
+        "gmail_account": None,
+        "note": "Connect/disconnect is done in Claude Code (/mcp or claude.ai "
+                "connector settings); this page reflects detected status."}
