@@ -1,7 +1,7 @@
 import type {
-  AccountStatus, ApplicationRecord, ConnectionsPayload, ContextFile, Criteria,
-  EEOStatus, Posting, PostingDetail, Profile, ProfilesPayload, Status,
-  TokenVerifyResult, WatchlistCompany,
+  AccountStatus, ApplicationRecord, ApplicationStats, ConnectionsPayload,
+  ContextFile, Criteria, EEOStatus, Posting, PostingDetail, Profile,
+  ProfilesPayload, Status, TokenVerifyResult, WatchlistCompany,
 } from './types'
 
 async function get<T>(path: string): Promise<T> {
@@ -30,8 +30,15 @@ export const fetchPostings = () =>
     postings: Posting[]; last_refresh: string | null; note?: string
     hidden_by_criteria?: number
   }>('/api/postings')
+// `stats` stays optional so callers that only want the array keep typechecking.
 export const fetchApplications = () =>
-  get<{ applications: ApplicationRecord[] }>('/api/applications')
+  get<{ applications: ApplicationRecord[]; stats?: ApplicationStats }>('/api/applications')
+
+// Records the company's response on one application (JOB-107). `key` is the
+// opaque identity the GET stamps on each row — never construct one client-side.
+export const setApplicationOutcome = (key: string, outcome: string, outcome_date = '') =>
+  send<{ application: ApplicationRecord; stats: ApplicationStats }>(
+    '/api/applications/outcome', 'POST', { key, outcome, outcome_date })
 export const fetchProfile = () => get<Profile>('/api/profile')
 export const fetchWatchlist = () => get<{ companies: WatchlistCompany[] }>('/api/watchlist')
 export const fetchConnections = () => get<ConnectionsPayload>('/api/connections')

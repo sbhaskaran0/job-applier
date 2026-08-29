@@ -19,7 +19,8 @@ import yaml
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from src import config, profiles as profiles_mod, refresh as refresh_job, store
+from src import (config, data as appdata, profiles as profiles_mod,
+                 refresh as refresh_job, store)
 from src.providers.watchlist import add_company, detect_ats_slug, get_posting
 
 router = APIRouter(prefix="/api")
@@ -112,9 +113,67 @@ async def posting_detail(url: str):
     return got
 
 
+def _application_key(a: dict) -> str:
+    """Opaque row identity the UI hands back to the outcome endpoint. It is the
+    apply path's own dedupe key (`src.data._application_key`) joined on "|" —
+    safe as a single string because `_normalize` strips everything outside
+    `[a-z0-9 ]`, so no part can ever contain the separator. The UI must treat it
+    as opaque; the server resolves it by recomputing the key for each record
+    rather than parsing it back into fields."""
+    return "|".join(appdata._application_key(
+        a.get("company", ""), a.get("job_title", ""), a.get("url", "")))
+
+
+def _application_row(a: dict) -> dict:
+    """One applications-table row: the stored record plus the JOB-107 outcome
+    keys defaulted and its `key` stamped on. Built as a SHALLOW COPY on purpose
+    — a GET must never write defaults back into the dicts config handed us, so
+    records on disk keep exactly the shape the apply flow wrote (no `outcome`
+    key at all on everything logged before outcomes existed)."""
+    return {**a,
+            "outcome": a.get("outcome") or "none",
+            "outcome_date": a.get("outcome_date") or "",
+            "key": _application_key(a)}
+
+
 @router.get("/applications")
 def applications():
-    return {"applications": config.load_applications()}
+    records = config.load_applications()
+    return {"applications": [_application_row(a) for a in records
+                             if isinstance(a, dict)],
+            "stats": appdata.application_outcome_stats(records)}
+
+
+class OutcomeSet(BaseModel):
+    key: str
+    outcome: str
+    outcome_date: str = ""
+
+
+@router.post("/applications/outcome")
+def set_outcome(body: OutcomeSet):
+    """Record whether the company ever replied. The key travels in the BODY, not
+    the path: `_application_key` falls back to the normalized URL when
+    (company, title) is incomplete, and that fallback contains `://` and `/` —
+    Starlette percent-decodes the path before routing, so an encoded key could
+    never survive a single-segment `{key}` match."""
+    if body.outcome not in appdata.APPLICATION_OUTCOMES:
+        raise HTTPException(
+            400, f"outcome must be one of {list(appdata.APPLICATION_OUTCOMES)}")
+    records = config.load_applications()
+    target = next((a for a in records if isinstance(a, dict)
+                   and _application_key(a) == body.key), None)
+    if target is None:
+        raise HTTPException(404, f"no application matches key {body.key!r}")
+    result = appdata.set_application_outcome(
+        company=target.get("company", ""), job_title=target.get("job_title", ""),
+        url=target.get("url", ""), outcome=body.outcome,
+        outcome_date=body.outcome_date)
+    if result.get("status") != "updated":
+        raise HTTPException(400, result.get("reason", result.get("status", "")))
+    return {"application": _application_row(result["application"]),
+            "stats": appdata.application_outcome_stats(
+                config.load_applications())}
 
 
 # --------------------------------------------------------------------------- #

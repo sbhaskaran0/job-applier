@@ -48,6 +48,29 @@ export interface ApplicationRecord {
   date: string
   status: 'submitted' | 'manual_submission' | 'attempted' | 'parked' | string
   fields?: { question: string; answer: string }[]
+  // JOB-107: orthogonal to `status` — did the company ever come back? Optional
+  // because records logged before outcomes existed carry neither field; every
+  // reader defaults a missing outcome to 'none'.
+  outcome?: string
+  outcome_date?: string
+  // Opaque row identity stamped by the API; the target of a POST /applications/outcome.
+  key?: string
+}
+
+export interface ApplicationCompanyStats {
+  submitted: number
+  responded: number
+  by_outcome: Record<string, number>
+}
+
+export interface ApplicationStats {
+  total: number
+  submitted: number
+  responded: number
+  // responded / submitted as a fraction. 0.0 is a real answer, not "no data".
+  response_rate: number
+  by_outcome: Record<string, number>
+  by_company: Record<string, ApplicationCompanyStats>
 }
 
 export interface WatchlistCompany {
