@@ -401,4 +401,31 @@ flowchart TD
     SHELL -->|"profile has no<br/>name/email yet"| WIZ["8-step setup wizard<br/>auto-opens · dismissible · resumable<br/>(steps are data-driven — the PAT step<br/>deletes cleanly when Google auth ships)"]
 ```
 
+## Continuous integration (merge-damage guard)
+
+`.github/workflows/ci.yml` runs on every push to `main` and every PR. It exists
+because PR #11 auto-merged two branches that had edited the **same import
+lines**: git resolved them line-wise with no conflict, silently dropping
+`profiles as profiles_mod` from `server/data_api.py` (every `/api/profiles`
+request 500'd — the launch screen above rendered empty and "New profile" had
+nothing behind it) and half-merging `store.yield_stats()`. Neither is a syntax
+error, so a syntax check passes on both; the undefined-name check is what
+catches them.
+
+```mermaid
+flowchart TD
+    P["push to main / PR"] --> B["backend job"]
+    P --> F["frontend job"]
+    B --> PF["pyflakes → undefined name?<br/>catches a dropped import or<br/>a half-merged function"]
+    PF -->|"hit"| X(["fail"])
+    PF -->|"clean"| SY["compileall — syntax"]
+    SY --> T["tests/test_*.py<br/>(standalone; each exits non-zero on failure)"]
+    F --> TS["npm ci → npm run build<br/>tsc -b catches duplicate/missing imports"]
+    T --> OK(["pass"])
+    TS --> OK
+```
+
+A dropped function that nothing calls yet (`store.yield_history()`, also lost in
+that merge) is invisible to all of these — only review catches it.
+
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**
