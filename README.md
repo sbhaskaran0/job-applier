@@ -37,8 +37,12 @@ Open this project in Claude Code and reload it (loads `.mcp.json`), then:
   per run — nothing is ever autonomous unless you say so. See
   [the autonomous flow](#autonomous-mode-hands-off-per-run) below.
 
-Edit `user_profile.yaml`, `job_criteria.yaml`, `watchlist.yaml`, `resume.txt`
-(+ optional `resume.pdf`), and `context/` to make it yours.
+All personal data lives in a **profile** under `profiles/<your-id>/` (facts,
+criteria, resume, knowledge base, history, application log — see
+[Profiles](#profiles-per-user-data) below). Copy
+[profiles/_template/](profiles/_template/) to `profiles/<your-id>/`, fill it
+in, and you're set; `watchlist.yaml` (the shared company list) stays at the
+repo root.
 
 Optionally, keep the job corpus warm without a Claude session:
 
@@ -46,14 +50,47 @@ Optionally, keep the job corpus warm without a Claude session:
 python -m src.refresh    # fetch all boards → data/postings.db + data/digest-latest.md
 ```
 
-> **⚠️ EEO / self-identification data:** `user_profile.yaml` may contain
-> voluntary EEO self-identification values (gender, race/ethnicity,
-> Hispanic/Latino status, veteran status, disability status), each marked with
-> `eeo: true`. This is sensitive demographic data: it lives in plain text in
-> this repo, and when present the agent will auto-answer the corresponding
-> *voluntary* self-ID sections on applications. Providing it is always
-> optional — delete the values to have those sections left blank instead. EEO
-> answers are never written to the answer history or the application log.
+> **⚠️ EEO / self-identification data:** a profile may contain voluntary EEO
+> self-identification values (gender, race/ethnicity, Hispanic/Latino status,
+> veteran status, disability status) in a **separate, local-only
+> `profiles/<id>/eeo.yaml`** — gitignored, merged into the profile at read
+> time, and never synced or uploaded anywhere. When present the agent
+> auto-answers the corresponding *voluntary* self-ID sections on applications.
+> Providing it is always optional — delete the values (or use **Remove all**
+> on the Applyer Profile page) to have those sections left blank instead.
+> The web UI only ever shows *which* questions are answered, never the
+> answers. EEO answers are never written to the answer history or the
+> application log.
+
+## Profiles (per-user data)
+
+Everything personal is scoped to a profile directory — the repo itself carries
+no user data, so it can be cloned by anyone. The active profile is resolved
+once per process: an env var for per-session overrides, a local selection file
+for the machine default, or simply the only profile present. Legacy
+(pre-profile) checkouts keep working until `scripts/migrate_profile.py` moves
+their root-level files into `profiles/<id>/`.
+
+```mermaid
+flowchart TD
+    subgraph RES["src/profiles.py — active-profile resolution (per process)"]
+        E["JOB_APPLIER_PROFILE env var<br/>(webapp session / tests)"] --> A["ActiveProfile"]
+        L["applyer.local.json<br/>{profile: id} — per machine, gitignored"] --> A
+        S["exactly one dir under profiles/"] --> A
+        G["legacy fallback: user_profile.yaml<br/>still at repo root (pre-migration)"] --> A
+    end
+    A --> P["profiles/&lt;id&gt;/<br/>profile.yaml · criteria.yaml · resume.* ·<br/>context/ · data/history.json ·<br/>data/applications.json · data/prep/ ·<br/>resumes/&lt;job-slug&gt;/ · runtime/"]
+    A --> EO["eeo.yaml — LOCAL-ONLY<br/>merged at read time,<br/>never synced or uploaded"]
+    SH["shared, repo-level:<br/>watchlist.yaml · data/postings.db ·<br/>location_aliases.yaml · discovery.yaml"] -.-> Q["all src/ + server/ code reads<br/>config.* paths — resolved lazily<br/>through the active profile"]
+    P -.-> Q
+    T["profiles/_template/ (tracked)"] -- "copy + fill in<br/>(new user)" --> P
+    M["scripts/migrate_profile.py<br/>(one-time, legacy checkout)"] --> P
+```
+
+The browser now runs a **persistent Chromium profile** per user
+(`profiles/<id>/runtime/browser/`), so ATS logins survive restarts and the
+anti-bot fingerprint stays stable instead of resetting every run. Screenshots
+land under the profile's `runtime/` too.
 
 ## How jobs are discovered
 
@@ -67,7 +104,7 @@ deep-reads.
 ```mermaid
 flowchart TD
     subgraph ING["python -m src.refresh — pure Python, no LLM, scheduler-friendly"]
-        B["~67 watchlist boards<br/>public Greenhouse/Lever/Ashby APIs"] --> N["normalize<br/>(ats, slug, job_id)"]
+        B["~79 watchlist boards<br/>public Greenhouse/Lever/Ashby APIs"] --> N["normalize<br/>(ats, slug, job_id)"]
         N --> X["extract once per posting:<br/>salary from JD text · min-years (advisory)<br/>· excluded-seniority flag · locations →<br/>canonical tokens + work_mode<br/>(regex + location_aliases.yaml)"]
         X --> DB[("data/postings.db<br/>first_seen · last_seen · removed_at<br/>(removals only from boards that fetched OK)")]
         DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield per company"]
@@ -199,7 +236,7 @@ flowchart TD
 The job folder is keyed off the **same `(company, role)` identity**
 `applications.json` dedupes on, so `/apply-to-job` and `/apply-batch`
 automatically use the tailored artifacts when they exist and the default resume
-otherwise. Drop a `resume.docx` in the project root to enable resume tailoring
+otherwise. Drop a `resume.docx` in your profile directory to enable resume tailoring
 (the cover-letter half works from `context/` alone). PDF export is
 cross-platform: it uses Microsoft Word when present (Windows or macOS) and
 falls back to LibreOffice (`soffice`, any OS, no Word needed); if neither is
@@ -288,10 +325,11 @@ scripts\webapp.cmd                     # serves http://localhost:8765 and opens 
 ```mermaid
 flowchart LR
     subgraph UI["frontend/ — React SPA (Vite, TS)"]
+        LS["Launch screen + profile switcher<br/>(who's applying?)"]
         J["Jobs chat + watchlist rail"]
-        P["Postings (filters · JD modal ·<br/>refresh → select → queue)"]
+        P["Postings (criteria banner · filters ·<br/>JD modal · refresh → select → queue)"]
         A["Applications monitor"]
-        PR["Profile + onboarding<br/>+ job-criteria editor"]
+        PR["Profile (header · EEO · criteria ·<br/>cloud account) + 8-step wizard"]
         CN["Connections"]
     end
     subgraph BE["server/ — FastAPI :8765"]
@@ -308,15 +346,56 @@ flowchart LR
 
 The Postings page filters roles by title, location (normalized tokens — "SF"
 and "San Francisco, CA" match together), YoE/salary ranges, and posted date;
-a chevron opens the full JD in a modal, and a **Refresh** button runs the same
-board sweep as `python -m src.refresh` right from the UI. Selecting postings
-and confirming the apply modal launches a **real** `/apply-batch` (the
-autonomous variant shows an explicit warning modal first). Write-back from the
-UI is deliberately narrow: watchlist add (same logic as `add_company`),
-whitelisted profile string facts (comment-preserving edits to
-`user_profile.yaml`; EEO entries are never shown or written), the job-criteria
-card on Profile (comment-preserving edits to `job_criteria.yaml`), and resume /
-context uploads. Connections is status-only — authorization still happens in
+a **criteria banner** above the list names whose criteria scope the feed and
+how many roles they hide; a chevron opens the full JD in a modal, and a
+**Refresh** button runs the same board sweep as `python -m src.refresh` right
+from the UI. Selecting postings and confirming the apply modal launches a
+**real** `/apply-batch` (the autonomous variant shows an explicit warning
+modal first). Write-back from the UI is deliberately narrow: watchlist add
+(same logic as `add_company`), whitelisted profile string facts
+(comment-preserving edits to the active profile's `profile.yaml`), the
+job-criteria card on Profile (comment-preserving edits to the profile's
+`criteria.yaml`), resume / context uploads (incl. pasted answers/stories from
+the wizard), profile create/switch (below), and the EEO self-ID card —
+**write-only**: the UI shows which questions are answered, the edit form
+always starts blank, and the values themselves never leave the local
+`eeo.yaml`. Connections is status-only — authorization still happens in
 Claude Code.
+
+The UI is **profile-aware end to end** (the design handoff's profile-system
+round-trip): a launch screen when no profile is active, a sidebar profile
+switcher with a confirm step, and an 8-step setup wizard that auto-opens on
+an incomplete profile. A **Report bug** button in the sidebar logs issues to
+a local `data/bug-reports.jsonl` for the nightly improvement loop to triage.
+
+## Metrics instrumentation (feeds the autonomous dev loop)
+
+The app records the health signals a daily improvement agent (the external
+**dev-loop** repo) evaluates each morning. All of it is local and passive:
+
+```mermaid
+flowchart LR
+    RF["python -m src.refresh<br/>(daily 09:00)"] --> RR[("refresh_runs<br/>+ new_qualifying ·<br/>new_title_matched (v3)")]
+    RR --> YH["store.yield_history(days)<br/>per-day sourcing yield"]
+    UI["Applyer UI<br/>Report bug button"] --> BR[("data/bug-reports.jsonl<br/>ts · profile · page · status")]
+    CC["any Claude Code session<br/>in this repo"] -- "Stop hook<br/>scripts/token_report.py" --> TU[("profiles/&lt;id&gt;/data/<br/>token_usage.jsonl<br/>per-session cost @ real model rates")]
+    WS["webapp chat turns<br/>(Agent SDK ResultMessage)"] --> TU
+    APPS[("applications.json<br/>(submits — success ledger)")] --> LOOP
+    YH --> LOOP["dev-loop repo:<br/>morning evaluation →<br/>Linear stories → PRs"]
+    BR --> LOOP
+    TU --> LOOP
+```
+
+```mermaid
+flowchart TD
+    L["app load → GET /api/profiles"] -->|"a profile is active"| SHELL["app shell — every page<br/>scoped to the active profile"]
+    L -->|"no active profile<br/>(several and none chosen, or none)"| LS["launch screen<br/>“Who's applying?”"]
+    LS -->|"pick a tile"| ACT["POST /api/profiles/activate<br/>writes applyer.local.json ·<br/>re-resolves every config path in place"]
+    LS -->|"New profile"| NEW["POST /api/profiles<br/>copy profiles/_template → name it"]
+    NEW --> ACT
+    ACT --> SHELL
+    SHELL -->|"sidebar switcher →<br/>one confirm"| ACT
+    SHELL -->|"profile has no<br/>name/email yet"| WIZ["8-step setup wizard<br/>auto-opens · dismissible · resumable<br/>(steps are data-driven — the PAT step<br/>deletes cleanly when Google auth ships)"]
+```
 
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**

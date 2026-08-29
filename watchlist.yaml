@@ -220,3 +220,43 @@ companies:
   - name: TRM Labs         # blockchain intelligence
     ats: ashby
     slug: trm-labs
+
+  # --- Discovery adoptions 2026-07-24 (fresh drained-queue run; ≥2 qualifying
+  #     roles each, plus Decagon/Mistral for AI title-match depth — all
+  #     confirmed live by src.refresh, 0 boards failed) ---
+  - name: Headway          # mental-health provider network (Staff PM $260k+)
+    ats: ashby
+    slug: headway
+  - name: Flock Safety     # public-safety hardware/software
+    ats: ashby
+    slug: Flock%20Safety
+  - name: Yuno             # payments orchestration fintech
+    ats: lever
+    slug: yuno
+  - name: ClickUp          # productivity SaaS
+    ats: ashby
+    slug: clickup
+  - name: Cursor           # AI coding tooling
+    ats: ashby
+    slug: cursor
+  - name: Turquoise Health # healthcare price transparency
+    ats: ashby
+    slug: turquoise-health
+  - name: Kong             # API gateway / infra
+    ats: ashby
+    slug: kong
+  - name: HappyRobot       # AI logistics automation
+    ats: ashby
+    slug: happyrobot.ai
+  - name: SentiLink        # identity-fraud / fintech
+    ats: ashby
+    slug: sentilink
+  - name: Splice           # music-creation platform
+    ats: greenhouse
+    slug: splice
+  - name: Decagon          # AI customer-support agents
+    ats: ashby
+    slug: decagon
+  - name: Mistral AI       # frontier AI lab
+    ats: ashby
+    slug: mistral.ai

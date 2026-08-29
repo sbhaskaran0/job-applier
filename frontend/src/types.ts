@@ -48,6 +48,29 @@ export interface ApplicationRecord {
   date: string
   status: 'submitted' | 'manual_submission' | 'attempted' | 'parked' | string
   fields?: { question: string; answer: string }[]
+  // JOB-107: orthogonal to `status` — did the company ever come back? Optional
+  // because records logged before outcomes existed carry neither field; every
+  // reader defaults a missing outcome to 'none'.
+  outcome?: string
+  outcome_date?: string
+  // Opaque row identity stamped by the API; the target of a POST /applications/outcome.
+  key?: string
+}
+
+export interface ApplicationCompanyStats {
+  submitted: number
+  responded: number
+  by_outcome: Record<string, number>
+}
+
+export interface ApplicationStats {
+  total: number
+  submitted: number
+  responded: number
+  // responded / submitted as a fraction. 0.0 is a real answer, not "no data".
+  response_rate: number
+  by_outcome: Record<string, number>
+  by_company: Record<string, ApplicationCompanyStats>
 }
 
 export interface WatchlistCompany {
@@ -68,6 +91,12 @@ export interface Connection {
   desc: string
 }
 
+export interface ConnectionsPayload {
+  connections: Connection[]
+  gmail_account: string | null
+  note: string
+}
+
 export interface ContextFile {
   name: string
   kind: string
@@ -81,6 +110,57 @@ export interface Profile {
   resume_pdf: boolean
   resume_docx: boolean
   context_files: ContextFile[]
+  profile_id: string
+  profile_dir: string
+  created: string
+}
+
+export interface ProfileSummary {
+  id: string
+  name: string
+  applications: number
+  completeness: number
+  resume: boolean
+  last_used: string | null
+  created: string | null
+  active: boolean
+}
+
+export interface ProfilesPayload {
+  profiles: ProfileSummary[]
+  active_id: string | null
+}
+
+export type EEOFieldStatus = 'set' | 'prefer_not' | 'not_set'
+
+export interface EEOStatus {
+  present: boolean
+  fields: { key: string; label: string; status: EEOFieldStatus }[]
+}
+
+export interface AccountDevice {
+  label: string
+  created: string
+  last_used: string
+  current: boolean
+}
+
+export interface AccountStatus {
+  linked: boolean
+  email?: string
+  provider?: string
+  offline?: boolean
+  last_synced?: string
+  devices?: AccountDevice[]
+  note?: string
+}
+
+export interface TokenVerifyResult {
+  ok: boolean
+  reason?: 'invalid' | 'unreachable' | string
+  detail?: string
+  email?: string
+  device_label?: string
 }
 
 export interface Status {
