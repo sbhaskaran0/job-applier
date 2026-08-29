@@ -119,7 +119,13 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `list_postings_from_store` (union locations, most-flexible work mode).
   `posting_description(url)` serves the Applyer JD modal. Also the discovery
   `candidate_boards` ledger (PK `(source, source_key)`) + `count_board_baseline`
-  / `load_candidates` / `upsert_candidate`.
+  / `load_candidates` / `upsert_candidate`. Schema v3/v4 (2026-08-19, JOB-59):
+  `refresh_runs` gained `new_qualifying`/`new_title_matched` (raw, v3) and
+  `new_qualifying_roles`/`new_title_matched_roles` (distinct-role, v4) columns
+  + `yield_history(days)` to read them back per-day; `_role_key()` (company +
+  lowercased title) is now the single dedupe identity shared by
+  `list_postings_from_store`, `count_board_baseline`, and `yield_stats`, all of
+  which count distinct roles rather than raw city-variant rows.
 - `src/providers/locations.py` (JOB-55) — deterministic location normalization:
   raw ATS location strings → canonical city/remote tokens + work_mode
   (regex canonicalization + curated `location_aliases.yaml`; observations

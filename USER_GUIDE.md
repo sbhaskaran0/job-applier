@@ -172,7 +172,10 @@ mass-deletes), and regenerates **`data/digest-latest.md`**:
 - **Board health** — companies whose fetch has failed 3+ consecutive runs
   (stale slug → fix or drop).
 - **Yield per company** — active / title-matched / qualifying counts, the
-  evidence for deciding which boards earn their watchlist slot.
+  evidence for deciding which boards earn their watchlist slot. All three are
+  counted by **distinct role** (company + title) — a role cross-posted to
+  several cities counts once, so these numbers won't add up against the "New
+  postings" list above, which still lists every city variant separately.
 
 **Schedule it daily** so the digest is waiting for you:
 
