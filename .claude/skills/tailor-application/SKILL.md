@@ -29,16 +29,19 @@ they appear on the posting.
 2. **Read the base resume.** Call `read_resume_template()`. It returns the base
    `resume.docx` as an indexed paragraph list (`index`, `text`, `style`,
    `is_bullet`). If it errors that no `resume.docx` exists, **stop and tell the
-   user** to drop a `resume.docx` in the project root (the base template
-   tailoring edits in place) — do the cover letter alone if they still want it.
+   user** to drop a `resume.docx` in the active profile's root (the base
+   template tailoring edits in place) — do the cover letter alone if they still
+   want it.
 
 3. **Plan the resume edits.** Decide which bullets to **reorder** so the most
    JD-relevant experience comes first, which to **re-emphasize** (rewrite to
    foreground the JD's language/metrics — using facts already in the resume),
    which weak/off-target bullets to **drop**, and how to **sharpen the summary**
    for this role. Keep it truthful and grounded in `background.md`
-   (`search_context` for specifics) — get role recency/tense right (M Science is
-   current; Audare AI ended Nov 2025). Don't pad, don't fabricate numbers.
+   (`search_context` for specifics) — get role recency/tense right per the
+   career timeline in the profile's `context/background.md` (present tense only
+   for the current role there; its dates override resume text). Don't pad,
+   don't fabricate numbers.
    - Express edits as ops against the paragraph indexes from step 2:
      `{"op":"replace","index":N,"text":"..."}` to rewrite a paragraph (keeps its
      formatting), `{"op":"delete","index":N}` to remove one. **Reordering** =

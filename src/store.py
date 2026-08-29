@@ -95,27 +95,40 @@ def _apply_locations(conn: sqlite3.Connection, key: tuple,
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Schema v2 (JOB-55): work_mode + posted_at columns and normalized
-    posting_locations, backfilled once from the existing rows."""
-    if conn.execute("PRAGMA user_version").fetchone()[0] >= 2:
-        return
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(postings)")}
-    if "work_mode" not in cols:
-        conn.execute("ALTER TABLE postings ADD COLUMN work_mode TEXT")
-    if "posted_at" not in cols:
-        conn.execute("ALTER TABLE postings ADD COLUMN posted_at TEXT")
-    rows = conn.execute(
-        "SELECT ats, slug, job_id, location, remote, posted FROM postings"
-    ).fetchall()
-    for r in rows:
-        key = (r["ats"], r["slug"], r["job_id"])
-        wm = _apply_locations(conn, key, r["location"], r["remote"])
-        conn.execute(
-            "UPDATE postings SET work_mode=?, posted_at=? "
-            "WHERE ats=? AND slug=? AND job_id=?",
-            (wm, locations.parse_posted(r["posted"]), *key))
-    conn.execute("PRAGMA user_version=2")
-    conn.commit()
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 2:
+        # Schema v2 (JOB-55): work_mode + posted_at columns and normalized
+        # posting_locations, backfilled once from the existing rows.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(postings)")}
+        if "work_mode" not in cols:
+            conn.execute("ALTER TABLE postings ADD COLUMN work_mode TEXT")
+        if "posted_at" not in cols:
+            conn.execute("ALTER TABLE postings ADD COLUMN posted_at TEXT")
+        rows = conn.execute(
+            "SELECT ats, slug, job_id, location, remote, posted FROM postings"
+        ).fetchall()
+        for r in rows:
+            key = (r["ats"], r["slug"], r["job_id"])
+            wm = _apply_locations(conn, key, r["location"], r["remote"])
+            conn.execute(
+                "UPDATE postings SET work_mode=?, posted_at=? "
+                "WHERE ats=? AND slug=? AND job_id=?",
+                (wm, locations.parse_posted(r["posted"]), *key))
+        conn.execute("PRAGMA user_version=2")
+        conn.commit()
+    if version < 3:
+        # Schema v3 (dev-loop metrics): persist per-run sourcing yield.
+        # Historic rows stay NULL — the counts can't be honestly reconstructed
+        # because the criteria in force at the time are unknown.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(refresh_runs)")}
+        if "new_qualifying" not in cols:
+            conn.execute(
+                "ALTER TABLE refresh_runs ADD COLUMN new_qualifying INTEGER")
+        if "new_title_matched" not in cols:
+            conn.execute(
+                "ALTER TABLE refresh_runs ADD COLUMN new_title_matched INTEGER")
+        conn.execute("PRAGMA user_version=3")
+        conn.commit()
 
 
 def _now() -> str:
@@ -271,16 +284,29 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                            for f in json.loads(prev["companies_failed"])}
         failed = [{**e, "consecutive": prev_consec.get(e["company"], 0) + 1}
                   for e in errors]
+        # Per-run sourcing yield (schema v3): of this run's NEW postings, how
+        # many title-match / pass the full baseline under the criteria in
+        # force right now. Previously computed for the digest and discarded.
+        new_title_matched = sum(
+            1 for p in new_rows
+            if _title_matches(p.get("title", ""),
+                              criteria.get("acceptable_titles")))
+        new_qualifying = sum(
+            1 for p in new_rows if passes_baseline(p, criteria)[0])
         conn.execute(
             "INSERT INTO refresh_runs (run_at, total_scanned, new_count, "
-            "removed_count, relisted_count, companies_ok, companies_failed) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "removed_count, relisted_count, companies_ok, companies_failed, "
+            "new_qualifying, new_title_matched) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (now, len(postings), len(new_rows), removed, relisted,
-             len(config.load_watchlist()) - len(failed), json.dumps(failed)))
+             len(config.load_watchlist()) - len(failed), json.dumps(failed),
+             new_qualifying, new_title_matched))
         conn.commit()
         return {"run_at": now, "total_scanned": len(postings),
                 "new_count": len(new_rows), "removed_count": removed,
                 "relisted_count": relisted, "new_rows": new_rows,
+                "new_qualifying": new_qualifying,
+                "new_title_matched": new_title_matched,
                 "companies_failed": failed}
     finally:
         conn.close()
@@ -305,11 +331,16 @@ def _location_ok(row: dict, baseline: dict) -> bool:
 
 def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
     """(passes, reason-if-not). Salary rule: a DISCLOSED range whose TOP end is
-    below the floor is dropped; undisclosed passes (flagged elsewhere)."""
+    below the floor is dropped; undisclosed passes (flagged elsewhere).
+    Seniority is computed here from the row's title and THIS baseline's
+    excluded_seniority — never from the stored seniority_flag column, which
+    reflects whichever profile's criteria ran the last refresh."""
     if not _title_matches(row.get("title", ""), baseline.get("acceptable_titles")):
         return False, "title"
-    if row.get("seniority_flag"):
-        return False, f"seniority:{row['seniority_flag']}"
+    flag = extract.seniority_flag(row.get("title", ""),
+                                  baseline.get("excluded_seniority"))
+    if flag:
+        return False, f"seniority:{flag}"
     if not _location_ok(row, baseline):
         return False, "location"
     floor = baseline.get("salary_floor")
@@ -359,9 +390,11 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
     by_key: dict[tuple, dict] = {}
     light: list[dict] = []
     dropped_years = 0
+    failed_baseline = 0
     for r in rows:
         ok, _why = passes_baseline(r, baseline)
         if not ok:
+            failed_baseline += 1
             continue
         if max_years and r.get("min_years") and r["min_years"] > max_years:
             dropped_years += 1
@@ -404,6 +437,7 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         "postings": light, "source": "store",
         "last_refresh": run_at,
         "total_scanned": len(rows), "matched": matched, "returned": len(light),
+        "hidden_by_criteria": failed_baseline,
         "dropped_over_max_years": dropped_years,
         "companies_failed": json.loads(run["companies_failed"]) if run else [],
     }
@@ -502,3 +536,34 @@ def yield_stats() -> list[dict]:
                 s["qualifying"] += 1
     return sorted(stats.values(), key=lambda s: (-s["qualifying"], -s["title_matched"],
                                                  s["company"]))
+
+
+def yield_history(days: int = 30) -> list[dict]:
+    """Per-day sourcing yield from refresh_runs (schema v3), newest first.
+    A day can hold several runs (scheduled + manual): counts are summed,
+    board failures come from the day's last run. new_qualifying is None for
+    days whose runs all predate the v3 column."""
+    conn = connect()
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT rowid, * FROM refresh_runs "
+            "WHERE date(run_at) >= date('now', ?) ORDER BY rowid",
+            (f"-{int(days)} days",))]
+    finally:
+        conn.close()
+    by_day: dict[str, dict] = {}
+    for r in rows:
+        day = (r["run_at"] or "")[:10]
+        d = by_day.setdefault(day, {"date": day, "runs": 0, "new_count": 0,
+                                    "removed_count": 0, "new_qualifying": None,
+                                    "new_title_matched": None,
+                                    "total_scanned": 0, "boards_failed": 0})
+        d["runs"] += 1
+        d["new_count"] += r.get("new_count") or 0
+        d["removed_count"] += r.get("removed_count") or 0
+        d["total_scanned"] = max(d["total_scanned"], r.get("total_scanned") or 0)
+        for k in ("new_qualifying", "new_title_matched"):
+            if r.get(k) is not None:
+                d[k] = (d[k] or 0) + r[k]
+        d["boards_failed"] = len(json.loads(r.get("companies_failed") or "[]"))
+    return sorted(by_day.values(), key=lambda d: d["date"], reverse=True)
