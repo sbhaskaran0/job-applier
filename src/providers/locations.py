@@ -109,6 +109,121 @@ def _aliases() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# work-scope check (JOB-123): is a REMOTE posting scoped somewhere the user
+# cannot work? Deliberately NOT built on normalize() — that pipeline is lossy
+# exactly where this needs signal: it consumes the ", TX" US qualifier, strips
+# the "DE-" board prefix that says Germany, and swallows "India" into a bare
+# "Remote" token, leaving US and foreign locations indistinguishable.
+#
+# So this matches the RAW string against the same vocabulary tables, as a
+# DENY-list that fails open: a location is foreign only when it carries a
+# POSITIVE foreign signal AND no allowed signal. Empty, bare "Remote", and
+# anything unparseable therefore pass by construction — ambiguity never drops
+# a posting.
+# ---------------------------------------------------------------------------
+def _alternation(tokens) -> str:
+    """Longest-first alternation, so "united kingdom" wins over "uk"."""
+    return "|".join(re.escape(t) for t in sorted(tokens, key=len, reverse=True))
+
+
+_ALLOWED_COUNTRY_RE = re.compile(
+    r"\b(us|usa|u\.s\.?a?\.?|united states|america|national)\b", re.I)
+_COUNTRY_TOKEN_RE = re.compile(r"\b(%s)\b" % _alternation(_COUNTRIES), re.I)
+_US_STATE_NAME_RE = re.compile(r"\b(?:%s)\b" % _alternation(_US_STATE_NAMES), re.I)
+# A state ABBREVIATION only counts as a trailing/comma qualifier (", CA",
+# "Wilmington, DE") — never as a leading board prefix, where the "DE-" of
+# "DE-Berlin-Trion Building" is Germany, not Delaware. Matched case-SENSITIVELY
+# on purpose: boards write states uppercase, while the lowercase forms are
+# common English words ("or NS Only" would otherwise read as Oregon).
+_US_STATE_ABBR_RE = re.compile(
+    r",\s*(?:%s)\b(?![-\w])|(?<![-\w])(?:%s)\s*$"
+    % (_alternation(_US_STATE_ABBR), _alternation(_US_STATE_ABBR)))
+# remote scope → the country it resolves to. "" is a region no single country
+# covers; ambiguous scopes ("North America", "Global") are absent here and
+# never count as foreign evidence.
+_SCOPE_COUNTRY = {"Canada": "Canada", "US": "United States",
+                  "UK": "United Kingdom", "Europe": "", "APAC": ""}
+_foreign_metro_re: dict = {}   # allowed-country set -> compiled matcher | None
+
+
+def _foreign_metros(allowed: frozenset):
+    """Matcher for the curated metros sitting OUTSIDE `allowed` (None when
+    every curated metro is allowed). Compiled once per allowed-country set."""
+    if allowed not in _foreign_metro_re:
+        by_country = config.load_foreign_scope().get("metros") or {}
+        metros = [m for country, names in by_country.items()
+                  if country not in allowed for m in names]
+        _foreign_metro_re[allowed] = (
+            re.compile(r"\b(?:%s)\b" % _alternation(metros), re.I)
+            if metros else None)
+    return _foreign_metro_re[allowed]
+
+
+def _countries_in(raw: str) -> set:
+    return {_COUNTRIES[t.lower()] for t in _COUNTRY_TOKEN_RE.findall(raw)
+            if t.lower() in _COUNTRIES}
+
+
+def _derive_allowed(allowed_metros) -> set:
+    """Countries a profile implicitly allows: the US, plus any country already
+    named in locations_allowed / relocation_targets (a profile listing "Canada"
+    as a relocation target implicitly allows Canada)."""
+    allowed = {"United States"}
+    for place in allowed_metros or ():
+        canon = _COUNTRIES.get(str(place).strip().lower())
+        if canon:
+            allowed.add(canon)
+    return allowed
+
+
+def _allowed_signal(raw: str, allowed: set, allowed_metros) -> bool:
+    low = raw.lower()
+    for place in allowed_metros or ():
+        place = str(place).strip().lower()
+        if place and place != "remote" and place in low:
+            return True
+    if _countries_in(raw) & allowed:
+        return True
+    return bool("United States" in allowed
+                and (_ALLOWED_COUNTRY_RE.search(raw)
+                     or _US_STATE_NAME_RE.search(raw)
+                     or _US_STATE_ABBR_RE.search(raw)))
+
+
+def _foreign_signal(raw: str, allowed: set) -> bool:
+    if _countries_in(raw) - allowed:
+        return True
+    for pattern, scope in _REMOTE_SCOPES:
+        country = _SCOPE_COUNTRY.get(scope)
+        if country is None or country in allowed:
+            continue
+        if pattern.search(raw):
+            return True
+    metros = _foreign_metros(frozenset(allowed))
+    return bool(metros and metros.search(raw))
+
+
+def foreign_scope(raw: str, allowed_countries=None, allowed_metros=None) -> bool:
+    """True when a raw location string is positively scoped OUTSIDE the places
+    the user can work — the caller's cue to drop an otherwise-remote posting.
+
+    `allowed_countries` is the baseline's optional knob; when it is None the
+    allowed set derives from `allowed_metros` (the profile's locations_allowed
+    + relocation_targets), so no profile edit is needed. Fails OPEN on every
+    ambiguity: "", "Remote", "Remote - US", "Austin, TX", and any string whose
+    vocabulary we don't recognize all return False.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return False
+    allowed = ({str(c) for c in allowed_countries} if allowed_countries
+               else _derive_allowed(allowed_metros))
+    if _allowed_signal(raw, allowed, allowed_metros):
+        return False
+    return _foreign_signal(raw, allowed)
+
+
+# ---------------------------------------------------------------------------
 # posted-date normalization (Lever = epoch millis, Greenhouse/Ashby = ISO)
 # ---------------------------------------------------------------------------
 def parse_posted(value) -> str | None:

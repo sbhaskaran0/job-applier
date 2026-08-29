@@ -1,0 +1,44 @@
+# Job search configuration for this profile.
+#   search_defaults: used to build searches when you don't override per run.
+#   baseline: the STRICT acceptance bar — a listing is only returned if it
+#             passes every applicable criterion here. Edit these to taste.
+
+search_defaults:
+  # Role phrases to search for, e.g. "Product Manager", "Data Engineer".
+  titles: []
+  # Places to search: city names and/or "Remote".
+  locations: []
+  # Whether to include remote listings when building searches.
+  remote_ok: true
+  # Only consider listings posted within this many days.
+  date_posted_days: 30
+
+baseline:
+  # Title / seniority
+  # Titles that pass the bar (substring match against listing titles). These
+  # double as the watchlist title prefilter — keep them as role phrases
+  # (e.g. "Product Manager"), not bare words like "product" which would match
+  # unrelated sales/engineering titles.
+  acceptable_titles: []
+  # Seniority levels that pass, e.g. ["Mid", "Senior", "Associate", "Manager"].
+  acceptable_seniority: []
+  # Seniority levels rejected outright, e.g. ["Director", "VP", "Intern"].
+  excluded_seniority: []
+
+  # Location / remote
+  # Locations that pass the bar: city names and/or "Remote".
+  locations_allowed: []
+  # Cities you would relocate to — listings there pass even though they are
+  # neither local nor remote. Leave empty for none.
+  relocation_targets: []
+  # Whether fully-remote listings pass the bar.
+  remote_allowed: true
+
+  # Salary floor (USD, annual). A listing with a DISCLOSED salary below this
+  # is dropped; a listing that does not disclose salary is kept but flagged
+  # "salary not listed". 0 = no floor.
+  salary_floor: 0
+
+  # Advisory years-of-experience window shown in the postings UI filters.
+  yoe_min: 0
+  yoe_max: 99

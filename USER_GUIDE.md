@@ -38,8 +38,9 @@ job-applier MCP server (Python, local)
    ├─ Answers   get_profile_field · search_history · save_answer · search_context
    ├─ Criteria  get_search_criteria
    └─ Discovery list_watchlist_postings · get_posting · list_companies · add_company
-Your files: user_profile.yaml · job_criteria.yaml · watchlist.yaml ·
-            resume.txt (+ resume.pdf) · context/*.md · data/history.json
+Your files: profiles/<id>/ — profile.yaml · criteria.yaml · resume.txt
+            (+ resume.pdf) · context/*.md · data/history.json
+Shared:     watchlist.yaml · discovery.yaml · data/postings.db (repo root)
 ```
 
 ---
@@ -53,34 +54,63 @@ playwright install chromium          # the browser the agent drives
 
 Then, in Claude Code, **open this project and reload it** so it loads
 [.mcp.json](.mcp.json). Run `/mcp` — you should see the `job-applier` server with
-**33 tools**.
+**34 tools**.
 
 > Whenever you change code in `src/`, reload Claude Code so the MCP server
 > restarts with the new code.
+
+### Profiles
+
+All personal data lives under `profiles/<your-id>/`; the repo root keeps only
+shared assets (watchlist, discovery config, postings store). Two ways to get a
+profile:
+
+- **New user:** copy the tracked skeleton [profiles/_template/](profiles/_template/)
+  to `profiles/<your-id>/`, fill in `profile.yaml` / `criteria.yaml` / your
+  resume / `context/`, then write `applyer.local.json` at the repo root:
+  `{"profile": "<your-id>"}`.
+- **Existing pre-profile checkout:** run `python scripts/migrate_profile.py` —
+  it moves the legacy repo-root files (`user_profile.yaml`, `job_criteria.yaml`,
+  resume, `context/`, `data/history.json`…) into `profiles/<id>/`.
+
+The active profile resolves in this order: the `JOB_APPLIER_PROFILE` env var
+(per-session override) → `applyer.local.json` → the single
+directory under `profiles/` → the legacy repo-root layout (until you migrate).
+The `get_profile_paths` tool returns the resolved directories. The browser now
+uses a **persistent Chromium profile** under the profile's `runtime/browser/`,
+so cookies/logins survive restarts.
 
 ---
 
 ## 3. Your files (edit these to make it yours)
 
 
+All of these live in your profile directory, `profiles/<id>/` (gitignored —
+personal data never leaves your machine). [watchlist.yaml](watchlist.yaml) is
+the one shared file, at the repo root.
+
 | File                                   | Purpose                                                                                                                                                          |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [user_profile.yaml](user_profile.yaml) | Your exact facts (name, email, phone, location, work auth, links…). Filled fields auto-answer forms. Leave a field `""` to skip it.                              |
-| [resume.txt](resume.txt)               | Resume **text** used for crafting answers.                                                                                                                       |
-| `**resume.pdf`** (add to project root) | The actual file **uploaded** to forms (preferred over `.txt`). On each apply, its text is auto-synced into `resume.txt`.                                         |
-| [context/](context/)                   | Your "knowledge base" — `background.md`, `stories.md`, `preferences.md`, and any `.md` / `.txt` / `**.pdf`** you add. Searched when crafting open-ended answers. |
-| [job_criteria.yaml](job_criteria.yaml) | The strict bar for `/find-jobs`: acceptable titles, seniority, locations/remote, and `salary_floor` (currently **$130k**; mid-level ops titles allowed and `Associate` not excluded, per JOB-26). |
-| [watchlist.yaml](watchlist.yaml)       | The ~67 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04, mid-level S&O/BizOps sources added 2026-07-05 for JOB-26, the 2026-07-12 batch — Harvey, Zip, Abridge, Mixpanel… — and 21 discovery adoptions added 2026-07-13). |
-| [data/history.json](data/history.json) | Past Q&A answers. Grows automatically as you approve crafted answers.                                                                                            |
+| `profiles/<id>/profile.yaml`           | Your exact facts (name, email, phone, location, work auth, links…). Filled fields auto-answer forms. Leave a field `""` to skip it.                              |
+| `profiles/<id>/eeo.yaml`               | **Local-only, voluntary** EEO self-ID (gender, race/ethnicity, veteran, disability). Merged into your profile at read time; never synced, never shown in the webapp. Leave values `""` to skip those form fields. |
+| `profiles/<id>/resume.txt`             | Resume **text** used for crafting answers.                                                                                                                       |
+| `resume.pdf` (add to the profile root) | The actual file **uploaded** to forms (preferred over `.txt`). On each apply, its text is auto-synced into `resume.txt`.                                         |
+| `profiles/<id>/context/`               | Your "knowledge base" — `background.md`, `stories.md`, `preferences.md`, and any `.md` / `.txt` / `**.pdf`** you add. Searched when crafting open-ended answers. |
+| `profiles/<id>/criteria.yaml`          | The strict bar for `/find-jobs`: acceptable titles, seniority, locations/remote, and `salary_floor` (currently **$130k**; mid-level ops titles allowed and `Associate` not excluded, per JOB-26). |
+| [watchlist.yaml](watchlist.yaml)       | **Shared, repo root.** The ~79 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04, mid-level S&O/BizOps sources added 2026-07-05 for JOB-26, the 2026-07-12 batch — Harvey, Zip, Abridge, Mixpanel… — 21 discovery adoptions added 2026-07-13, and 12 more added 2026-07-24 — Headway, Flock Safety, ClickUp, Cursor, Turquoise Health, Kong, SentiLink…). |
+| `profiles/<id>/data/history.json`      | Past Q&A answers. Grows automatically as you approve crafted answers.                                                                                            |
+| [profiles/_template/](profiles/_template/) | Tracked skeleton (`profile.yaml`, `eeo.yaml`, `criteria.yaml`, README) — copy it to `profiles/<your-id>/` to onboard a new user. |
 
 
-**To update your resume:** drop `resume.pdf` in the project root. From then on it's
-uploaded to forms and its text is re-extracted into `resume.txt` at the start of
-every apply. No PDF? Just edit `resume.txt` (it gets uploaded as-is).
+**To update your resume:** drop `resume.pdf` in your profile root
+(`profiles/<id>/`). From then on it's uploaded to forms and its text is
+re-extracted into `resume.txt` at the start of every apply (mtime-guarded — the
+re-extract only runs when the PDF is newer). No PDF? Just edit `resume.txt`
+(it gets uploaded as-is).
 
-**Extra PDFs** (case studies, portfolio) go in [context/](context/) — they're
-indexed for answers, never uploaded. (Text PDFs only; scanned images yield no
-text.)
+**Extra PDFs** (case studies, portfolio) go in the profile's `context/` —
+they're indexed for answers, never uploaded. (Text PDFs only; scanned images
+yield no text.)
 
 ---
 
@@ -97,7 +127,7 @@ What happens:
 1. Reads the **local postings store** (`data/postings.db` — see §5; if the store
   is missing or older than 36h it falls back to a live fetch of every board and
    says so).
-2. The strict baseline from [job_criteria.yaml](job_criteria.yaml) is applied
+2. The strict baseline from your profile's `criteria.yaml` is applied
   **deterministically from stored fields**: acceptable titles, excluded
    seniority (word-bounded, so "Head" can't hide in "Headquarters"),
    location/remote, and salary ≥ your floor **when disclosed** — a disclosed
@@ -105,7 +135,7 @@ What happens:
    kept and flagged `salary_listed: false`.
 3. Each role also carries `min_years` (parsed from the JD — **advisory**, always
   confirmed on finalists), `is_new` (appeared in the latest refresh), and
-   `already_applied` (matched against `data/applications.json`, so you never
+   `already_applied` (matched against the profile's `data/applications.json`, so you never
    re-apply by accident).
 4. **Claude ranks the survivors semantically** against your query (company
   domain is a strong signal — Plaid/Ramp/Coinbase = fintech, OpenAI/Anthropic
@@ -206,7 +236,7 @@ python -m src.discover
 
 1. Enumerates all candidates from the enabled sources (deduped by board).
 2. For each candidate it hasn't seen recently, **fetches that company's ATS
-   board and counts roles passing your `job_criteria.yaml` baseline** — the
+   board and counts roles passing your `criteria.yaml` baseline** — the
    exact same deterministic filter `/find-jobs` uses, so a candidate's
    "qualifying" number is what it would really show once on the watchlist.
 3. Records every result in a **candidate ledger** inside `data/postings.db`
@@ -243,7 +273,7 @@ The watchlist is the universe `/find-jobs` searches — curated for quality.
 board URL) — it detects the ATS and slug and appends the entry.
 - **Remove:** delete the entry from [watchlist.yaml](watchlist.yaml).
 
-Currently ~67 companies — the original seed (Stripe, Figma, Databricks,
+Currently ~79 companies — the original seed (Stripe, Figma, Databricks,
 Airtable, Brex, Mercury, Coinbase, Anthropic, Scale AI, Instacart, Airbnb,
 Robinhood, Samsara, Ramp, Notion, Plaid, Vanta, Linear, OpenAI, Snowflake)
 plus the JOB-26 S&O/BizOps additions, the 2026-07-12 batch (Harvey, Zip,
@@ -264,11 +294,11 @@ is the source of truth.
 The browser opens **visibly** so you can watch and step in. For each field, the
 agent resolves an answer in this order:
 
-1. **Exact profile value** ([user_profile.yaml](user_profile.yaml)) → filled
-  verbatim.
-2. **Similar past answer** ([data/history.json](data/history.json)) → adapted.
-3. **Crafted from your context** (resume + [context/](context/)) → written in your
-  voice.
+1. **Exact profile value** (the profile's `profile.yaml`, incl. the local-only
+  `eeo.yaml` merge) → filled verbatim.
+2. **Similar past answer** (the profile's `data/history.json`) → adapted.
+3. **Crafted from your context** (resume + the profile's `context/`) → written
+  in your voice.
 
 **Confidence gate:** factual/well-supported answers are auto-filled; open-ended or
 uncertain drafts pause and ask you to approve or edit. Approved crafted answers are
@@ -302,8 +332,8 @@ filled form so you can fix the flagged field and submit yourself.
 For applying to several roles in one sitting without sitting through each
 one's prompts. It runs in stages:
 
-1. **Snapshot** — each form's fields + JD are written to `data/prep/`
-  (gitignored) **server-side by `snapshot_job`**, which returns only a compact
+1. **Snapshot** — each form's fields + JD are written to the profile's
+  `data/prep/` **server-side by `snapshot_job`**, which returns only a compact
    receipt (incl. `freetext_count`); the form dumps and JD never enter any
    agent's context.
 2. **Prep, routed by `freetext_count`** — jobs with **no** free-text field
@@ -330,7 +360,7 @@ one's prompts. It runs in stages:
 
 The "never auto-submit" rule is unchanged — consent is just collected once,
 upfront, per job. Only verified submits are logged as `submitted` in
-`data/applications.json`; forms you submit yourself are logged as
+the profile's `data/applications.json`; forms you submit yourself are logged as
 `manual_submission`, and unconfirmed clicks as `attempted`.
 
 ### Autonomous mode — `autonomous <arg>`
@@ -412,15 +442,16 @@ What happens:
    your exact formatting/layout is preserved** (no regeneration from text), then
    exports a PDF for upload.
 2. It drafts a cover letter primarily from **your own past cover letters** in
-  [context/](context/) so it matches **your writing voice** — sentence rhythm,
+  the profile's `context/` so it matches **your writing voice** — sentence rhythm,
    structure, tone — not a generic AI register. The job description supplies only
    the substance. You approve or edit before it's saved.
-3. Both artifacts are stored under `resumes/<job-key>/` (gitignored). The next
+3. Both artifacts are stored under the profile's `resumes/<job-key>/`. The next
   `/apply-to-job` or `/apply-batch` for that exact posting **automatically**
    uploads the tailored resume and attaches/pastes the cover letter; every other
    job still uses the default resume.
 
-**To enable resume tailoring, drop a `resume.docx` in the project root** — the
+**To enable resume tailoring, drop a `resume.docx` in the active profile's
+root** (`profiles/<id>/`) — the
 base template it edits. Without it, the resume half is skipped but the cover
 letter still works. DOCX→PDF export is cross-platform: it uses **Microsoft
 Word** when present (Windows via COM, macOS via AppleScript — Word is installed
@@ -429,7 +460,7 @@ Windows/macOS/Linux with no Word). If neither is installed, the tailored
 `.docx` is still saved for you to export manually.
 
 It never fabricates experience to match a JD — it only reorders, re-emphasizes,
-and trims what's already true in your resume and [context/](context/).
+and trims what's already true in your resume and the profile's `context/`.
 
 ---
 
@@ -449,13 +480,53 @@ Then launch with **`scripts\webapp.cmd`** (or `python -m server`) and open
 | Surface | What it shows / does |
 | --- | --- |
 | **Jobs** | A chat that runs **real Claude Code sessions** in this repo (Agent SDK, your existing auth). Type `/find-jobs fintech strategy` or plain English; tool calls stream in as live run-card steps. The right rail edits the watchlist (`+` calls the same `add_company` logic). |
-| **Postings** | Every baseline-passing role from the local store, with NEW tags, salary, and ATS (already-applied roles are excluded — they live on Applications). A filter card narrows by job title, location (normalized city/remote tokens, so "SF" and "San Francisco, CA" match together), years-of-experience and salary ranges, posted date, and an include-missing-data toggle. The **chevron** next to a title opens the full job description in a modal (from the store when cached, live ATS read otherwise). The **Refresh** button next to the page title runs the same board sweep as `python -m src.refresh` (spinner while running, then a scanned/new/removed summary; a second click during a run is refused). Multi-select → **Apply via Claude Code** launches a real `/apply-batch` with those URLs. The **Autonomous** toggle switches the confirm modal to the amber hands-off variant (explicit "can't be undone" warning). |
-| **Applications** | The tracker from `data/applications.json` — stat cards + status pills (`submitted` / `manual submit` / `attempted` / `parked`). |
-| **Profile** | Your `user_profile.yaml` facts, résumé state, and `context/` knowledge base. "Edit setup" opens a 5-step onboarding that writes whitelisted facts back to the YAML (comments preserved) and uploads résumé/context files. EEO values never appear in the UI and can't be edited from it. Below the facts, a **Job criteria** card edits `job_criteria.yaml` (titles, locations, seniority, salary floor, YoE window, posted-within, remote) with the same comment-preserving write-back — saving re-scopes the Postings page, the digest, and `/find-jobs` immediately. |
+| **Postings** | Every baseline-passing role from the local store, with NEW tags, salary, and ATS (already-applied roles are excluded — they live on Applications). A filter card narrows by job title, location (normalized city/remote tokens, so "SF" and "San Francisco, CA" match together), years-of-experience and salary ranges, posted date, and an include-missing-data toggle. A one-line **criteria banner** above the list names whose criteria scope the feed ("Showing roles matching **Siddharth's criteria** — 8,487 hidden by your criteria") with a jump to the criteria editor; when no criteria are set it says so and offers to set them. The **chevron** next to a title opens the full job description in a modal (from the store when cached, live ATS read otherwise). The **Refresh** button next to the page title runs the same board sweep as `python -m src.refresh` (spinner while running, then a scanned/new/removed summary; a second click during a run is refused). Multi-select → **Apply via Claude Code** launches a real `/apply-batch` with those URLs. The **Autonomous** toggle switches the confirm modal to the amber hands-off variant (explicit "can't be undone" warning). |
+| **Applications** | The tracker from the profile's `data/applications.json` — stat cards + status pills (`submitted` / `manual submit` / `attempted` / `parked`). |
+| **Profile** | Opens on an **active-profile header** (monogram, name, `profiles/<id>` path, created date, completeness bar) above the `profile.yaml` facts, résumé state, and `context/` knowledge base. "Edit setup" opens the **8-step setup wizard** (see below). A **Self-identification card** manages the local-only `eeo.yaml`: it shows only *which* of the five EEO questions are answered (Set / Prefer not to say / Not set) — **the values themselves are never displayed anywhere in the app** — and offers Add / Edit (a form that always starts blank) / Remove all (deletes the file after one confirm). A **Job criteria** card edits the profile's `criteria.yaml` (titles, locations, seniority, salary floor, YoE window, posted-within, remote) with comment-preserving write-back — saving re-scopes the Postings page, the digest, and `/find-jobs` immediately. A **Cloud account card** shows the local-only state (linking ships with the hosted M2 backend; the linked state — Google email, device table, offline pill — is already rendered whenever the API starts reporting it). |
 | **Connections** | Detected status of Claude Code, the job-applier MCP server, Gmail, and Linear. Status-only — authorize in Claude Code (`/mcp`) or claude.ai connector settings. |
+
+**Profiles in the UI.** The app is profile-aware end to end:
+
+- **Launch screen** — when several profiles exist and none is chosen (or none
+  exists at all), the app opens on "Who's applying?" instead of the shell:
+  one tile per profile (applications · % set up · last used) plus a **New
+  profile** tile. A lone, already-chosen profile skips straight past it.
+- **Sidebar switcher** — the avatar block shows the active profile; clicking
+  it opens a popover listing every profile on the machine, plus "New
+  profile…" and "Manage profile". Switching asks for one confirmation
+  (every page re-scopes; the other profile's data is untouched), then
+  toasts "Now applying as <name>". The switch persists to
+  `applyer.local.json` and re-scopes the backend in place; MCP servers pick
+  it up on their next start.
+- **New-profile wizard** — creating a profile copies `profiles/_template/`,
+  names it, activates it, and opens an **8-step wizard**: Welcome · Link
+  account (paste a PAT — skippable, and honest about the cloud service not
+  being live yet) · Résumé (upload + instant email/phone prefill chips +
+  an editable review grid; nothing saves until you continue) · Background &
+  voice (paste past answers, tell a story, or drop files — each lands in
+  `context/` immediately, removable per row) · Preferences (title chips,
+  **tri-state seniority chips** — tap once to include, twice to exclude —
+  locations, remote, salary floor → `criteria.yaml`) · Requirements (the
+  amber-banded hard filters: work authorization, sponsorship, relocation,
+  notice period, desired salary → profile facts) · Connections (with a
+  Gmail-address-mismatch warning when detectable) · Done (summary +
+  completeness ring). Every skippable step skips via a footer text link —
+  a skip is a valid finish. The wizard auto-opens on a profile with no
+  name/email yet, is dismissible, and resumes at the step you left.
 
 Notes:
 
+- **Report a bug** — the bug icon next to the sidebar theme toggle opens a
+  small modal; reports append to the local `data/bug-reports.jsonl`
+  (timestamp, profile, page, text, `status: open`). Nothing leaves the
+  machine — the nightly dev-loop agent reads the file and triages reports
+  into Linear stories. `GET /api/bug-reports` lists them.
+- **Token accounting** — a Claude Code `Stop` hook (`.claude/settings.json` →
+  `scripts/token_report.py`) prices every session in this repo from its
+  transcript (per the model each message ran on) and upserts one line per
+  session into the active profile's `data/token_usage.jsonl`; web-chat turns
+  additionally append SDK-reported `source: webchat` records. This feeds the
+  dev-loop's cost metric.
 - The chat session runs with the same trust as a terminal session in this
   repo (`bypassPermissions` inside the project). Approval gates are
   **conversational** — the skills still pause and ask before submitting, and
@@ -472,11 +543,12 @@ Notes:
 
 ---
 
-## 8. The full tool set (33)
+## 8. The full tool set (34)
 
 **Browser / apply**
 
-- `open_job(url)` — open a posting; syncs resume.pdf→txt; **one shot**: also
+- `open_job(url)` — open a posting; syncs the profile's resume.pdf→txt
+(mtime-guarded — only when the PDF changed); **one shot**: also
 returns the intervention check + the parsed form (no separate
 `check_for_intervention`/`read_form` needed right after).
 - `read_form()` — list every fillable field (any ATS, no per-site rules). Long
@@ -488,10 +560,11 @@ way to expand a summarized `<select>` list).
 - `fill_field(index, value)` — fill one field (text/select/radio/checkbox/combobox).
 - `fill_many([{index,value}])` — **fill many fields in one call** (the fast path).
 - `upload_resume([index])` — attach the resume (auto-finds hidden file inputs).
-- `screenshot([path])` — capture the page for review.
+- `screenshot([path])` — capture the page for review (saved under the profile's
+`runtime/` dir — `current_page.png` by default).
 - `get_job_text()` — the visible page text (read a JD).
 - `snapshot_job(url[, company])` — **batch Stage-A primitive**: opens a posting,
-reads its form + JD, and writes the `data/prep/<slug>.json` prep file
+reads its form + JD, and writes the profile's `data/prep/<slug>.json` prep file
 **server-side**, returning only a compact receipt (`field_count`,
 `required_count`, `freetext_count`, `status`) — the form dumps and JD never enter
 the model context. `freetext_count` routes batch prep: `0` → resolve inline (the
@@ -517,6 +590,8 @@ cover-letter/essay corpus they can't use — the biggest per-application token
 saver. Open free-text fields still return clipped `context` snippets to craft
 from (pull full voice via `get_cover_letter_examples`).
 - `get_profile_field(label)` — exact value from your profile (single).
+- `get_profile_paths()` — the active profile's resolved directories (root,
+context, data, resumes, runtime).
 - `search_history(question)` — closest past answers, scored.
 - `save_answer(question, answer)` — remember an approved answer.
 - `log_application(company, job_title, url, status)` — record a confirmed
@@ -528,7 +603,8 @@ submit (deduped); used for code-gated or manually-clicked submits and backfills.
 - `read_resume_template()` — the base `resume.docx` as indexed paragraphs to
 plan edits from.
 - `tailor_resume(company, job_title, url, edits)` — apply reorder/re-emphasize/
-trim edits to a copy of the base, save `resumes/<job-slug>/resume.docx`, export
+trim edits to a copy of the base, save the profile's
+`resumes/<job-slug>/resume.docx`, export
 `resume.pdf` (formatting preserved).
 - `get_cover_letter_examples()` — full text of your past cover letters + writing
 samples, as voice exemplars.
@@ -542,7 +618,7 @@ tailored resume/cover letter for a job, falling back to the default resume.
 
 **Criteria / discovery**
 
-- `get_search_criteria()` — your strict bar from job_criteria.yaml.
+- `get_search_criteria()` — your strict bar from the profile's criteria.yaml.
 - `list_watchlist_postings([query],[limit],[max_years])` — product/strategy roles
 from the **local store** (fresh < 36h; else live fallback, flagged via `source`),
 baseline-filtered deterministically, with `salary_source`, advisory `min_years`,
@@ -596,17 +672,25 @@ it's unused now and safe to delete.
 ```
 Job Applier/
 ├─ .mcp.json                     # registers the job-applier server for Claude Code
-├─ user_profile.yaml             # your exact facts
-├─ job_criteria.yaml             # strict search bar (titles/seniority/salary/location)
-├─ watchlist.yaml                # ~67 target companies
+├─ applyer.local.json            # {"profile": "<id>"} — selects the active profile (gitignored)
+├─ profiles/
+│  ├─ _template/                 # tracked skeleton — copy to profiles/<your-id>/ to onboard
+│  └─ <id>/                      # the active profile (gitignored; all personal data)
+│     ├─ profile.yaml            # your exact facts
+│     ├─ eeo.yaml                # local-only voluntary EEO self-ID (never synced)
+│     ├─ criteria.yaml           # strict search bar (titles/seniority/salary/location)
+│     ├─ resume.txt (resume.pdf) # reasoning text  (uploaded file)
+│     ├─ resume.docx             # base template for /tailor-application (you add it)
+│     ├─ context/                # knowledge base (md/txt/pdf) for crafting answers
+│     ├─ resumes/                # per-job tailored resume + cover letter
+│     ├─ data/
+│     │  ├─ history.json         # learned answers
+│     │  ├─ applications.json    # application tracker (verified submits)
+│     │  └─ prep/                # batch-mode prep files/sheets
+│     └─ runtime/                # screenshots (current_page.png) + persistent browser profile
+├─ watchlist.yaml                # ~79 target companies (shared)
+├─ location_aliases.yaml         # location normalization (shared)
 ├─ discovery.yaml                # startup-discovery sources (YC + VC portfolio boards)
-├─ resume.txt   (resume.pdf)     # reasoning text  (uploaded file)
-├─ resume.docx                   # base template for /tailor-application (you add it)
-├─ resumes/                      # per-job tailored resume + cover letter (gitignored)
-├─ requirements.txt
-├─ context/                      # knowledge base (md/txt/pdf) for crafting answers
-├─ data/history.json             # learned answers
-├─ data/applications.json        # application tracker (verified submits)
 ├─ data/postings.db              # local postings store (gitignored cache; §5)
 ├─ data/digest-latest.md         # refresh digest (gitignored, regenerated)
 ├─ data/near-misses-latest.md    # title-gate audit report (gitignored, regenerated; §5)
@@ -614,10 +698,12 @@ Job Applier/
 ├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows)
 ├─ scripts/near_misses.py        # title-gate near-miss audit (python scripts/near_misses.py; §5)
 ├─ scripts/webapp.cmd            # launch the Applyer web wrapper (§7b)
+├─ scripts/migrate_profile.py    # one-shot: move a pre-profile checkout into profiles/<id>/
 ├─ server/                       # FastAPI backend: /api/* + /ws/chat (Agent SDK bridge)
 ├─ frontend/                     # Applyer React SPA (Vite + TS; npm run build → dist/)
 ├─ src/
-│  ├─ mcp_server.py              # the 32 tools
+│  ├─ mcp_server.py              # the 34 tools
+│  ├─ profiles.py                # active-profile resolution (env → applyer.local.json → …)
 │  ├─ browser.py                 # ATS-agnostic form reading/filling
 │  ├─ data.py                    # profile lookup + history
 │  ├─ context.py                 # knowledge-base retrieval

@@ -29,6 +29,29 @@ export function useAgentChat(): AgentChat {
   useEffect(() => {
     let retry = 0
     let timer: number | undefined
+    /* Close out the live run card (if any) so no spinner outlives its turn —
+       runs also end via error or a dropped session, not just "done". */
+    const finalizeRun = (ok: boolean, title?: string) => {
+      setMessages((m) => {
+        const idx = liveRunIdx.current
+        if (idx == null || !m[idx]?.run) return m
+        const next = [...m]
+        const run = next[idx].run as RunCard
+        next[idx] = {
+          ...next[idx],
+          run: {
+            ...run,
+            title: title ?? (ok ? 'Run complete' : 'Run ended with an error'),
+            steps: run.steps.map((s) => ({
+              ...s,
+              status: s.status === 'active' ? (ok ? 'done' : 'warn') : s.status,
+            })),
+          },
+        }
+        return next
+      })
+      liveRunIdx.current = null
+    }
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
       const ws = new WebSocket(`${proto}://${location.host}/ws/chat`)
@@ -71,34 +94,21 @@ export function useAgentChat(): AgentChat {
           })
         } else if (msg.type === 'done') {
           setTyping(false)
-          setMessages((m) => {
-            const next = [...m]
-            const idx = liveRunIdx.current
-            if (idx != null && next[idx]?.run) {
-              const run = next[idx].run as RunCard
-              next[idx] = {
-                ...next[idx],
-                run: {
-                  ...run,
-                  title: msg.ok ? 'Run complete' : 'Run ended with an error',
-                  steps: run.steps.map((s) => ({
-                    ...s,
-                    status: s.status === 'active' ? (msg.ok ? 'done' : 'warn') : s.status,
-                  })),
-                },
-              }
-            }
-            return next
-          })
-          liveRunIdx.current = null
+          finalizeRun(msg.ok)
         } else if (msg.type === 'error') {
           setTyping(false)
+          finalizeRun(false)
           setMessages((m) => [...m, { role: 'agent', text: `⚠ ${msg.message}` }])
+        } else if (msg.type === 'restarting') {
+          /* The backend declared the session dead and is closing the socket;
+             onclose reconnects into a fresh one. */
+          setMessages((m) => [...m, { role: 'agent', text: 'Restarting the agent session…' }])
         }
       }
       ws.onclose = () => {
         setConnected(false)
         setTyping(false)
+        finalizeRun(false, 'Session ended')
         wsRef.current = null
         if (!closedByUs.current) {
           timer = window.setTimeout(connect, Math.min(30000, 1000 * 2 ** retry++))

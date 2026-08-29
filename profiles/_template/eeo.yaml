@@ -1,0 +1,31 @@
+# Voluntary EEO self-identification — LOCAL ONLY.
+#
+# Everything in this file is voluntary demographic data. It stays on this
+# machine: the profiles/ directory is gitignored, and this file is never
+# synced or uploaded anywhere. Values are used ONLY to fill the voluntary
+# self-identification section of application forms.
+#
+# To opt in, uncomment an entry and fill in its value (keep the `eeo: true`
+# marker — it tells the agent it is handling sensitive demographic data).
+# Leave an entry commented out / blank (or delete this file) to have those
+# sections left blank on applications instead.
+
+# gender:
+#   value: ""             # e.g. "Male", "Female", "Non-binary", "Decline to self-identify"
+#   eeo: true
+
+# race_ethnicity:
+#   value: ""             # e.g. "Asian", "White", "Two or more races", ...
+#   eeo: true
+
+# hispanic_latino:
+#   value: ""             # "Yes" or "No"
+#   eeo: true
+
+# veteran_status:
+#   value: ""             # e.g. "I am not a protected veteran"
+#   eeo: true
+
+# disability_status:
+#   value: ""             # e.g. "No, I do not have a disability and have not had one in the past"
+#   eeo: true

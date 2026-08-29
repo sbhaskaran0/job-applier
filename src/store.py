@@ -95,27 +95,57 @@ def _apply_locations(conn: sqlite3.Connection, key: tuple,
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Schema v2 (JOB-55): work_mode + posted_at columns and normalized
-    posting_locations, backfilled once from the existing rows."""
-    if conn.execute("PRAGMA user_version").fetchone()[0] >= 2:
-        return
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(postings)")}
-    if "work_mode" not in cols:
-        conn.execute("ALTER TABLE postings ADD COLUMN work_mode TEXT")
-    if "posted_at" not in cols:
-        conn.execute("ALTER TABLE postings ADD COLUMN posted_at TEXT")
-    rows = conn.execute(
-        "SELECT ats, slug, job_id, location, remote, posted FROM postings"
-    ).fetchall()
-    for r in rows:
-        key = (r["ats"], r["slug"], r["job_id"])
-        wm = _apply_locations(conn, key, r["location"], r["remote"])
-        conn.execute(
-            "UPDATE postings SET work_mode=?, posted_at=? "
-            "WHERE ats=? AND slug=? AND job_id=?",
-            (wm, locations.parse_posted(r["posted"]), *key))
-    conn.execute("PRAGMA user_version=2")
-    conn.commit()
+    """Additive migrations, each gated on its own PRAGMA user_version step so
+    a database at any prior version catches up without re-running old ones."""
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 2:
+        # Schema v2 (JOB-55): work_mode + posted_at columns and normalized
+        # posting_locations, backfilled once from the existing rows.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(postings)")}
+        if "work_mode" not in cols:
+            conn.execute("ALTER TABLE postings ADD COLUMN work_mode TEXT")
+        if "posted_at" not in cols:
+            conn.execute("ALTER TABLE postings ADD COLUMN posted_at TEXT")
+        rows = conn.execute(
+            "SELECT ats, slug, job_id, location, remote, posted FROM postings"
+        ).fetchall()
+        for r in rows:
+            key = (r["ats"], r["slug"], r["job_id"])
+            wm = _apply_locations(conn, key, r["location"], r["remote"])
+            conn.execute(
+                "UPDATE postings SET work_mode=?, posted_at=? "
+                "WHERE ats=? AND slug=? AND job_id=?",
+                (wm, locations.parse_posted(r["posted"]), *key))
+        conn.execute("PRAGMA user_version=2")
+        conn.commit()
+    if version < 3:
+        # Schema v3 (dev-loop metrics): persist per-run sourcing yield.
+        # Historic rows stay NULL — the counts can't be honestly reconstructed
+        # because the criteria in force at the time are unknown.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(refresh_runs)")}
+        if "new_qualifying" not in cols:
+            conn.execute(
+                "ALTER TABLE refresh_runs ADD COLUMN new_qualifying INTEGER")
+        if "new_title_matched" not in cols:
+            conn.execute(
+                "ALTER TABLE refresh_runs ADD COLUMN new_title_matched INTEGER")
+        conn.execute("PRAGMA user_version=3")
+        conn.commit()
+    if version < 4:
+        # Schema v4: distinct-role (deduped by company+title) counterparts to
+        # the v3 columns — a role cross-posted to several cities inflates the
+        # raw new_qualifying/new_title_matched, so this is the number that
+        # matches what the digest and feed actually show. Both are kept:
+        # v3 stays raw so its trend history stays continuous. Old rows NULL.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(refresh_runs)")}
+        if "new_qualifying_roles" not in cols:
+            conn.execute(
+                "ALTER TABLE refresh_runs ADD COLUMN new_qualifying_roles INTEGER")
+        if "new_title_matched_roles" not in cols:
+            conn.execute(
+                "ALTER TABLE refresh_runs ADD COLUMN new_title_matched_roles INTEGER")
+        conn.execute("PRAGMA user_version=4")
+        conn.commit()
 
 
 def _now() -> str:
@@ -271,16 +301,41 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                            for f in json.loads(prev["companies_failed"])}
         failed = [{**e, "consecutive": prev_consec.get(e["company"], 0) + 1}
                   for e in errors]
+        # Per-run sourcing yield (schema v3): of this run's NEW postings, how
+        # many title-match / pass the full baseline under the criteria in
+        # force right now. Previously computed for the digest and discarded.
+        new_title_matched = sum(
+            1 for p in new_rows
+            if _title_matches(p.get("title", ""),
+                              criteria.get("acceptable_titles")))
+        new_qualifying = sum(
+            1 for p in new_rows if passes_baseline(p, criteria)[0])
+        # Distinct-role equivalents (schema v4): filter the raw new rows
+        # first, THEN collapse to role keys, so a role that only qualifies in
+        # one of its cross-posted cities still counts.
+        new_title_matched_roles = len({
+            _role_key(r) for r in new_rows
+            if _title_matches(r.get("title", ""), criteria.get("acceptable_titles"))})
+        new_qualifying_roles = len({
+            _role_key(r) for r in new_rows if passes_baseline(r, criteria)[0]})
         conn.execute(
             "INSERT INTO refresh_runs (run_at, total_scanned, new_count, "
-            "removed_count, relisted_count, companies_ok, companies_failed) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "removed_count, relisted_count, companies_ok, companies_failed, "
+            "new_qualifying, new_title_matched, "
+            "new_qualifying_roles, new_title_matched_roles) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (now, len(postings), len(new_rows), removed, relisted,
-             len(config.load_watchlist()) - len(failed), json.dumps(failed)))
+             len(config.load_watchlist()) - len(failed), json.dumps(failed),
+             new_qualifying, new_title_matched,
+             new_qualifying_roles, new_title_matched_roles))
         conn.commit()
         return {"run_at": now, "total_scanned": len(postings),
                 "new_count": len(new_rows), "removed_count": removed,
                 "relisted_count": relisted, "new_rows": new_rows,
+                "new_qualifying": new_qualifying,
+                "new_title_matched": new_title_matched,
+                "new_qualifying_roles": new_qualifying_roles,
+                "new_title_matched_roles": new_title_matched_roles,
                 "companies_failed": failed}
     finally:
         conn.close()
@@ -294,24 +349,56 @@ def _title_matches(title: str, keywords: list[str] | None) -> bool:
     return any(k.lower() in t for k in (keywords or []))
 
 
+def _role_key(row: dict) -> tuple:
+    """Identity for a role independent of which city it's posted in — the
+    same role cross-posted to several cities collapses to one key. Applies to
+    both DB rows and freshly-fetched dicts, hence the defensive .get."""
+    return (row["company"], (row.get("title") or "").strip().lower())
+
+
 def _location_ok(row: dict, baseline: dict) -> bool:
-    if row.get("remote") and baseline.get("remote_allowed", True):
-        return True
+    return not _location_reason(row, baseline)
+
+
+def _location_reason(row: dict, baseline: dict) -> str:
+    """Empty when the row's location is workable, else the failure reason.
+
+    A remote row is workable unless it is positively scoped to a country the
+    user cannot work from (JOB-123): "Remote - India" and "Canada - Remote (ON,
+    AB, BC, or NS Only)" are remote, but not remote *for this user*. The check
+    lives in providers/locations (it owns the location vocabulary) and is a
+    DENY-list — it needs positive foreign evidence AND no allowed signal, so
+    bare "Remote", empty, and anything unparseable keep passing.
+
+    Which countries count as allowed is the baseline's optional
+    `allowed_countries` knob; when absent it derives to the US plus any country
+    named in locations_allowed / relocation_targets. Non-remote rows are
+    untouched: they still take the locations_allowed substring match.
+    """
     allowed = ((baseline.get("locations_allowed") or [])
                + (baseline.get("relocation_targets") or []))
+    if row.get("remote") and baseline.get("remote_allowed", True):
+        if locations.foreign_scope(row.get("location") or "",
+                                   baseline.get("allowed_countries"), allowed):
+            return "location:foreign_remote"
+        return ""
     loc = (row.get("location") or "").lower()
-    return any(a.lower() in loc for a in allowed)
+    return "" if any(a.lower() in loc for a in allowed) else "location"
 
 
 def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
     """(passes, reason-if-not). Salary rule: a DISCLOSED range whose TOP end is
-    below the floor is dropped; undisclosed passes (flagged elsewhere)."""
+    below the floor is dropped; undisclosed passes (flagged elsewhere).
+    Seniority is computed here from the row's title and THIS baseline's
+    excluded_seniority — never from the stored seniority_flag column, which
+    reflects whichever profile's criteria ran the last refresh."""
     if not _title_matches(row.get("title", ""), baseline.get("acceptable_titles")):
         return False, "title"
     if row.get("seniority_flag"):
         return False, f"seniority:{row['seniority_flag']}"
-    if not _location_ok(row, baseline):
-        return False, "location"
+    why = _location_reason(row, baseline)
+    if why:
+        return False, why
     floor = baseline.get("salary_floor")
     if floor and row.get("salary_max") is not None and row["salary_max"] < floor:
         return False, "salary_below_floor"
@@ -359,16 +446,20 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
     by_key: dict[tuple, dict] = {}
     light: list[dict] = []
     dropped_years = 0
+    failed_baseline = 0
+    hidden_by_reason: dict[str, int] = {}
     for r in rows:
         ok, _why = passes_baseline(r, baseline)
         if not ok:
+            failed_baseline += 1
+            hidden_by_reason[_why] = hidden_by_reason.get(_why, 0) + 1
             continue
         if max_years and r.get("min_years") and r["min_years"] > max_years:
             dropped_years += 1
             continue
         locs = loc_map.get((r["ats"], r["slug"], r["job_id"]), [])
         mode = r.get("work_mode") or ("remote" if r["remote"] else "onsite")
-        key = (r["company"], r["title"].strip().lower())
+        key = _role_key(r)
         prev = by_key.get(key)
         if prev is not None:
             # same role posted across cities: union the locations, keep the
@@ -404,6 +495,10 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         "postings": light, "source": "store",
         "last_refresh": run_at,
         "total_scanned": len(rows), "matched": matched, "returned": len(light),
+        # hidden_by_criteria is the total; hidden_by_reason breaks it down by
+        # passes_baseline reason (JOB-123) and sums to it.
+        "hidden_by_criteria": failed_baseline,
+        "hidden_by_reason": hidden_by_reason,
         "dropped_over_max_years": dropped_years,
         "companies_failed": json.loads(run["companies_failed"]) if run else [],
     }
@@ -429,20 +524,23 @@ def count_board_baseline(postings: list[dict],
     """(active, title_matched, qualifying) for a freshly-fetched board — the
     same deterministic pipeline yield_stats runs on stored postings, so a
     candidate's qualifying count matches what it would show once on the
-    watchlist. Enrichment (salary-from-JD, seniority flag) runs per posting."""
+    watchlist. Enrichment (salary-from-JD, seniority flag) runs per posting.
+    Counts are distinct roles (company+title), not raw city-variant rows —
+    filtered first, then collapsed, same order as yield_stats."""
     baseline = baseline if baseline is not None else \
         config.load_search_criteria().get("baseline", {})
     excluded = baseline.get("excluded_seniority") or []
-    active = len(postings)
-    title_matched = qualifying = 0
+    active = len({_role_key(p) for p in postings})
+    title_keys: set = set()
+    qualifying_keys: set = set()
     for p in postings:
         if not _title_matches(p.get("title", ""), baseline.get("acceptable_titles")):
             continue
-        title_matched += 1
+        title_keys.add(_role_key(p))
         row = {**p, **_enrich(p, excluded)}
         if passes_baseline(row, baseline)[0]:
-            qualifying += 1
-    return active, title_matched, qualifying
+            qualifying_keys.add(_role_key(p))
+    return active, len(title_keys), len(qualifying_keys)
 
 
 def load_candidates(conn: sqlite3.Connection | None = None) -> dict:
@@ -483,7 +581,10 @@ def upsert_candidate(conn: sqlite3.Connection, cand: dict) -> None:
 
 def yield_stats() -> list[dict]:
     """Per-company sourcing yield over active postings: scanned / title-matched /
-    passing the full baseline. The evidence base for watchlist rework (JOB-26)."""
+    passing the full baseline. The evidence base for watchlist rework (JOB-26).
+    Counts are distinct roles (company+title) — a role cross-posted to several
+    cities counts once, filtered first and collapsed to keys second so a role
+    that only qualifies in one city still counts."""
     baseline = config.load_search_criteria().get("baseline", {})
     conn = connect()
     try:
@@ -491,13 +592,13 @@ def yield_stats() -> list[dict]:
             "SELECT * FROM postings WHERE removed_at IS NULL")]
     finally:
         conn.close()
-    stats: dict[str, dict] = {}
+    active_keys: dict[str, set] = {}
+    title_keys: dict[str, set] = {}
+    qualifying_keys: dict[str, set] = {}
     for r in rows:
-        s = stats.setdefault(r["company"], {"company": r["company"], "active": 0,
-                                            "title_matched": 0, "qualifying": 0})
-        s["active"] += 1
+        active_keys.setdefault(r["company"], set()).add(_role_key(r))
         if _title_matches(r["title"], baseline.get("acceptable_titles")):
-            s["title_matched"] += 1
+            title_keys.setdefault(r["company"], set()).add(_role_key(r))
             if passes_baseline(r, baseline)[0]:
                 s["qualifying"] += 1
     return sorted(stats.values(), key=lambda s: (-s["qualifying"], -s["title_matched"],

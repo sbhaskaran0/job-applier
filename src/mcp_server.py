@@ -190,7 +190,7 @@ async def snapshot_job(url: str, company: str = "", out_dir: str = "") -> dict:
     is reused (no new_tab); resume.txt is re-synced from resume.pdf as a harmless
     side effect of open_job.
 
-    Writes `<out_dir or data/prep>/<job-slug>.json`:
+    Writes `<out_dir or the active profile's prep dir>/<job-slug>.json`:
       {url, company, job_title, ats, snapshot_at, fields, jd_text}
     Field LABELS are stored verbatim — opaque/GUID/bare "Yes/No" labels INCLUDED.
     Disambiguating those against jd_text is a PREP-stage concern (the JD is in the
@@ -231,7 +231,7 @@ async def snapshot_job(url: str, company: str = "", out_dir: str = "") -> dict:
         return {**base, "status": "parked",
                 "park_reason": "no fields (dead/removed posting or unreadable form)"}
     jd_text = await browser.session.get_job_text()
-    prep_dir = Path(out_dir) if out_dir else (config.DATA_DIR / "prep")
+    prep_dir = Path(out_dir) if out_dir else config.PREP_DIR
     prep_dir.mkdir(parents=True, exist_ok=True)
     prep_path = prep_dir / f"{tailor.job_slug(company, title, url)}.json"
     prep_path.write_text(
@@ -301,6 +301,27 @@ def get_profile_field(question_or_key: str) -> dict:
     phone, work authorization, etc.). Returns {matched_key, value, confidence}.
     value is null when nothing maps. This is the first source to try."""
     return data.get_profile_field(question_or_key)
+
+
+@mcp.tool()
+def get_profile_paths() -> dict:
+    """Return the resolved filesystem paths of the ACTIVE profile — skills call
+    this instead of guessing repo-relative personal paths (personal data lives
+    under profiles/<id>/, not the repo root). Returns {profile_id, root,
+    context_dir, data_dir, prep_dir, resumes_dir, runtime_dir, screenshot_dir}
+    as absolute path strings. screenshot_dir (same as runtime_dir) is where
+    screenshots and other transient run files belong."""
+    prof = config.active_profile()
+    return {
+        "profile_id": prof.profile_id,
+        "root": str(prof.root),
+        "context_dir": str(prof.context_dir),
+        "data_dir": str(prof.data_dir),
+        "prep_dir": str(prof.prep_dir),
+        "resumes_dir": str(prof.resumes_dir),
+        "runtime_dir": str(prof.runtime_dir),
+        "screenshot_dir": str(prof.runtime_dir),
+    }
 
 
 # Field kinds that are pick-from-a-list, not free prose. For these, a no-match
@@ -486,7 +507,8 @@ def read_resume_template() -> dict:
     can plan a per-job tailoring. Returns {base, paragraph_count, paragraphs:
     [{index, text, style, is_bullet, is_empty}]}. `index` is the stable address
     to pass back in `tailor_resume` edits. Errors clearly if the user hasn't
-    added a resume.docx base template yet (drop it in the project root). This is
+    added a resume.docx base template yet (drop it in the active profile's
+    root). This is
     step 1 of the /tailor-application flow."""
     return tailor.read_resume_template()
 
@@ -561,7 +583,8 @@ def get_job_artifacts(company: str = "", job_title: str = "", url: str = "") -> 
 # --------------------------------------------------------------------------- #
 @mcp.tool()
 def get_search_criteria() -> dict:
-    """Return the job search config from job_criteria.yaml: `search_defaults`
+    """Return the job search config from the active profile's criteria.yaml:
+    `search_defaults`
     (used to build searches) and `baseline` (the strict acceptance bar —
     titles/seniority, location/remote, salary floor). Load this before searching
     so you know which listings are acceptable."""
@@ -582,7 +605,7 @@ async def list_watchlist_postings(query: str = "", limit: int = 0,
     when it's fresh (< 36h), else fetched live from the public ATS APIs.
 
     Store-backed results are pre-filtered DETERMINISTICALLY against the
-    job_criteria.yaml baseline (titles, excluded seniority, location/remote,
+    profile's criteria.yaml baseline (titles, excluded seniority, location/remote,
     salary floor — a disclosed range whose top end is below the floor is
     dropped; undisclosed is kept with salary_listed:false) and deduped by
     (company, title). Each posting adds: salary_source ('api'|'jd'|null),
