@@ -1,9 +1,7 @@
 import type {
-  ApplicationRecord, ApplicationStats, Connection, Criteria, Posting,
-  PostingDetail, Profile, Status, WatchlistCompany,
-  AccountStatus, ApplicationRecord, ConnectionsPayload, ContextFile, Criteria,
-  EEOStatus, Posting, PostingDetail, Profile, ProfilesPayload, Status,
-  TokenVerifyResult, WatchlistCompany,
+  AccountStatus, ApplicationRecord, ApplicationStats, ConnectionsPayload,
+  ContextFile, Criteria, EEOStatus, Posting, PostingDetail, Profile,
+  ProfilesPayload, Status, TokenVerifyResult, WatchlistCompany,
 } from './types'
 
 async function get<T>(path: string): Promise<T> {

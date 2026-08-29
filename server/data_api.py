@@ -19,7 +19,8 @@ import yaml
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from src import config, data as appdata, refresh as refresh_job, store
+from src import (config, data as appdata, profiles as profiles_mod,
+                 refresh as refresh_job, store)
 from src.providers.watchlist import add_company, detect_ats_slug, get_posting
 
 router = APIRouter(prefix="/api")

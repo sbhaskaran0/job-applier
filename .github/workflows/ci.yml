@@ -1,0 +1,60 @@
+# Merge-damage guard. PR #11 auto-merged two branches that had edited the same
+# import lines, silently dropping `profiles as profiles_mod` from
+# server/data_api.py and half-merging store.yield_stats() — main shipped broken
+# with no conflict raised. Neither is a syntax error, so `compileall` passes on
+# both; pyflakes' undefined-name check is what catches them. The frontend build
+# is the same guard on the TS side (that merge also duplicated an import block
+# in frontend/src/api.ts, which failed `tsc -b`).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      # Undefined names only — the repo has no style baseline, and a full lint
+      # would fail on unrelated pre-existing warnings and get ignored.
+      - name: Undefined-name check (pyflakes)
+        run: |
+          pip install pyflakes
+          python -m pyflakes src server scripts tests > flakes.txt || true
+          if grep -E "undefined name|redefinition of unused" flakes.txt; then
+            echo "::error::undefined/duplicate names — likely a bad merge"
+            exit 1
+          fi
+          echo "clean"
+
+      - name: Syntax check
+        run: python -m compileall -q src server scripts tests
+
+      # Runtime deps are heavy (playwright, the agent SDK) and the standalone
+      # suites only need the pure-Python ones, so install just those.
+      - name: Tests
+        run: |
+          pip install pyyaml
+          for t in tests/test_*.py; do echo "--- $t"; python "$t" || exit 1; done
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Type-check and build
+        run: npm run build
