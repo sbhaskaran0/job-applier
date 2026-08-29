@@ -1,4 +1,6 @@
 import type {
+  ApplicationRecord, ApplicationStats, Connection, Criteria, Posting,
+  PostingDetail, Profile, Status, WatchlistCompany,
   AccountStatus, ApplicationRecord, ConnectionsPayload, ContextFile, Criteria,
   EEOStatus, Posting, PostingDetail, Profile, ProfilesPayload, Status,
   TokenVerifyResult, WatchlistCompany,
@@ -31,7 +33,7 @@ export const fetchPostings = () =>
     hidden_by_criteria?: number
   }>('/api/postings')
 export const fetchApplications = () =>
-  get<{ applications: ApplicationRecord[] }>('/api/applications')
+  get<{ applications: ApplicationRecord[]; stats?: ApplicationStats }>('/api/applications')
 export const fetchProfile = () => get<Profile>('/api/profile')
 export const fetchWatchlist = () => get<{ companies: WatchlistCompany[] }>('/api/watchlist')
 export const fetchConnections = () => get<ConnectionsPayload>('/api/connections')
@@ -65,6 +67,12 @@ export const pasteContext = (text: string, kind: 'pasted' | 'story', title = '')
 export const deleteContext = (name: string) =>
   send<{ removed: string; context_files: ContextFile[] }>(
     `/api/context/${encodeURIComponent(name)}`, 'DELETE')
+
+// Records the company's response on one application (JOB-107). `key` is the
+// opaque identity the GET stamps on each row — never construct one client-side.
+export const setApplicationOutcome = (key: string, outcome: string, outcome_date = '') =>
+  send<{ application: ApplicationRecord; stats: ApplicationStats }>(
+    '/api/applications/outcome', 'POST', { key, outcome, outcome_date })
 
 export async function addWatchlistCompany(url: string) {
   const r = await fetch('/api/watchlist', {

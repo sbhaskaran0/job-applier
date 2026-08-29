@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-08-21.
+per-session narrative lives in `git log` + Linear. Last updated 2026-08-28.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -100,7 +100,12 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `submitted` / `rejected_spam` / `attempted` (vanished form ≠ success).
 - `src/data.py` — profile alias lookup, fuzzy history search, `save_answer`
   (normalized question identity), `log_application_record` (deduped on
-  **(company, role)**; URL only as fallback).
+  **(company, role)**; URL only as fallback). **JOB-107:** `outcome` /
+  `outcome_date` as a dimension orthogonal to `status` (did we finish the form
+  vs. did the company ever reply) — `set_application_outcome` resolves through
+  the same dedupe key as the apply path so the two can't drift;
+  `application_outcome_stats` is pure and returns totals/`response_rate`/
+  `by_outcome`/`by_company`. Purely additive, no migration.
 - `src/context.py` — `search_context` over `context/*` + resume text.
 - `src/tailor.py` — **JOB-6 tailoring** (mechanical only; Claude reasons).
   `read_resume_template` (indexed paragraphs, walks tables), `tailor_resume`
@@ -206,21 +211,18 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
-- **2026-08-21 dev-loop run (JOB-113, JOB-115):** `store.company_spread()`
-  adds company-concentration stats (total / distinct companies / top-5 share)
-  to `data/digest-latest.md`, for both the qualifying corpus (deduped by
-  (company, title), not raw per-city rows) and the application log (every
-  logged record, submitted or manual) — answers "are we fishing in one pond?"
-  without a hand count. Purely additive; `passes_baseline`/yield_stats
-  untouched. New `scripts/near_misses.py` (`python -m src.refresh
-  --near-misses` or standalone) audits what the title gate — the largest
-  filter in the deterministic baseline — silently discards: re-runs the
-  predicates read-only and reports postings that fail on title *alone*, split
-  into actionable non-contiguous-phrase hits and noisy generic-token hits,
-  written to gitignored `data/near-misses-latest.md`. Both landed via the
-  autonomous dev-loop pipeline (`loop/2026-08-21/lane-1`); no `src/config.py`
-  schema bump, deliberately, to avoid colliding with the unmerged
-  `feat/profile-system-m1` branch's `user_version 3`.
+- **2026-08-28 dev-loop run (JOB-107):** Applications tab now tracks reply
+  outcomes, not just submit status. `src/data.py` gained `outcome`/
+  `outcome_date` (vocabulary: `none`/`rejected`/`screen`/`interview`/`offer`/
+  `ghosted`) as a dimension independent of `status`, plus a pure
+  `application_outcome_stats()` (response rate = responded/submitted,
+  0.0 on zero denominator). `server/data_api.py` exposes it: `GET
+  /api/applications` now returns a `stats` block and a `key` per row;
+  `POST /api/applications/outcome` (key in the body — URL-encoding a
+  `company|title|url` key isn't safe as a path param) updates one record.
+  Frontend: per-row outcome selector (optimistic update, revert on failure)
+  and a response-rate tile on the Applications page. Purely additive —
+  records logged before this default to `outcome: "none"`, no backfill.
 - **2026-07-20 session (JOB-58/59, landed JOB-55):** committed the pending
   webapp tree — **JOB-55 postings UX** (postings filter card: title/location/
   YoE/salary/posted-date/include-missing; JD modal via `/api/posting`;
