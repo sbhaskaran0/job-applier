@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-08-28.
+per-session narrative lives in `git log` + Linear. Last updated 2026-08-29.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -211,6 +211,26 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-08-29 session — repaired PR #11 merge damage + added CI.** Pulling
+  `main` (33 commits: profile system M1, JOB-59/107/113/115/123) landed code
+  that git auto-merged **line-wise with no conflict**, mangling three things:
+  (1) `server/data_api.py` lost `profiles as profiles_mod` from its import line
+  — the JOB-107 branch had rewritten the same line to add `data as appdata`, and
+  git kept that side wholesale. Every `GET /api/profiles` raised
+  `NameError` → **500**, so the launch screen showed no profiles and "New
+  profile" did nothing (the user's reported symptom). (2) `store.yield_stats()`
+  was half-merged — JOB-59's new `active_keys`/`title_keys`/`qualifying_keys`
+  dicts landed but the loop body and return still used the old `s`/`stats`,
+  raising `NameError` on any row passing the baseline. (3)
+  `store.yield_history()` vanished entirely; no callers, so nothing broke
+  visibly, but README's metrics diagram already documented it and the schema-v4
+  columns it reads had landed (live DB is at `user_version=4`). Restored
+  JOB-59's v4-aware version, not the older v3 one. Audited the whole merge
+  symbol-by-symbol against every contributing branch: those three were the only
+  casualties, no API routes lost (27 both sides). Verified live — profile lists
+  and creates, all 12 parameterless GETs 200, 8/8 location tests pass.
+  **Added `.github/workflows/ci.yml`** (first CI in the repo) so this class of
+  silent merge can't reach `main` again; see README.
 - **2026-08-28 dev-loop run (JOB-107):** Applications tab now tracks reply
   outcomes, not just submit status. `src/data.py` gained `outcome`/
   `outcome_date` (vocabulary: `none`/`rejected`/`screen`/`interview`/`offer`/
@@ -335,6 +355,14 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   it back empty (DoorDash EEO react-select, Ashby button-group): confirm with one
   screenshot, report as "set but unverifiable in the DOM", ask user to glance.
 - **EEO:** delete profile values to opt out; README carries the warning.
+- **Git can merge two branches into broken code with no conflict** (bit us
+  2026-08-29, PR #11): when both sides edit the *same* import line or the same
+  function body, git resolves line-wise and the result compiles but raises
+  `NameError` at runtime. `compileall` does NOT catch it — `python -m pyflakes
+  src server scripts tests | grep "undefined name"` does, and is now a CI gate.
+  After any merge of long-lived branches, run that plus `npm run build` in
+  `frontend/` before trusting the tree. A *dropped* function with no callers
+  passes every automated check — diff symbol lists against each parent.
 - **Webapp restarts can silently no-op (JOB-59):** the frontend is served from
   `frontend/dist` on disk (fresh after `npm run build`) but backend Python runs
   in-process — and an old server squatting :8765 makes a relaunch fail to bind

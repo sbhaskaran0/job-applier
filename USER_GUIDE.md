@@ -477,6 +477,13 @@ cd frontend && npm install && npm run build
 Then launch with **`scripts\webapp.cmd`** (or `python -m server`) and open
 <http://localhost:8765>. Five surfaces:
 
+> **After pulling new code, rebuild before relaunching:** `npm run build` in
+> `frontend/` (the server serves `frontend/dist` from disk, so the UI stays on
+> the old bundle otherwise) **and** stop the running server — an old process
+> squatting :8765 makes the relaunch fail to bind, leaving you on stale backend
+> code. `Get-NetTCPConnection -LocalPort 8765 -State Listen` shows the squatter.
+
+
 | Surface | What it shows / does |
 | --- | --- |
 | **Jobs** | A chat that runs **real Claude Code sessions** in this repo (Agent SDK, your existing auth). Type `/find-jobs fintech strategy` or plain English; tool calls stream in as live run-card steps. The right rail edits the watchlist (`+` calls the same `add_company` logic). |
