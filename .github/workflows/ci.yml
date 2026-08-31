@@ -37,10 +37,16 @@ jobs:
         run: python -m compileall -q src server scripts tests
 
       # Runtime deps are heavy (playwright, the agent SDK) and the standalone
-      # suites only need the pure-Python ones, so install just those.
+      # suites only need the pure-Python ones, so install just those. The set
+      # was measured, not guessed: running the suite under an import tracer,
+      # the non-stdlib closure is yaml (src.config) and httpx
+      # (src.providers.watchlist, reached via src.store -> src.providers).
+      # idna comes along as an httpx dependency; click and zstandard also show
+      # up locally but are optional inside httpx (both guarded by
+      # `except ImportError`), so a bare runner does not need them.
       - name: Tests
         run: |
-          pip install pyyaml
+          pip install pyyaml httpx
           for t in tests/test_*.py; do echo "--- $t"; python "$t" || exit 1; done
 
   frontend:
