@@ -67,7 +67,11 @@ def build_digest(summary: dict) -> str:
         lines.append(f"| {s['company']} | {s['active']} | "
                      f"{s['title_matched']} | {s['qualifying']} |")
     lines += ["", "_Qualifying = passes titles/seniority/location/salary-floor "
-              "deterministically. Yield informs the JOB-26 watchlist rework._", ""]
+              "deterministically. All three columns count distinct roles — a "
+              "role cross-posted to several cities counts once, unlike the "
+              "'New postings' list above which still lists every city variant "
+              "separately, so the two sections won't add up. Yield informs "
+              "the JOB-26 watchlist rework._", ""]
 
     # Company concentration (JOB-113): the yield table above answers "which
     # boards produce?" but not "are we fishing in one pond?" -- that took a

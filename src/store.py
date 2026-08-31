@@ -394,8 +394,10 @@ def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
     reflects whichever profile's criteria ran the last refresh."""
     if not _title_matches(row.get("title", ""), baseline.get("acceptable_titles")):
         return False, "title"
-    if row.get("seniority_flag"):
-        return False, f"seniority:{row['seniority_flag']}"
+    flag = extract.seniority_flag(row.get("title", ""),
+                                  baseline.get("excluded_seniority"))
+    if flag:
+        return False, f"seniority:{flag}"
     why = _location_reason(row, baseline)
     if why:
         return False, why
