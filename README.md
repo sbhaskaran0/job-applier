@@ -78,6 +78,7 @@ flowchart TD
         L["applyer.local.json<br/>{profile: id} — per machine, gitignored"] --> A
         S["exactly one dir under profiles/"] --> A
         G["legacy fallback: user_profile.yaml<br/>still at repo root (pre-migration)"] --> A
+        BS["last resort: no profile at all<br/>(fresh clone / CI / worktree) →<br/>bootstrap PLACEHOLDER at profiles/_scratch/<br/>(criteria.yaml only, no profile.yaml —<br/>every write/submit path still fails loudly)"] --> A
     end
     A --> P["profiles/&lt;id&gt;/<br/>profile.yaml · criteria.yaml · resume.* ·<br/>context/ · data/history.json ·<br/>data/applications.json · data/prep/ ·<br/>resumes/&lt;job-slug&gt;/ · runtime/"]
     A --> EO["eeo.yaml — LOCAL-ONLY<br/>merged at read time,<br/>never synced or uploaded"]
@@ -91,6 +92,16 @@ The browser now runs a **persistent Chromium profile** per user
 (`profiles/<id>/runtime/browser/`), so ATS logins survive restarts and the
 anti-bot fingerprint stays stable instead of resetting every run. Screenshots
 land under the profile's `runtime/` too.
+
+**Profiles-less checkout (JOB-131):** `profiles/*` is gitignored, so a fresh
+clone or worktree has nothing under it. Rather than every entry point raising
+before doing any work, `profiles.active()` bootstraps a clearly-marked
+placeholder (`_scratch/`, `placeholder=True`) so read-only pipelines like
+`python -m src.refresh` still run. It carries an empty `criteria.yaml` copied
+from the template and deliberately no `profile.yaml`, so any path that would
+fill or submit a real form keeps raising `FileNotFoundError` instead of
+quietly acting as someone with no data. The webapp treats a placeholder as "no
+profile" and still shows the launch screen.
 
 ## How jobs are discovered
 
@@ -420,12 +431,26 @@ flowchart TD
     PF -->|"hit"| X(["fail"])
     PF -->|"clean"| SY["compileall — syntax"]
     SY --> T["tests/test_*.py<br/>(standalone; each exits non-zero on failure)"]
+    T --> BOOT["profiles-less checkout bootstraps?<br/>(GitHub's checkout has no profiles/&lt;id&gt;/,<br/>same as JOB-131)"]
     F --> TS["npm ci → npm run build<br/>tsc -b catches duplicate/missing imports"]
-    T --> OK(["pass"])
+    BOOT --> OK(["pass"])
     TS --> OK
 ```
 
 A dropped function that nothing calls yet (`store.yield_history()`, also lost in
 that merge) is invisible to all of these — only review catches it.
+
+The Tests step installs `pyyaml` and `httpx`, not just `pyyaml` — measured by
+running the suite under an import tracer rather than guessed: `tests/
+test_location_scope.py` imports `src.store`, which reaches `src.providers.
+watchlist`, which needs `httpx` (and `idna` comes along as an httpx
+dependency). A bare `pip install pyyaml` runner goes red on a PR that
+otherwise passes locally, because httpx is normally already installed on a
+dev machine. The bootstrap-checkout step asserts two things: that
+`profiles.active()` returns the placeholder profile (`placeholder=True`,
+covered by [JOB-131](#profiles-per-user-data) below) instead of raising, and
+that doing so leaves `git status --porcelain` empty — the latter fails loudly
+if `profiles/*` ever stops being gitignored and the scratch profile starts
+showing up in commits.
 
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**

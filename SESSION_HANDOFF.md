@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-08-29.
+per-session narrative lives in `git log` + Linear. Last updated 2026-09-02.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -76,7 +76,15 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   applications.json, prep/}`, `resumes/<job-slug>/`, `runtime/` (screenshots +
   persistent browser profile). Resolution: `JOB_APPLIER_PROFILE` env →
   `applyer.local.json` (`{"profile": "id"}`, gitignored) → single `profiles/`
-  dir → legacy repo-root fallback. `src/config.py` serves the old constant
+  dir → legacy repo-root fallback → **(JOB-131, 2026-09-01) last-resort
+  bootstrap**: a profiles-less checkout (fresh clone, CI, a git worktree —
+  `profiles/*` is gitignored, only `profiles/_template/` ships) gets a
+  PLACEHOLDER profile materialised at `profiles/_scratch/`, `criteria.yaml`
+  only (never `profile.yaml`, so every fill/submit path still raises loudly),
+  `placeholder=True` on the returned `ActiveProfile`. `server/data_api.py`
+  reports `active_id = None` for a placeholder so the webapp still shows the
+  launch screen; this is exactly what CI's "Profiles-less checkout bootstraps"
+  step exercises. `src/config.py` serves the old constant
   names (`config.HISTORY_PATH` etc.) lazily via module `__getattr__`, so call
   sites didn't change; JSON saves are atomic (temp + `os.replace`);
   `resume.txt` regeneration is mtime-guarded. Shared at repo root:
@@ -211,6 +219,32 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-09-02 dev-loop run (JOB-127, JOB-131) — reconciled two stranded
+  branches, closing out the CI gate.** `loop/2026-08-31/run` and
+  `loop/2026-09-01/run` each carried half of what CI needed and neither
+  contained the other (09-01 branched straight off `origin/main`, so
+  `git merge-base --is-ancestor` was false between them): 08-31 had the
+  measured-import-closure fix below; 09-01 had JOB-131's profiles bootstrap.
+  They're interdependent — 09-01's `data_api.py` hunk calls
+  `profiles_mod.ProfileError`/`profiles_mod.PROFILES_DIR`, but 09-01 branched
+  before the 08-29 fix restored that import, so `GET /api/profiles` still
+  `NameError`'d on 09-01 alone. Merging them onto one branch (not picking
+  either side) is what makes the tree correct. `.github/workflows/ci.yml` was
+  the one add/add conflict, resolved by union — 08-31's `pip install pyyaml
+  httpx` plus 09-01's "Profiles-less checkout bootstraps" step, both kept.
+  **2026-09-01 (JOB-131):** `src/profiles.py` gained the profiles-less
+  bootstrap fallback described above — this was the actual root cause of
+  `runs/2026-08-29` and `runs/2026-08-31` both showing `refresh-e2e
+  ok=false` with the identical `src.refresh -> load_search_criteria ->
+  profiles.active()` trace: a fresh worktree has no `profiles/<id>/` at all
+  (it's gitignored) so every entry point raised before doing any work.
+  **2026-08-31 (JOB-127):** CI's Tests step had been installing only
+  `pyyaml`; `tests/test_location_scope.py` reaches `src.providers.watchlist`
+  via `src.store`, which needs `httpx`, so a bare runner went red on PRs that
+  passed locally (dev machines already had `httpx` installed). Fixed by
+  installing the measured import closure instead of a guess. Verified:
+  `python -m src.refresh` runs clean from a bare worktree as the placeholder
+  profile; CI green on the reconciled branch.
 - **2026-08-29 session — repaired PR #11 merge damage + added CI.** Pulling
   `main` (33 commits: profile system M1, JOB-59/107/113/115/123) landed code
   that git auto-merged **line-wise with no conflict**, mangling three things:
