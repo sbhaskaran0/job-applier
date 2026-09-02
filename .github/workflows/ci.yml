@@ -49,6 +49,16 @@ jobs:
           pip install pyyaml httpx
           for t in tests/test_*.py; do echo "--- $t"; python "$t" || exit 1; done
 
+      # GitHub's checkout IS a profiles-less clone (profiles/* is gitignored,
+      # only profiles/_template/ ships), i.e. the exact condition JOB-131
+      # fixes. The second half is the one that matters long-term: it fails if
+      # anyone ever loosens the profiles/* ignore rule and the bootstrapped
+      # scratch profile starts showing up in commits.
+      - name: Profiles-less checkout bootstraps
+        run: |
+          python -c "from src import profiles; p=profiles.active(); print(p.profile_id, p.placeholder); assert p.placeholder"
+          test -z "$(git status --porcelain)" || { git status --porcelain; echo '::error::bootstrap dirtied the working tree'; exit 1; }
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
