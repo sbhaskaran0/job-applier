@@ -457,7 +457,55 @@ def _location_reason(row: dict, baseline: dict) -> str:
             return "location:foreign_remote"
         return ""
     loc = (row.get("location") or "").lower()
-    return "" if any(a.lower() in loc for a in allowed) else "location"
+    if any(a.lower() in loc for a in allowed):
+        return ""
+    # JOB-138: a board that reports a COUNTRY scope and no city ("United
+    # States", "US", "USA") matches neither an allowed city nor the remote
+    # flag, and used to be dropped as a location failure. That is the wrong
+    # verdict twice over: the role may well be in an allowed city, and the
+    # only thing we actually know is that the board didn't say. Treat it as
+    # INDETERMINATE — pass the baseline, and flag the row everywhere it
+    # surfaces so it never reads as a clean match.
+    return "" if location_indeterminate(row, baseline) else "location"
+
+
+def location_indeterminate(row: dict, baseline: dict) -> bool:
+    """True when a row's location tells us only which COUNTRY it is in, and
+    that country is one the user can work in (JOB-138).
+
+    A separate seam rather than a third element on passes_baseline's tuple:
+    that tuple is `(passes, reason)` and callers pin it exactly, so smuggling
+    a tag into the reason string would break them and would conflate "why this
+    was rejected" with "how confident we are it was accepted".
+
+    Matching is WHOLE-STRING via locations.region_of, not substring, which is
+    what keeps the rule tight: "us" cannot match inside a city name, so the
+    set this widens is small and enumerable. A US STATE is deliberately NOT
+    enough — locations.derive_allowed yields countries, so a bare "New York"
+    stays a location failure rather than being waved through as
+    country-scope. Remote rows never reach here: a remote row is already
+    judged by foreign_scope, and "remote in the US" is a real match, not an
+    unknown one.
+    """
+    if row.get("remote") and baseline.get("remote_allowed", True):
+        return False
+    loc = (row.get("location") or "").strip()
+    if not loc:
+        return False
+    allowed = ((baseline.get("locations_allowed") or [])
+               + (baseline.get("relocation_targets") or []))
+    if any(str(a).lower() in loc.lower() for a in allowed):
+        return False  # a real allowed-place match: determinate, not unknown
+    region = locations.region_of(loc)
+    if not region:
+        return False
+    # Same knob and same fallback derivation foreign_scope uses, so the remote
+    # and non-remote halves of the location rule can never disagree about
+    # which countries are allowed.
+    countries = ({str(c) for c in baseline["allowed_countries"]}
+                 if baseline.get("allowed_countries")
+                 else locations.derive_allowed(allowed))
+    return region in countries
 
 
 def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
@@ -544,9 +592,17 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
             if _MODE_RANK[mode] < _MODE_RANK[prev["work_mode"]]:
                 prev["work_mode"] = mode
             prev["remote"] = prev["remote"] or bool(r["remote"])
+            # AND, not OR (JOB-138): the role stays flagged only while EVERY
+            # city variant is country-scope-only. One variant naming a real
+            # allowed city tells us where the role is, and the tag would be a
+            # false warning on a role we do know how to place.
+            prev["location_indeterminate"] = (
+                prev["location_indeterminate"]
+                and location_indeterminate(r, baseline))
             continue
         entry = {
             "company": r["company"], "title": r["title"], "location": r["location"],
+            "location_indeterminate": location_indeterminate(r, baseline),
             "locations": list(locs), "work_mode": mode,
             "remote": bool(r["remote"]), "salary_min": r["salary_min"],
             "salary_max": r["salary_max"], "salary_listed": r["salary_min"] is not None,

@@ -96,8 +96,13 @@ def build_digest(summary: dict) -> str:
     if new_passing:
         for p in sorted(new_passing, key=lambda p: (p["company"], p["title"])):
             years = f" · {p['min_years']}+ yrs (advisory)" if p.get("min_years") else ""
+            # JOB-138: the board gave a country and no city, so this passed on
+            # "we don't know where", not on a match. Say so rather than let it
+            # read like every other line.
+            unverified = (" · _location unverified_"
+                          if store.location_indeterminate(p, baseline) else "")
             lines.append(f"- **{p['company']} — {p['title']}** · "
-                         f"{p['location'] or 'location n/a'}"
+                         f"{p['location'] or 'location n/a'}{unverified}"
                          f"{' · remote' if p.get('remote') else ''} · "
                          f"{_fmt_salary(p)}{years}\n  {p['url']}")
     else:
