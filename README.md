@@ -132,6 +132,17 @@ matching roles; see the USER_GUIDE. `python -m src.refresh --near-misses` (or
 `job_criteria.yaml` is silently discarding, in case `acceptable_titles` is
 drawn too tightly.
 
+A board dark for 3+ consecutive fetches is flagged `⚠️ STALE` in the digest's
+yield table (kept, not hidden — a quiet 404 must not look identical to a
+board that legitimately posts nothing) and excluded from yield/concentration
+totals; a board dropped from `watchlist.yaml` entirely is swept out of the
+store on the next refresh, so a repointed or retired slug never lingers as an
+undead active row (JOB-137). A location that names a country but no city
+(e.g. a board reporting bare "United States") is kept rather than rejected —
+tagged `location_indeterminate` and surfaced as such everywhere it appears
+(digest, postings API, the Postings page badge), since a silent board isn't
+evidence the role is out of scope (JOB-138).
+
 ## Growing the watchlist automatically
 
 The watchlist is curated and hand-approved, but you don't have to find the
@@ -360,8 +371,9 @@ flowchart LR
 
 The Postings page filters roles by title, location (normalized tokens — "SF"
 and "San Francisco, CA" match together), YoE/salary ranges, and posted date;
-a **criteria banner** above the list names whose criteria scope the feed and
-how many roles they hide; a chevron opens the full JD in a modal, and a
+a role with a country-only location carries a **LOCATION UNVERIFIED** badge
+rather than being silently dropped (JOB-138); a **criteria banner** above the
+list names whose criteria scope the feed and how many roles they hide; a chevron opens the full JD in a modal, and a
 **Refresh** button runs the same board sweep as `python -m src.refresh` right
 from the UI. Selecting postings and confirming the apply modal launches a
 **real** `/apply-batch` (the autonomous variant shows an explicit warning
@@ -451,6 +463,9 @@ dev machine. The bootstrap-checkout step asserts two things: that
 covered by [JOB-131](#profiles-per-user-data) below) instead of raising, and
 that doing so leaves `git status --porcelain` empty — the latter fails loudly
 if `profiles/*` ever stops being gitignored and the scratch profile starts
-showing up in commits.
+showing up in commits. (The pyflakes step itself writes its report to
+`$RUNNER_TEMP`, not the checkout — JOB-135: a stray `./flakes.txt` matched no
+`.gitignore` rule and was tripping that same clean-tree assertion on its own
+scratch output.)
 
 **Full setup and usage: [USER_GUIDE.md](USER_GUIDE.md).**
