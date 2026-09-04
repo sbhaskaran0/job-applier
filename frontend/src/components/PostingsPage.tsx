@@ -390,7 +390,16 @@ export default function PostingsPage({
                     )}
                   </div>
                   <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 3 }}>
-                    {p.company} · {p.location} · {formatYears(p)}
+                    {p.company} · {p.location}
+                    {/* JOB-138: country-scope-only rows pass the baseline on an
+                        unknown, not on a match — say so next to the location so
+                        the row never reads as a clean one. */}
+                    {p.location_indeterminate && (
+                      <span className="tag" style={{
+                        color: 'var(--text-4)', background: 'var(--chip)', marginLeft: 5,
+                      }}>LOCATION UNVERIFIED</span>
+                    )}
+                    {' · '}{formatYears(p)}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', flex: 'none', marginLeft: 10 }}>

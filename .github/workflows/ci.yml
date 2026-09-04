@@ -1,0 +1,83 @@
+# Merge-damage guard. PR #11 auto-merged two branches that had edited the same
+# import lines, silently dropping `profiles as profiles_mod` from
+# server/data_api.py and half-merging store.yield_stats() — main shipped broken
+# with no conflict raised. Neither is a syntax error, so `compileall` passes on
+# both; pyflakes' undefined-name check is what catches them. The frontend build
+# is the same guard on the TS side (that merge also duplicated an import block
+# in frontend/src/api.ts, which failed `tsc -b`).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      # Undefined names only — the repo has no style baseline, and a full lint
+      # would fail on unrelated pre-existing warnings and get ignored.
+      #
+      # JOB-135: the report goes to $RUNNER_TEMP, never into the checkout. It
+      # used to be written to ./flakes.txt, which nothing in .gitignore covers,
+      # so the "Profiles-less checkout bootstraps" step below failed the whole
+      # job on `?? flakes.txt` — this step's own scratch file. Ignoring the
+      # filename would have silenced the guard by making it blind to a whole
+      # name; keeping scratch out of the tree keeps the guard honest.
+      - name: Undefined-name check (pyflakes)
+        run: |
+          pip install pyflakes
+          python -m pyflakes src server scripts tests > "$RUNNER_TEMP/flakes.txt" || true
+          if grep -E "undefined name|redefinition of unused" "$RUNNER_TEMP/flakes.txt"; then
+            echo "::error::undefined/duplicate names — likely a bad merge"
+            exit 1
+          fi
+          echo "clean"
+
+      - name: Syntax check
+        run: python -m compileall -q src server scripts tests
+
+      # Runtime deps are heavy (playwright, the agent SDK) and the standalone
+      # suites only need the pure-Python ones, so install just those. The set
+      # was measured, not guessed: running the suite under an import tracer,
+      # the non-stdlib closure is yaml (src.config) and httpx
+      # (src.providers.watchlist, reached via src.store -> src.providers).
+      # idna comes along as an httpx dependency; click and zstandard also show
+      # up locally but are optional inside httpx (both guarded by
+      # `except ImportError`), so a bare runner does not need them.
+      - name: Tests
+        run: |
+          pip install pyyaml httpx
+          for t in tests/test_*.py; do echo "--- $t"; python "$t" || exit 1; done
+
+      # GitHub's checkout IS a profiles-less clone (profiles/* is gitignored,
+      # only profiles/_template/ ships), i.e. the exact condition JOB-131
+      # fixes. The second half is the one that matters long-term: it fails if
+      # anyone ever loosens the profiles/* ignore rule and the bootstrapped
+      # scratch profile starts showing up in commits.
+      - name: Profiles-less checkout bootstraps
+        run: |
+          python -c "from src import profiles; p=profiles.active(); print(p.profile_id, p.placeholder); assert p.placeholder"
+          test -z "$(git status --porcelain)" || { git status --porcelain; echo '::error::bootstrap dirtied the working tree'; exit 1; }
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Type-check and build
+        run: npm run build

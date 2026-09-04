@@ -14,11 +14,19 @@ Resolution order for the active profile:
   4. legacy repo-root layout (pre-migration checkouts: user_profile.yaml at
      the repo root) — keeps old clones working until scripts/migrate_profile.py
      has run
+  5. last resort on a profiles-less checkout (fresh clone / git worktree —
+     profiles/* is gitignored, so only profiles/_template/ ships): bootstrap a
+     PLACEHOLDER profile at profiles/_scratch/ from the template, so read-only
+     pipelines like `python -m src.refresh` can run. Only criteria.yaml is
+     copied — never profile.yaml — so every path that would write or submit a
+     real person's data still fails loudly. Marked `placeholder=True`; the
+     webapp treats that as "no profile" and still shows the launch screen.
 Otherwise a clear error tells the user to create a profile.
 """
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +35,8 @@ PROFILES_DIR = REPO_DIR / "profiles"
 LOCAL_CONFIG_PATH = REPO_DIR / "applyer.local.json"
 
 LEGACY_ID = "__legacy__"
+TEMPLATE_ID = "_template"
+SCRATCH_ID = "_scratch"
 
 
 class ProfileError(RuntimeError):
@@ -37,11 +47,13 @@ class ProfileError(RuntimeError):
 class ActiveProfile:
     """Path bundle for one user's local data. `legacy` maps every path onto the
     pre-profile repo-root layout so unmigrated checkouts behave exactly as
-    before."""
+    before. `placeholder` marks the bootstrapped scratch profile — it holds no
+    personal data and must never be presented to the user as a real one."""
 
     profile_id: str
     root: Path
     legacy: bool = field(default=False)
+    placeholder: bool = field(default=False)
 
     # --- personal config -------------------------------------------------
     @property
@@ -131,6 +143,37 @@ def _from_id(profile_id: str) -> ActiveProfile:
     return ActiveProfile(profile_id=profile_id, root=root)
 
 
+def _bootstrap_scratch() -> ActiveProfile | None:
+    """Materialise the PLACEHOLDER profile at profiles/_scratch/ from the
+    tracked template, so a profiles-less checkout (fresh clone, CI, a git
+    worktree) can still run the read-only pipelines.
+
+    Only criteria.yaml is copied. profile.yaml is deliberately left absent so
+    config.load_user_profile() keeps raising its loud FileNotFoundError for
+    every apply/tailor/form-fill path — a placeholder must never quietly stand
+    in for a real person. Idempotent: an existing _scratch/ is reused as-is,
+    and nothing is ever written under the tracked template."""
+    template_criteria = PROFILES_DIR / TEMPLATE_ID / "criteria.yaml"
+    if not template_criteria.is_file():
+        return None
+
+    root = PROFILES_DIR / SCRATCH_ID          # covered by the profiles/* ignore
+    criteria = root / "criteria.yaml"
+    if not criteria.exists():
+        root.mkdir(parents=True, exist_ok=True)
+        criteria.write_bytes(template_criteria.read_bytes())
+
+    # One line per process: active() caches, so this branch runs at most once.
+    print(
+        f"[profiles] No profile found - using the PLACEHOLDER profile "
+        f"'{SCRATCH_ID}' (empty search criteria, no personal data). "
+        f"To create a real one: copy profiles/{TEMPLATE_ID}/ to "
+        f"profiles/<your-id>/ and fill it in.",
+        file=sys.stderr,
+    )
+    return ActiveProfile(profile_id=SCRATCH_ID, root=root, placeholder=True)
+
+
 def _resolve() -> ActiveProfile:
     env_id = os.environ.get("JOB_APPLIER_PROFILE", "").strip()
     if env_id:
@@ -158,6 +201,12 @@ def _resolve() -> ActiveProfile:
     # Legacy repo-root layout (pre-migration checkout)
     if (REPO_DIR / "user_profile.yaml").exists():
         return ActiveProfile(profile_id=LEGACY_ID, root=REPO_DIR, legacy=True)
+
+    # Profiles-less checkout: fall back to a clearly-marked placeholder rather
+    # than killing every entry point before it does any work.
+    scratch = _bootstrap_scratch()
+    if scratch is not None:
+        return scratch
 
     raise ProfileError(
         "No profile found. Copy profiles/_template/ to profiles/<your-id>/ and "
