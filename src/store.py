@@ -188,6 +188,40 @@ def last_run(conn: sqlite3.Connection | None = None) -> dict | None:
             conn.close()
 
 
+# Consecutive failed fetches before a board is called dark. Lives here rather
+# than in refresh.py (where it used to) because the store's own aggregates now
+# need it too, and two copies of a threshold drift (JOB-137).
+_DARK_RUNS = 3
+
+
+def dark_boards(threshold: int = _DARK_RUNS,
+                conn: sqlite3.Connection | None = None) -> set:
+    """Company names whose board has failed `threshold` consecutive fetches.
+
+    Read off the latest refresh_runs row, whose `companies_failed` JSON already
+    carries the `consecutive` counter refresh_from_fetch maintains. Keyed by
+    COMPANY NAME, matching both that counter's key and the postings.company
+    column, so the same set filters run summaries and stored rows alike.
+
+    Callers use this to stop a dark board's stale rows being counted as live
+    (JOB-137). Note it is a REPORTING filter only — nothing here deletes or
+    marks rows, because a board can go dark from a run of network failures and
+    come back, and the removal pass deliberately never acts on a failed fetch.
+    Fails closed to an empty set on a store that has never run or a malformed
+    log: over-counting stale rows is a smaller lie than hiding live ones.
+    """
+    run = last_run(conn)
+    if not run:
+        return set()
+    try:
+        failed = json.loads(run["companies_failed"] or "[]")
+    except (TypeError, ValueError):
+        return set()
+    return {f["company"] for f in failed
+            if isinstance(f, dict) and f.get("company")
+            and f.get("consecutive", 1) >= threshold}
+
+
 def store_age_hours() -> float | None:
     """Hours since the last refresh run, or None if the store has never run."""
     if not config.POSTINGS_DB_PATH.exists():
@@ -204,8 +238,23 @@ def store_age_hours() -> float | None:
 # --------------------------------------------------------------------------- #
 def refresh_from_fetch(fetch_result: dict) -> dict:
     """Ingest one fetch_all_with_status() result. Returns a summary dict the
-    digest is built from. Removal safety: only boards whose fetch SUCCEEDED
-    this run can have postings marked removed."""
+    digest is built from.
+
+    Two removal passes, and the distinction between them is the whole safety
+    story (JOB-137). The FETCH-FAILURE pass keeps everything: only boards whose
+    fetch SUCCEEDED this run can have postings marked removed, because a network
+    hiccup must never cascade into mass false removals. The CONFIG-REMOVAL pass
+    retires everything: an active row whose (ats, slug) is in no watchlist entry
+    is orphaned and gets marked removed, because a board vanishing from
+    watchlist.yaml is a deliberate edit, never a transient blip.
+
+    Without the second pass, dropping or re-slugging a board strands its rows as
+    permanently active — invisible to the removal loop, which only iterates
+    boards still IN the watchlist, and invisible to the dark-board filter, which
+    only sees boards still failing. Repointing Temporal Technologies from
+    greenhouse/temporaltechnologies to ashby/temporal is the first edit that
+    would have hit it, with 53 undead rows carrying dead 404 apply URLs.
+    """
     criteria = config.load_search_criteria().get("baseline", {})
     excluded = criteria.get("excluded_seniority") or []
     postings, errors = fetch_result["postings"], fetch_result["errors"]
@@ -274,9 +323,10 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                          *key))
 
         # Removal pass — ONLY over boards that fetched successfully this run.
+        watchlist = config.load_watchlist()
         failed_names = {e["company"] for e in errors}
         removed = 0
-        for co in config.load_watchlist():
+        for co in watchlist:
             if co["name"] in failed_names:
                 continue
             board = ((co.get("ats") or "").lower(), co.get("slug", ""))
@@ -292,6 +342,30 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                     f"AND job_id IN ({','.join('?' * len(chunk))})",
                     (now, *board, *chunk))
             removed += len(gone)
+
+        # Orphaned-board sweep (JOB-137) — the config-removal half of the
+        # contract in this function's docstring. The loop above can only ever
+        # reach boards still listed in watchlist.yaml, so a board that was
+        # dropped or re-slugged leaves its rows active forever. Keyed on
+        # (ats, slug) rather than company name because a repoint keeps the name
+        # and changes exactly this pair.
+        #
+        # Guarded on a non-empty watchlist: load_watchlist() returns [] for a
+        # missing or unreadable watchlist.yaml, and treating that as "every
+        # board was deliberately removed" would retire the entire store on a
+        # config read error. An empty watchlist is a failure to read config,
+        # not a decision.
+        watch_boards = {((co.get("ats") or "").lower(), co.get("slug", ""))
+                        for co in watchlist}
+        if watch_boards:
+            orphaned = [(r["ats"], r["slug"], r["job_id"]) for r in conn.execute(
+                "SELECT ats, slug, job_id FROM postings WHERE removed_at IS NULL")
+                if (r["ats"], r["slug"]) not in watch_boards]
+            conn.executemany(
+                "UPDATE postings SET removed_at=? "
+                "WHERE ats=? AND slug=? AND job_id=?",
+                [(now, *k) for k in orphaned])
+            removed += len(orphaned)
 
         # Run log, with consecutive-failure tracking for board health.
         prev = last_run(conn)
@@ -325,7 +399,7 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
             "new_qualifying_roles, new_title_matched_roles) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (now, len(postings), len(new_rows), removed, relisted,
-             len(config.load_watchlist()) - len(failed), json.dumps(failed),
+             len(watchlist) - len(failed), json.dumps(failed),
              new_qualifying, new_title_matched,
              new_qualifying_roles, new_title_matched_roles))
         conn.commit()
@@ -586,10 +660,19 @@ def yield_stats() -> list[dict]:
     passing the full baseline. The evidence base for watchlist rework (JOB-26).
     Counts are distinct roles (company+title) — a role cross-posted to several
     cities counts once, filtered first and collapsed to keys second so a role
-    that only qualifies in one city still counts."""
+    that only qualifies in one city still counts.
+
+    A DARK board's rows (JOB-137) keep their row here with `stale: True` rather
+    than being dropped: the board still has stored postings and hiding them
+    would make a board that quietly 404'd look identical to one that legitimately
+    posts nothing. What they must NOT do is count as live supply — so stale rows
+    are sorted last and every aggregate over this table (company_spread, the
+    digest's corpus counts) excludes them.
+    """
     baseline = config.load_search_criteria().get("baseline", {})
     conn = connect()
     try:
+        dark = dark_boards(conn=conn)
         rows = [dict(r) for r in conn.execute(
             "SELECT * FROM postings WHERE removed_at IS NULL")]
     finally:
@@ -605,10 +688,11 @@ def yield_stats() -> list[dict]:
                 qualifying_keys.setdefault(r["company"], set()).add(_role_key(r))
     stats = [{"company": c, "active": len(active_keys[c]),
               "title_matched": len(title_keys.get(c, ())),
-              "qualifying": len(qualifying_keys.get(c, ()))}
+              "qualifying": len(qualifying_keys.get(c, ())),
+              "stale": c in dark}
              for c in active_keys]
-    return sorted(stats, key=lambda s: (-s["qualifying"], -s["title_matched"],
-                                        s["company"]))
+    return sorted(stats, key=lambda s: (s["stale"], -s["qualifying"],
+                                        -s["title_matched"], s["company"]))
 
 
 def yield_history(days: int = 30) -> list[dict]:
@@ -682,6 +766,11 @@ def company_spread() -> dict:
     that company, and _applied_keys already treats the two identically. The
     per-status breakdown rides along so the distinction stays visible.
 
+    Rows belonging to a DARK board are excluded from the qualifying side
+    (JOB-137). A board that has 404'd for days is not supply — counting its
+    frozen rows would report a corpus that no longer exists and would let a
+    dead board keep inflating the top-5 concentration share.
+
     Pure aggregation over the current store — nothing is persisted, so this
     answers "how concentrated are we?" exactly, but not "how did that change
     since yesterday?". A day-over-day trend needs refresh_runs columns; see the
@@ -690,13 +779,15 @@ def company_spread() -> dict:
     baseline = config.load_search_criteria().get("baseline", {})
     conn = connect()
     try:
+        dark = dark_boards(conn=conn)
         rows = [dict(r) for r in conn.execute(
             "SELECT * FROM postings WHERE removed_at IS NULL")]
     finally:
         conn.close()
 
     roles = {(r["company"], (r["title"] or "").strip().lower())
-             for r in rows if passes_baseline(r, baseline)[0]}
+             for r in rows
+             if r["company"] not in dark and passes_baseline(r, baseline)[0]}
     qualifying: dict[str, int] = {}
     for company, _title in roles:
         qualifying[company] = qualifying.get(company, 0) + 1

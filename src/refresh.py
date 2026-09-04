@@ -20,7 +20,10 @@ from datetime import date, timedelta
 from . import config, data, store
 from .providers import watchlist as wl
 
-_DARK_RUNS = 3  # consecutive failed fetches before a board is called out
+# Consecutive failed fetches before a board is called out. Defined in store.py
+# (JOB-137) because the store's own aggregates filter on the same threshold —
+# one source of truth, re-exported here so the digest's own reads read locally.
+_DARK_RUNS = store._DARK_RUNS
 
 # JOB-136: how long a submitted application waits before the digest asks for an
 # outcome, and how many rows the ask renders before it truncates. The cap is
@@ -150,14 +153,22 @@ def build_digest(summary: dict) -> str:
               "| Company | Active | Title-matched | Qualifying |",
               "|---|---|---|---|"]
     for s in store.yield_stats():
-        lines.append(f"| {s['company']} | {s['active']} | "
+        # STALE (JOB-137): a board dark for _DARK_RUNS runs keeps its row so a
+        # quietly-404'd board can't be mistaken for one that just posts nothing,
+        # but its rows are frozen history and are excluded from the corpus
+        # totals in the concentration section below.
+        stale = " ⚠️ STALE" if s.get("stale") else ""
+        lines.append(f"| {s['company']}{stale} | {s['active']} | "
                      f"{s['title_matched']} | {s['qualifying']} |")
     lines += ["", "_Qualifying = passes titles/seniority/location/salary-floor "
               "deterministically. All three columns count distinct roles — a "
               "role cross-posted to several cities counts once, unlike the "
               "'New postings' list above which still lists every city variant "
               "separately, so the two sections won't add up. Yield informs "
-              "the JOB-26 watchlist rework._", ""]
+              "the JOB-26 watchlist rework. STALE rows belong to a board that "
+              f"has failed {_DARK_RUNS}+ consecutive fetches: the counts are "
+              "the last thing we saw, not live supply, and they are excluded "
+              "from the corpus totals below._", ""]
 
     # Company concentration (JOB-113): the yield table above answers "which
     # boards produce?" but not "are we fishing in one pond?" -- that took a
