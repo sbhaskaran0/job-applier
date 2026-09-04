@@ -487,6 +487,31 @@ def log_application(company: str = "", job_title: str = "", url: str = "",
                                        url=url, status=status)
 
 
+@mcp.tool()
+def set_application_outcome(company: str = "", job_title: str = "", url: str = "",
+                            outcome: str = "none", outcome_date: str = "") -> dict:
+    """Record what an employer came BACK with on an already-logged application
+    (JOB-136). Call this whenever the user reports a reply — a rejection email,
+    a recruiter screen, an interview invite, an offer — or asks you to mark a
+    long-silent application dead. `status` records whether we finished the form;
+    `outcome` records whether they answered, and only ever arrives from a human,
+    so nothing else in the system fills it in.
+
+    `outcome` must be one of: "none" (no reply yet — also blanks any recorded
+    date), "rejected", "screen", "interview", "offer", "ghosted" (silence gone
+    on long enough to call it). Anything else is refused with
+    {"status": "invalid"} rather than quietly widening the vocabulary.
+
+    `outcome_date` defaults to today; pass an ISO date when back-filling. The
+    target record is resolved on the SAME (company, job_title, url) dedupe key
+    log_application uses, so it lands on the record a later re-log will update.
+    Returns {"status": "updated"|"not_found"|"invalid"}; on "not_found" the
+    application was never logged — log it first."""
+    return data.set_application_outcome(company=company, job_title=job_title,
+                                        url=url, outcome=outcome,
+                                        outcome_date=outcome_date)
+
+
 # --------------------------------------------------------------------------- #
 # Knowledge tool (the local "Claude project")
 # --------------------------------------------------------------------------- #

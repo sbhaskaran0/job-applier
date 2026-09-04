@@ -9,11 +9,25 @@ per-company yield).
 
 import asyncio
 import sys
+from datetime import date, timedelta
 
-from . import config, store
+# `data` is imported at module level rather than locally the way
+# store._applied_keys does it: store defers the import because it pulls in
+# fuzzy-match machinery on a hot path, but data.py's own imports are stdlib
+# plus src.config (i.e. pyyaml), so this adds no third dependency to the
+# refresh import path — which matters, because CI's Tests step installs only
+# `pyyaml httpx` and would break on anything heavier.
+from . import config, data, store
 from .providers import watchlist as wl
 
 _DARK_RUNS = 3  # consecutive failed fetches before a board is called out
+
+# JOB-136: how long a submitted application waits before the digest asks for an
+# outcome, and how many rows the ask renders before it truncates. The cap is
+# pinned rather than left to taste: the log already holds ~90 submitted records,
+# and an uncapped list would bury the board-health and yield sections under it.
+_AWAITING_DAYS = 14
+_AWAITING_LIMIT = 15
 
 
 def _fmt_salary(row: dict) -> str:
@@ -22,6 +36,44 @@ def _fmt_salary(row: dict) -> str:
         return "not listed"
     tag = " (from JD)" if row.get("salary_source") == "jd" else ""
     return (f"${lo:,.0f}–${hi:,.0f}{tag}" if hi and hi != lo else f"${lo:,.0f}{tag}")
+
+
+def _awaiting_outcome(applications: list, today: date | None = None) -> list[dict]:
+    """Submitted applications old enough to have expected a reply that still
+    carry no outcome — oldest first (JOB-136).
+
+    This is the one input the response-rate goal depends on and the one input
+    nothing collects: `status` is written automatically by the apply path, but
+    `outcome` only ever arrives from a human, so without a prompt the numerator
+    stays zero forever and the rate is a lie rather than a measurement.
+
+    Two judgement calls, both deliberate:
+      * `outcome == "none"` counts as STILL AWAITING, not as answered. "none" is
+        APPLICATION_OUTCOMES' no-reply sentinel, not a recorded reply — the
+        vocabulary's way to say "they went quiet and I'm calling it" is
+        "ghosted", which does clear the row.
+      * A record with a missing or unparseable `date` is skipped rather than
+        listed. We cannot honestly claim something is 14 days old when we do not
+        know when it happened, and a digest that nags about undated records
+        trains the reader to skip the section.
+    """
+    cutoff = ((today or date.today()) - timedelta(days=_AWAITING_DAYS)).isoformat()
+    out = []
+    for a in applications or []:
+        if not isinstance(a, dict):
+            continue  # junk tolerated, not raised on — same as outcome stats
+        if str(a.get("status") or "") not in data.SUBMITTED_STATUSES:
+            continue
+        if str(a.get("outcome") or "none").strip().lower() != "none":
+            continue
+        when = str(a.get("date") or "").strip()[:10]
+        try:
+            date.fromisoformat(when)
+        except ValueError:
+            continue
+        if when <= cutoff:  # ISO dates sort lexicographically
+            out.append(a)
+    return sorted(out, key=lambda a: str(a.get("date") or ""))
 
 
 def build_digest(summary: dict) -> str:
@@ -59,6 +111,40 @@ def build_digest(summary: dict) -> str:
                          f"consecutive run(s) — {f['reason']}{marker}")
     else:
         lines.append("_All boards fetched clean._")
+
+    # Awaiting outcome (JOB-136): the digest's one ASK rather than one more
+    # report. Placed under board health so it reads as the second thing the
+    # user owes the loop, above the reference tables.
+    applications = config.load_applications()
+    awaiting = _awaiting_outcome(applications)
+    outcomes = data.application_outcome_stats(applications)
+    lines += ["", f"## Awaiting outcome ({len(awaiting)})", ""]
+    # The denominator rides along on purpose: "0.0%" alone reads as failure,
+    # "0.0% (0 of 89 submitted)" reads as un-measured, which is the truth.
+    # response_rate is 0.0 and never None/ZeroDivisionError on an empty log.
+    lines.append(
+        f"_Response rate so far: **{outcomes['response_rate'] * 100:.1f}%** "
+        f"({outcomes['responded']} replied of {outcomes['submitted']} "
+        f"submitted; {outcomes['by_outcome']['none']} record(s) carry no "
+        f"outcome)._")
+    lines.append("")
+    if awaiting:
+        lines.append(f"Submitted {_AWAITING_DAYS}+ days ago with nothing "
+                     f"recorded back — set one with the `set_application_outcome` "
+                     f"tool or the Applications page:")
+        lines.append("")
+        for a in awaiting[:_AWAITING_LIMIT]:
+            url = a.get("url") or ""
+            lines.append(
+                f"- {a.get('date') or 'date n/a'} · "
+                f"**{a.get('company') or '(unknown)'} — "
+                f"{a.get('job_title') or '(untitled)'}** "
+                f"({a.get('status')})" + (f"\n  {url}" if url else ""))
+        if len(awaiting) > _AWAITING_LIMIT:
+            lines.append(f"_... and {len(awaiting) - _AWAITING_LIMIT} more._")
+    else:
+        lines.append("_Nothing waiting — every submitted application older "
+                     f"than {_AWAITING_DAYS} days has an outcome recorded._")
 
     lines += ["", "## Yield per company (active postings)", "",
               "| Company | Active | Title-matched | Qualifying |",
