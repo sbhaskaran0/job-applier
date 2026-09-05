@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-09-02.
+per-session narrative lives in `git log` + Linear. Last updated 2026-09-04.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -9,7 +9,7 @@ code until Claude Code restarts.
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
-`python -m src.mcp_server`, **34 tools**) provides a live Playwright browser +
+`python -m src.mcp_server`, **35 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
 - **`/find-jobs <query>`** — roles across a curated ~79-company watchlist
   (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
@@ -93,11 +93,14 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `profiles/_template/`; legacy checkouts: `scripts/migrate_profile.py`.
   Multi-user roadmap (GCP data plane, auth, onboarding UI, per-user filtered
   postings): `docs/backlog-multiuser.md`.
-- `src/mcp_server.py` — 34 FastMCP tools; thin wrappers. `get_profile_paths`
+- `src/mcp_server.py` — 35 FastMCP tools; thin wrappers. `get_profile_paths`
   returns the active profile's resolved dirs (skills call it instead of
   guessing paths). `snapshot_job`
   (JOB-52): opens+reads+writes a batch prep file server-side, returning only a
   compact receipt (incl. `freetext_count`) so form dumps + JD never enter the model.
+  **JOB-136:** `set_application_outcome` lets a live session record a reply
+  the user reports, over the same `src.data` function the Applications-page
+  control uses.
 - `src/browser.py` — ATS-agnostic Playwright layer (`_SCAN_JS` reads page +
   iframes into generic field descriptors incl. a `multiline` free-text flag;
   no per-site selectors; non-headless; **persistent Chromium profile** per
@@ -139,6 +142,26 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   lowercased title) is now the single dedupe identity shared by
   `list_postings_from_store`, `count_board_baseline`, and `yield_stats`, all of
   which count distinct roles rather than raw city-variant rows.
+  **JOB-137:** `_DARK_RUNS` (3) now lives here, not `refresh.py` (which
+  re-exports it); `dark_boards()` reads the consecutive-failure counter
+  `refresh_from_fetch` already tracks in `refresh_runs.companies_failed`.
+  `yield_stats()` tags a dark board's row `stale: True` and sorts it last;
+  `company_spread()` excludes those rows from the qualifying corpus. Rows are
+  kept, never deleted — a board can go dark on transient failures and
+  recover. `refresh_from_fetch` also gained a second sweep, run after the
+  normal removal pass: any active row whose `(ats, slug)` is in no
+  `watchlist.yaml` entry is retired (`removed_count`), closing the gap where
+  a board dropped or repointed out of the watchlist kept its rows
+  `removed_at IS NULL` forever (undead, since the failed-fetch counter never
+  sees a board that isn't being fetched at all) — guarded on a non-empty
+  watchlist so a read failure can't retire everything.
+  **JOB-138:** `location_indeterminate(row, baseline)` is a separate seam
+  from `passes_baseline`'s `(passes, reason)` tuple — a country-only location
+  (e.g. bare "United States", no city) now passes the baseline as
+  INDETERMINATE rather than failing it, and the tag rides along into
+  `list_postings_from_store`'s payload and the digest. Matching is
+  whole-string via `locations.region_of` so `"us"` can't match inside a city
+  name.
 - `src/providers/locations.py` (JOB-55) — deterministic location normalization:
   raw ATS location strings → canonical city/remote tokens + work_mode
   (regex canonicalization + curated `location_aliases.yaml`; observations
@@ -149,7 +172,12 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   the RAW string (not the lossy `normalize()` output), fails open on anything
   ambiguous or unparseable. Allowed countries derive from the baseline's
   optional `allowed_countries` knob, else US + whatever `locations_allowed`/
-  `relocation_targets` already name — no profile edit needed.
+  `relocation_targets` already name — no profile edit needed. **JOB-138:**
+  `_region_of`/`_derive_allowed` promoted to public `region_of`/
+  `derive_allowed` — `locations.py` owns the location vocabulary, so
+  `store.location_indeterminate()` derives its allowed-country set from the
+  same function `foreign_scope()` already uses instead of growing a second
+  one.
 - `src/providers/watchlist.py` — fetch/normalize boards (incl. `job_id`+`slug`),
   live `list_postings`, `get_posting(s)`, `add_company`, `detect_ats_slug`,
   `_FETCHERS` (reused by discovery to probe candidate boards).
@@ -165,7 +193,14 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
 - `src/refresh.py` — `python -m src.refresh`: headless LLM-free ingest → digest
   `data/digest-latest.md` (new baseline-passing roles, boards dark ≥3 runs,
   per-company yield). Scheduled daily 09:00 via Task Scheduler ("JobApplier
-  Watchlist Refresh" → self-locating `scripts/refresh.cmd`).
+  Watchlist Refresh" → self-locating `scripts/refresh.cmd`). **JOB-136:** new
+  "Awaiting outcome" section — submitted records 14+ days old with no
+  `outcome` recorded, oldest first, capped at 15 (`_AWAITING_DAYS`/
+  `_AWAITING_LIMIT`); the response rate now renders with its denominator
+  ("0.0% (0 replied of 89 submitted)") so an unmeasured rate can't read as a
+  failed one. `outcome == "none"` still counts as awaiting; `"ghosted"` is
+  the sentinel that clears a row. Records with a missing/unparseable `date`
+  are skipped, not listed.
 - `src/providers/extract.py` — ingest-time regex enrichment: salary-from-JD
   (`salary_source: 'api'|'jd'`; Greenhouse ~60%, Lever 0%), advisory `min_years`,
   word-bounded `seniority_flag`.
@@ -219,6 +254,30 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-09-04 dev-loop run (JOB-135, JOB-136, JOB-137, JOB-138) — one lane,
+  four fixes to the ingest/digest/CI lifecycle, in dependency order.**
+  JOB-135: the CI pyflakes step wrote its report to `./flakes.txt` inside the
+  checkout, which matched no `.gitignore` rule and was tripping the
+  "Profiles-less checkout bootstraps" step's own `git status --porcelain`
+  clean-tree assertion — the only thing keeping PR #11's repair off `main`.
+  Now written to `$RUNNER_TEMP/flakes.txt`. JOB-136: 0 of 89 logged
+  applications carried an `outcome` because JOB-107 shipped the whole
+  vocabulary but nothing ever prompted for one — the digest gained an
+  "Awaiting outcome" section and `set_application_outcome` shipped as an MCP
+  tool so a live session can record a reply the user reports. JOB-137: a
+  board dark for 3+ runs is now flagged `STALE` in the digest instead of
+  counting as live supply, and a board removed from `watchlist.yaml` is
+  swept out of the store instead of leaving orphaned rows with dead apply
+  URLs forever — done in this order because repointing Temporal
+  (greenhouse/temporaltechnologies → ashby/temporal, the Greenhouse board now
+  404s) would otherwise have triggered the exact orphan bug the sweep fixes.
+  JOB-138: a posting reporting only a country ("United States", no city) was
+  being dropped as a location failure; it's now kept and flagged
+  `location_indeterminate` (digest, postings API, Postings page badge)
+  instead, since a board's silence about the city isn't evidence the role is
+  out of scope. Verified: `test_dark_boards.py` 10/10,
+  `test_awaiting_outcome.py` 11/11, `test_location_indeterminate.py` 11/11,
+  `test_location_scope.py` 8/8, `test_profiles_bootstrap.py` 13/13.
 - **2026-09-02 dev-loop run (JOB-127, JOB-131) — reconciled two stranded
   branches, closing out the CI gate.** `loop/2026-08-31/run` and
   `loop/2026-09-01/run` each carried half of what CI needed and neither

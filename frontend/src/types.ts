@@ -4,6 +4,9 @@ export interface Posting {
   company: string
   title: string
   location: string
+  // JOB-138: the board named only a country, so this posting passed the
+  // location baseline on "we don't know where" rather than on a match.
+  location_indeterminate?: boolean
   locations: string[]
   work_mode: 'remote' | 'hybrid' | 'onsite'
   remote: boolean

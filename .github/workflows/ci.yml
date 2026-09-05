@@ -23,11 +23,18 @@ jobs:
 
       # Undefined names only — the repo has no style baseline, and a full lint
       # would fail on unrelated pre-existing warnings and get ignored.
+      #
+      # JOB-135: the report goes to $RUNNER_TEMP, never into the checkout. It
+      # used to be written to ./flakes.txt, which nothing in .gitignore covers,
+      # so the "Profiles-less checkout bootstraps" step below failed the whole
+      # job on `?? flakes.txt` — this step's own scratch file. Ignoring the
+      # filename would have silenced the guard by making it blind to a whole
+      # name; keeping scratch out of the tree keeps the guard honest.
       - name: Undefined-name check (pyflakes)
         run: |
           pip install pyflakes
-          python -m pyflakes src server scripts tests > flakes.txt || true
-          if grep -E "undefined name|redefinition of unused" flakes.txt; then
+          python -m pyflakes src server scripts tests > "$RUNNER_TEMP/flakes.txt" || true
+          if grep -E "undefined name|redefinition of unused" "$RUNNER_TEMP/flakes.txt"; then
             echo "::error::undefined/duplicate names — likely a bad merge"
             exit 1
           fi

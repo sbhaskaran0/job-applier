@@ -54,7 +54,7 @@ playwright install chromium          # the browser the agent drives
 
 Then, in Claude Code, **open this project and reload it** so it loads
 [.mcp.json](.mcp.json). Run `/mcp` — you should see the `job-applier` server with
-**34 tools**.
+**35 tools**.
 
 > Whenever you change code in `src/`, reload Claude Code so the MCP server
 > restarts with the new code.
@@ -132,7 +132,11 @@ What happens:
    seniority (word-bounded, so "Head" can't hide in "Headquarters"),
    location/remote, and salary ≥ your floor **when disclosed** — a disclosed
    range whose top end is below the floor is dropped; undisclosed salary is
-   kept and flagged `salary_listed: false`.
+   kept and flagged `salary_listed: false`. A posting that names only a
+   country and no city (a board reporting bare "United States") is kept
+   rather than rejected as a location miss — it's flagged
+   `location_indeterminate` instead, since a silent board isn't evidence the
+   role is out of scope.
 3. Each role also carries `min_years` (parsed from the JD — **advisory**, always
   confirmed on finalists), `is_new` (appeared in the latest refresh), and
    `already_applied` (matched against the profile's `data/applications.json`, so you never
@@ -170,7 +174,19 @@ mass-deletes), and regenerates **`data/digest-latest.md`**:
 - **New postings passing your baseline** since the last run — the apply-fast
   candidates (fresh postings get the best response rates).
 - **Board health** — companies whose fetch has failed 3+ consecutive runs
-  (stale slug → fix or drop).
+  (stale slug → fix or drop). A board that stays dark for 3+ runs is marked
+  `⚠️ STALE` in the yield table below rather than deleted (a network blip can
+  recover), but its rows drop out of the yield/concentration totals; a board
+  removed from `watchlist.yaml` entirely is swept out of the store on the
+  next refresh instead of lingering forever as an active row with a dead
+  apply URL.
+- **Awaiting outcome** — submitted applications 14+ days old with no reply
+  outcome recorded yet, oldest first (capped at 15, "...and N more" beyond
+  that), plus the running response rate with its denominator (e.g. "0.0% (0
+  replied of 89 submitted)" reads as un-measured, not as a failure). Nothing
+  else populates `outcome` automatically — set it with the
+  `set_application_outcome` MCP tool or the Applications page when a company
+  replies.
 - **Yield per company** — active / title-matched / qualifying counts, the
   evidence for deciding which boards earn their watchlist slot.
 - **Company concentration** — total / distinct companies / top-5 share, for
@@ -709,7 +725,7 @@ Job Applier/
 ├─ server/                       # FastAPI backend: /api/* + /ws/chat (Agent SDK bridge)
 ├─ frontend/                     # Applyer React SPA (Vite + TS; npm run build → dist/)
 ├─ src/
-│  ├─ mcp_server.py              # the 34 tools
+│  ├─ mcp_server.py              # the 35 tools
 │  ├─ profiles.py                # active-profile resolution (env → applyer.local.json → …)
 │  ├─ browser.py                 # ATS-agnostic form reading/filling
 │  ├─ data.py                    # profile lookup + history

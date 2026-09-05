@@ -167,8 +167,8 @@ companies:
     ats: greenhouse
     slug: qventus
   - name: Temporal Technologies  # durable-execution dev infra
-    ats: greenhouse
-    slug: temporaltechnologies
+    ats: ashby
+    slug: temporal
   - name: Valon Labs       # mortgage-servicing fintech
     ats: ashby
     slug: Valon
