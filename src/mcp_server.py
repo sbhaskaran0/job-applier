@@ -9,12 +9,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from . import browser, config, context, data, store, tailor
 from .providers import watchlist as wl
 
-mcp = FastMCP("job-applier")
+mcp = MCPServer("job-applier")
 
 
 # --------------------------------------------------------------------------- #

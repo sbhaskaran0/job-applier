@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-08-29.
+per-session narrative lives in `git log` + Linear. Last updated 2026-09-08.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -85,7 +85,9 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `profiles/_template/`; legacy checkouts: `scripts/migrate_profile.py`.
   Multi-user roadmap (GCP data plane, auth, onboarding UI, per-user filtered
   postings): `docs/backlog-multiuser.md`.
-- `src/mcp_server.py` — 34 FastMCP tools; thin wrappers. `get_profile_paths`
+- `src/mcp_server.py` — 34 MCP tools (mcp SDK 2.x `MCPServer`, migrated from
+  `FastMCP` 2026-09-08 — same `@mcp.tool()`/`mcp.run()` surface, only the
+  import + constructor changed); thin wrappers. `get_profile_paths`
   returns the active profile's resolved dirs (skills call it instead of
   guessing paths). `snapshot_job`
   (JOB-52): opens+reads+writes a batch prep file server-side, returning only a
@@ -211,6 +213,23 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-09-08 session — unpinned `mcp` dep broke the server; migrated
+  FastMCP → MCPServer.** An environment refresh pulled `mcp` 2.1.1 (the repo's
+  `requirements.txt` had no version pin), which removed
+  `mcp.server.fastmcp.FastMCP` outright (`ModuleNotFoundError` pointing at the
+  v2 migration guide) — `src/mcp_server.py` couldn't import, so the
+  `job-applier` MCP server wouldn't start. Fixed by switching the one
+  import/constructor pair to `from mcp.server.mcpserver import MCPServer` /
+  `mcp = MCPServer("job-applier")`; every `@mcp.tool()` decorator and
+  `mcp.run()` call is unchanged in the v2 API. Pinned `requirements.txt` to
+  `mcp>=2` so a fresh install can't regress to the incompatible v1 surface.
+  Verified: `python -m src.mcp_server` module imports clean, `pyflakes`/
+  `compileall` (the CI checks) pass, and the 8/8 `test_location_scope.py`
+  suite still passes. Not yet pushed/PR'd — sitting on
+  `fix/pr11-merge-repair-ci` pending a fresh commit on top of the CI-guard one.
+  (Left `watchlist.yaml`'s pending Blueroseresearch/Greenhouse addition
+  uncommitted and untouched — unrelated change from a different task, not
+  swept into this fix per the commit skill's rule.)
 - **2026-08-29 session — repaired PR #11 merge damage + added CI.** Pulling
   `main` (33 commits: profile system M1, JOB-59/107/113/115/123) landed code
   that git auto-merged **line-wise with no conflict**, mangling three things:
@@ -330,6 +349,11 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   in Bash: heredoc `git commit -F - <<'EOF'`, NOT PowerShell `@'…'@`.
 - **MCP server staleness:** `src/` edits need a Claude Code restart; verify
   meanwhile via fresh-process direct-import scripts.
+- **`mcp` SDK is pinned `>=2`** (2026-09-08) — v2 renamed `FastMCP` →
+  `MCPServer` (`mcp.server.mcpserver`) and dropped the old import path
+  entirely, so an unpinned install silently breaks `src/mcp_server.py` on the
+  next fresh `pip install`. If it breaks again, check whether the installed
+  `mcp` major version moved out from under the pin.
 - **Task Scheduler on a laptop:** `schtasks /Create` defaults to AC-power-only
   (sits Queued on battery) and loses quoting on paths with spaces (0x80070002).
   Fixed via `Set-ScheduledTask` (`-AllowStartIfOnBatteries
