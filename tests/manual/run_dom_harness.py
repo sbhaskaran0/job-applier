@@ -38,6 +38,9 @@ from src.browser import BrowserSession          # noqa: E402
 
 FIXTURE = (Path(__file__).resolve().parent / "workday_fixture.html").as_uri()
 
+UPLOAD_FIXTURE = (Path(__file__).resolve().parent
+                  / "greenhouse_upload_fixture.html").as_uri()
+
 REVIEW_HTML = """
 <!doctype html><meta charset="utf-8"><h1>Review</h1>
 <p>Please review your application.</p>
@@ -234,6 +237,33 @@ async def run(headless=True):
         check("a Review page reports is_submit_page",
               res.get("status") == "is_submit_page", res.get("status"))
         check("is_submit_page clicked NOTHING", clicks == 0, "clicks=%s" % clicks)
+
+        # --- hidden Greenhouse-style uploads: cover must not hit resume ---
+        for fn in ("resume_x.pdf", "cover_letter_x.pdf"):
+            (tmp / fn).write_bytes(b"%PDF-1.4 fixture")
+        await page.goto(UPLOAD_FIXTURE, wait_until="domcontentloaded")
+        await s.read_form()
+        res = await s.upload_resume(None, str(tmp / "resume_x.pdf"), "resume")
+        check("resume upload lands in the resume slot and verifies",
+              res.get("status") == "uploaded" and res.get("verified") is True,
+              res)
+        res = await s.upload_resume(None, str(tmp / "cover_letter_x.pdf"), "cover")
+        check("cover upload verifies with the cover filename",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and res.get("observed_filename") == "cover_letter_x.pdf", res)
+        names = await page.evaluate(
+            "() => ['resume','cover_letter'].map(i =>"
+            " (document.getElementById(i).files[0] || {}).name || '')")
+        check("resume slot still holds the resume, cover slot the cover",
+              names == ["resume_x.pdf", "cover_letter_x.pdf"], names)
+
+        # --- dropzone re-render: the input node is replaced after upload ---
+        await page.goto(UPLOAD_FIXTURE + "#rerender", wait_until="domcontentloaded")
+        await page.reload(wait_until="domcontentloaded")
+        res = await s.upload_resume(None, str(tmp / "cover_letter_x.pdf"), "cover")
+        check("re-rendered dropzone: cover upload still verifies via box text",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and res.get("observed_filename") == "", res)
     finally:
         try:
             await s.close()

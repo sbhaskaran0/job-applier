@@ -291,9 +291,13 @@ For each approved job, in order:
 4. **Resume/cover letter** — call `get_job_artifacts(company, job_title, url)`.
    If `resume_is_tailored` (a `/tailor-application` artifact exists for this
    job), `upload_resume(path=<resume_path>)`; else `upload_resume()` (no index,
-   default resume). When `has_cover_letter`, upload `cover_letter_path` into a
-   cover-letter file input and/or paste `cover_letter_text` into a free-text
-   cover-letter field.
+   default resume); check `verified`. Resume FIRST, then when
+   `has_cover_letter` call `upload_resume(target="cover", path=<cover_letter_path>)`
+   and check `verified`. On `no_cover_slot` paste `cover_letter_text` into a
+   cover-letter textarea if listed, else flag it as a manual step (Greenhouse
+   "Enter manually" can't be clicked via the tools). Never retry a cover upload
+   without `target="cover"` (it overwrites the resume); on `error` ("landed in
+   resume slot") re-upload the resume; any other `error` parks the job.
 5. Verify via `read_form(values_only=True)` — the lean payload
    (`{index, kind, label, current_value}`, no option lists) is all a
    verification pass needs; confirm every intended `current_value` is set.
