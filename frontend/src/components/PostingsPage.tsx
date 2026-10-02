@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { fetchCriteria, formatSalary, formatYears, monogram, refreshPostings } from '../api'
-import type { Posting } from '../types'
+import { agoHours, fetchCriteria, formatSalary, formatYears, monogram, refreshPostings } from '../api'
+import type { Posting, Status } from '../types'
 import JobDetailModal from './JobDetailModal'
 import MultiSelect from './MultiSelect'
 import RangeSlider from './RangeSlider'
 import Toggle from './Toggle'
 
+const STALE_HOURS = 26 // scheduled daily; past this a run was likely missed
 const YOE_RANGE: [number, number] = [0, 15]
 const SALARY_RANGE: [number, number] = [60, 400] // $ thousands
 
@@ -31,6 +32,7 @@ const FIELD_LABEL: React.CSSProperties = {
 interface Props {
   postings: Posting[]
   note?: string
+  status?: Status | null
   selected: Set<string>
   setSelected: (s: Set<string>) => void
   autonomous: boolean
@@ -43,7 +45,7 @@ interface Props {
 }
 
 export default function PostingsPage({
-  postings, note, selected, setSelected, autonomous, setAutonomous, openApply, reload,
+  postings, note, status, selected, setSelected, autonomous, setAutonomous, openApply, reload,
   profileName, hiddenByCriteria, openCriteria,
 }: Props) {
   const [titles, setTitles] = useState<string[]>([])
@@ -194,6 +196,18 @@ export default function PostingsPage({
           </p>
         )}
         {note && <p style={{ color: 'var(--amber-text)' }}>{note}</p>}
+        {status?.store_age_hours != null && (
+          <p style={{
+            color: status.store_age_hours > STALE_HOURS ? 'var(--amber-text)' : 'var(--text-4)',
+          }}>
+            Postings last refreshed {agoHours(status.store_age_hours)}
+          </p>
+        )}
+        {status?.health && !status.health.ok && (
+          <p style={{ color: 'var(--amber-text)' }}>
+            Last refresh failed: {new Date(status.health.run_at).toLocaleString()}
+          </p>
+        )}
 
         <div style={{
           marginTop: 16, background: 'var(--bg-card)', border: '1px solid var(--border-1)',

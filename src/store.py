@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS postings (
   url TEXT, description TEXT, posted TEXT,
   work_mode TEXT, posted_at TEXT,
   first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, removed_at TEXT,
-  content_hash TEXT,
+  content_hash TEXT, missed_runs INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (ats, slug, job_id)
 );
 CREATE TABLE IF NOT EXISTS refresh_runs (
@@ -146,6 +146,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 "ALTER TABLE refresh_runs ADD COLUMN new_title_matched_roles INTEGER")
         conn.execute("PRAGMA user_version=4")
         conn.commit()
+    if version < 5:
+        # Schema v5: consecutive-miss counter so one flaky listing (Workday
+        # pages unstably) does not flip a live posting to removed.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(postings)")}
+        if "missed_runs" not in cols:
+            conn.execute(
+                "ALTER TABLE postings ADD COLUMN missed_runs "
+                "INTEGER NOT NULL DEFAULT 0")
+        conn.execute("PRAGMA user_version=5")
+        conn.commit()
 
 
 def _now() -> str:
@@ -212,6 +222,12 @@ def store_age_hours() -> float | None:
 # --------------------------------------------------------------------------- #
 # refresh (called by `python -m src.refresh`)
 # --------------------------------------------------------------------------- #
+# Consecutive complete-fetch misses before a posting is marked removed.
+# Workday listings page unstably, so one miss is noise there; every other ATS
+# answers with the whole board in one request, so one miss is already proof.
+REMOVAL_GRACE = {"workday": 2}
+
+
 def refresh_from_fetch(fetch_result: dict) -> dict:
     """Ingest one fetch_all_with_status() result. Returns a summary dict the
     digest is built from. Removal safety: only boards whose fetch SUCCEEDED
@@ -284,7 +300,7 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                         "min_years=?, min_years_source=?, seniority_flag=?, "
                         "url=?, description=?, posted=?, work_mode=?, "
                         "posted_at=?, content_hash=?, "
-                        "last_seen=?, removed_at=NULL "
+                        "last_seen=?, removed_at=NULL, missed_runs=0 "
                         "WHERE ats=? AND slug=? AND job_id=?",
                         (p["company"], p["title"], p["location"],
                          int(bool(p["remote"])), e["salary_min"], e["salary_max"],
@@ -297,7 +313,7 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                     # flag; posted isn't hashed (Greenhouse updated_at drifts),
                     # so keep posted_at current too
                     conn.execute(
-                        "UPDATE postings SET last_seen=?, removed_at=NULL, "
+                        "UPDATE postings SET last_seen=?, removed_at=NULL, missed_runs=0, "
                         "seniority_flag=?, posted=?, posted_at=? "
                         "WHERE ats=? AND slug=? AND job_id=?",
                         (now, extract.seniority_flag(p["title"], excluded),
@@ -314,7 +330,7 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
         incomplete_names = {e["company"]
                             for e in fetch_result.get("incomplete", [])}
         no_removals = failed_names | incomplete_names
-        removed = 0
+        removed = pending_removal = 0
         for co in config.load_watchlist():
             if co["name"] in no_removals:
                 continue
@@ -324,13 +340,23 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                 "SELECT job_id FROM postings WHERE ats=? AND slug=? "
                 "AND removed_at IS NULL", board)]
             gone = [jid for jid in active if jid not in current]
+            grace = REMOVAL_GRACE.get(board[0], 1)
             for i in range(0, len(gone), 500):
                 chunk = gone[i:i + 500]
+                marks = ','.join('?' * len(chunk))
+                # missed_runs + 1 on the right-hand side reads the OLD value
+                # in SQLite, so the CASE compares the post-increment count.
                 conn.execute(
-                    f"UPDATE postings SET removed_at=? WHERE ats=? AND slug=? "
-                    f"AND job_id IN ({','.join('?' * len(chunk))})",
-                    (now, *board, *chunk))
-            removed += len(gone)
+                    f"UPDATE postings SET removed_at=CASE WHEN missed_runs+1>=? "
+                    f"THEN ? END, missed_runs=missed_runs+1 "
+                    f"WHERE ats=? AND slug=? AND job_id IN ({marks})",
+                    (grace, now, *board, *chunk))
+            if gone:
+                newly = conn.execute(
+                    "SELECT COUNT(*) FROM postings WHERE ats=? AND slug=? "
+                    "AND removed_at=?", (*board, now)).fetchone()[0]
+                removed += newly
+                pending_removal += len(gone) - newly
 
         # Run log, with consecutive-failure tracking for board health.
         prev = last_run(conn)
@@ -371,6 +397,8 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
         return {"run_at": now, "total_scanned": len(postings),
                 "new_count": len(new_rows), "removed_count": removed,
                 "relisted_count": relisted, "new_rows": new_rows,
+                "pending_removal": pending_removal,
+                "companies_ok": len(config.load_watchlist()) - len(failed),
                 "new_qualifying": new_qualifying,
                 "new_title_matched": new_title_matched,
                 "new_qualifying_roles": new_qualifying_roles,
