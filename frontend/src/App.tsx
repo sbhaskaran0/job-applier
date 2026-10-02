@@ -167,14 +167,12 @@ export default function App() {
       chat.send(batch)
       return
     }
-    // Tailor the ticked roles first (each pauses for cover-letter approval), then
-    // batch-apply the whole selection — apply-batch auto-picks up the tailored
-    // resume + cover letter for those roles via get_job_artifacts.
-    chat.send(
-      'Before applying, tailor a bespoke resume + cover letter for these roles — '
-      + 'run /tailor-application once for each (pause for my approval on each cover '
-      + `letter):\n${tailor.join('\n')}\n\nThen apply to the full selection: ${batch}`,
-    )
+    // One turn per tailored role (a single "tailor all of these" message got
+    // skipped by the model), then the batch. Each tailoring pauses for cover-
+    // letter approval, so later prompts wait in the "Up next" list until the
+    // user clicks Continue (see enqueue in chat.ts). apply-batch auto-picks up
+    // the tailored resume + cover letter via get_job_artifacts.
+    chat.enqueue([...tailor.map((u) => `/tailor-application ${u}`), batch])
   }
 
   // Launch screen renders INSTEAD of the shell until a profile is active.

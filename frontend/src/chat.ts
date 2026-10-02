@@ -15,6 +15,11 @@ export interface AgentChat {
   connected: boolean
   send: (text: string) => void
   interrupt: () => void
+  /* Sequenced prompts ("Up next"): see enqueue() below. */
+  queue: string[]
+  enqueue: (prompts: string[]) => void
+  continueQueue: () => void
+  clearQueue: () => void
 }
 
 export function useAgentChat(): AgentChat {
@@ -25,6 +30,9 @@ export function useAgentChat(): AgentChat {
   const liveRunIdx = useRef<number | null>(null)
   const currentChip = useRef('agent')
   const closedByUs = useRef(false)
+  const [queue, setQueue] = useState<string[]>([])
+  const typingRef = useRef(false)
+  const queueRef = useRef<string[]>([])
 
   useEffect(() => {
     let retry = 0
@@ -123,9 +131,12 @@ export function useAgentChat(): AgentChat {
     }
   }, [])
 
+  useEffect(() => { typingRef.current = typing }, [typing])
+
   const send = useCallback((text: string) => {
     const t = text.trim()
     if (!t || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+    typingRef.current = true
     currentChip.current = /\bautonomous\b/i.test(t)
       ? 'autonomous'
       : t.startsWith('/') ? t.split(/\s+/)[0] : 'agent'
@@ -139,5 +150,39 @@ export function useAgentChat(): AgentChat {
     wsRef.current?.send(JSON.stringify({ type: 'interrupt' }))
   }, [])
 
-  return { messages, typing, connected, send, interrupt }
+  /* Sequenced prompts. The first prompt goes out immediately (if the agent is
+     idle); the rest wait in `queue`, shown as an "Up next" list, and are
+     released ONLY by an explicit continueQueue() ("Continue" button), never
+     automatically. Why: /tailor-application pauses for the user's approval of
+     the cover letter, so the turn ending is NOT proof the user has approved and
+     finished with that role: the approval reply is itself a later turn. There is
+     no reliable "agent is waiting on the user" signal in the stream, so we
+     prefer correctness over automation. Continue is only enabled while the agent
+     is idle (not typing), so a prompt can never interleave with a running turn. */
+  const setQ = useCallback((next: string[]) => {
+    queueRef.current = next
+    setQueue(next)
+  }, [])
+
+  const enqueue = useCallback((prompts: string[]) => {
+    const list = prompts.map((p) => p.trim()).filter(Boolean)
+    if (!list.length) return
+    if (!typingRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+      send(list[0])
+      setQ([...queueRef.current, ...list.slice(1)])
+    } else {
+      setQ([...queueRef.current, ...list])
+    }
+  }, [send, setQ])
+
+  const continueQueue = useCallback(() => {
+    const q = queueRef.current
+    if (typingRef.current || !q.length) return
+    send(q[0])
+    setQ(q.slice(1))
+  }, [send, setQ])
+
+  const clearQueue = useCallback(() => setQ([]), [setQ])
+
+  return { messages, typing, connected, send, interrupt, queue, enqueue, continueQueue, clearQueue }
 }
