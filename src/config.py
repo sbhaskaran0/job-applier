@@ -12,13 +12,10 @@ Shared, user-neutral assets (watchlist, postings store, location aliases,
 discovery config) remain true module constants at the repo root.
 """
 
-import json
-import os
-import tempfile
 import yaml
 from pathlib import Path
 
-from . import profiles
+from . import datastore, profiles
 
 # Shared (user-neutral) paths — real constants.
 BASE_DIR = profiles.REPO_DIR
@@ -205,49 +202,18 @@ def load_resume() -> str:
     )
 
 
-def _atomic_write_json(path: Path, payload) -> None:
-    """Whole-file JSON write via temp + os.replace so a concurrent reader never
-    sees a truncated file and a crash never loses the previous version."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-
 def load_history() -> list:
-    path = profiles.active().history_json
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return []
-    return []
+    return datastore.get_backend().load_history()
 
 
 def save_history(history: list) -> None:
-    _atomic_write_json(profiles.active().history_json, history)
+    datastore.get_backend().save_history(history)
 
 
 def load_applications() -> list:
     """The application log: one record per submitted application."""
-    path = profiles.active().applications_json
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return []
-    return []
+    return datastore.get_backend().load_applications()
 
 
 def save_applications(applications: list) -> None:
-    _atomic_write_json(profiles.active().applications_json, applications)
+    datastore.get_backend().save_applications(applications)
