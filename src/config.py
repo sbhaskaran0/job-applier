@@ -81,6 +81,14 @@ def base_resume_docx() -> Path | None:
     return p if p.exists() else None
 
 
+def cover_letter_template_docx() -> Path | None:
+    """Optional `cover_letter_template.docx` in the active profile root with
+    {{full_name}} {{address}} {{phone}} {{email}} {{date}} {{body}} placeholders.
+    None when absent (the letterhead is then generated)."""
+    p = profiles.active().cover_letter_template_docx
+    return p if p.exists() else None
+
+
 def extract_pdf_text(path) -> str:
     """Extract text from a PDF (empty string if pypdf is missing or it fails)."""
     try:

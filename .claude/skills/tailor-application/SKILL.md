@@ -67,11 +67,25 @@ they appear on the posting.
    draw on. First person, specific, results-oriented, no clichés. Also ground
    claims in `background.md` / `search_context` (the substance channel).
 
+   **Who drafts and how.** Draft the letter by spawning the **`answer-crafter`**
+   subagent (`subagent_type: "answer-crafter"`, `model: "opus"`), or in this
+   session if it is already running Opus. Follow `context/cover_letter_template.md`
+   in the active profile (via `search_context`). **No em dashes.** **Never type the
+   letterhead** (name, address, phone, email, date): code renders it when the
+   letter is saved. Start at the salutation, end with `Sincerely,` and the full
+   name. Run `lint_text(text, kind="cover_letter")` and fix HARD failures before
+   showing the user.
+
 6. **Show the user, then persist.** Present the drafted cover letter (and a short
    summary of the resume changes) for approval or edits — this is generative
    output, always gated. After they approve or edit, call
    `save_cover_letter(company, job_title, url, text)` (saves `cover_letter.txt`
-   + `cover_letter.pdf`).
+   body-only, plus a `cover_letter.pdf` with the letterhead rendered by code).
+   `save_cover_letter` always returns `saved` and `lint` (paths, `pdf_exported`
+   and `render_warnings` only when saved). It lints first and **may refuse**
+   (`saved: false` with a `lint` block and nothing written; SOFT findings in
+   `lint.soft` never block): fix the HARD failures and call again. Use
+   `force=True` only with the user's explicit OK.
 
 7. **Report.** Summarize: which bullets you reordered/re-emphasized/dropped, how
    you sharpened the summary, the cover-letter angle, and the saved paths
@@ -97,5 +111,7 @@ they appear on the posting.
   regenerate a resume from plain text.
 - **Match the user's writing** for the cover letter; gate it for approval before
   saving.
+- **No em dashes in the cover letter either** (nor " -- "); it is a hard lint
+  failure. Never type the letterhead; code renders it.
 - **One identity.** Use consistent `company` / `job_title` / `url` across all
   calls so the resume, cover letter, and the apply-time lookup share one folder.

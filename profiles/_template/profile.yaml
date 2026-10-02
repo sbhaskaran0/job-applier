@@ -16,6 +16,7 @@ phone: ""                 # e.g. "310-555-0100"
 address: ""               # street address, e.g. "123 Main St Apt 4"
 city: ""
 state: ""                 # spelled out, e.g. "California"
+zip: ""                   # ZIP code, e.g. "90001"; used in the cover-letter letterhead
 country: ""               # e.g. "United States"
 location: ""              # short display form, e.g. "Los Angeles, CA"
 

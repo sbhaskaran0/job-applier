@@ -660,14 +660,33 @@ def get_cover_letter_examples() -> dict:
 
 @mcp.tool()
 def save_cover_letter(company: str = "", job_title: str = "", url: str = "",
-                      text: str = "") -> dict:
+                      text: str = "", force: bool = False) -> dict:
     """Persist a drafted cover letter under resumes/<job-slug>/: cover_letter.txt
-    (for a free-text field) and cover_letter.pdf (a file for a file input). Call
-    this after drafting the letter in the user's voice from
-    get_cover_letter_examples. Same company/job_title/url identity as
-    tailor_resume. Returns {slug, dir, txt_path, pdf_path, pdf_exported, note}."""
+    (body only, for a free-text field) and cover_letter.pdf (a file for a file
+    input, with the letterhead rendered by code from the profile + today's date).
+    Do NOT type a letterhead in `text`; a typed one is stripped. The letter is
+    linted first: if any HARD rule fails (dashes, missing salutation/sign-off,
+    typed letterhead, contact details in the text, length outside 270-460
+    words, parentheticals, placeholders, paragraph count) nothing is written and
+    {saved: False, lint} comes back, so fix and call again. SOFT findings are
+    returned in `lint.soft` and the save proceeds. force=True overrides, only with the user's
+    explicit OK. Same company/job_title/url identity as tailor_resume. Always
+    returns `saved` and `lint`; when saved, also slug, dir, txt_path, pdf_path,
+    pdf_exported, render_warnings, note."""
     return tailor.save_cover_letter(company=company, job_title=job_title,
-                                    url=url, text=text)
+                                    url=url, text=text, force=force)
+
+
+@mcp.tool()
+def lint_text(text: str, kind: str = "answer") -> dict:
+    """Style-lint a drafted free-text answer BEFORE filling it. HARD failures
+    (em dash or " -- ", and for kind="cover_letter" also missing salutation /
+    sign-off, a typed letterhead, contact details in the text, length outside 270-460, parentheticals) must be fixed; SOFT
+    warnings (target word band 295-425, canonical opener/closer, "I'm writing to express", long parentheticals,
+    unquoted "0-to-1", 3+ sentences in a row starting "I ") are advisory.
+    kind: "answer" (default) or "cover_letter". Returns {ok, hard, soft,
+    word_count}."""
+    return tailor.lint_text(text, kind=kind)
 
 
 @mcp.tool()

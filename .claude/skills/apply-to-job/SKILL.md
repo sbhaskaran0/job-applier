@@ -85,7 +85,8 @@ issue any genuinely independent calls together in a single message.
      returned `context` snippets (clipped for triage — pull full voice with
      `get_cover_letter_examples` when you actually draft) plus `get_job_text`
      to **craft** an answer in the `preferences.md` voice (concise, specific,
-     results-oriented, first person).
+     results-oriented, first person). Drafting is done by the `answer-crafter`
+     subagent (see step 5), not inline.
 4. **Fill the confident ones in one call** — assemble `[{index, value}, ...]`
    for all `profile` and confidence-`high` `history` rows and call
    **`fill_many`** once.
@@ -156,6 +157,15 @@ issue any genuinely independent calls together in a single message.
      field if the user asks.
 5. **Craft + gate the rest** — for `context` rows, `review`-confidence history
    rows, and anything uncertain:
+   - **Who drafts:** any non-verbatim answer (essay, cover letter, "why us",
+     `review` adaptation) is drafted by spawning the **`answer-crafter`** subagent
+     (`subagent_type: "answer-crafter"`, `model: "opus"`), passing it the field
+     labels/kinds, the job text, and the company. Skip the spawn only if this
+     main session is already running Opus, then draft inline following the same
+     rules (see `.claude/agents/answer-crafter.md`). Either way, run
+     **`lint_text`** (`kind="cover_letter"` for letters) on each draft and fix
+     HARD failures (em dashes, typed letterhead, stale contact details) before
+     showing or filling it.
    - **Auto-fill** (add to a `fill_many` batch) only factual, well-supported
      answers.
    - **Pause and ask the user** — show the field, your draft, and the source —

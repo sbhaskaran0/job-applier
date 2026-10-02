@@ -121,8 +121,17 @@ number of multi-line/free-text fields (textarea / contenteditable / ARIA textbox
    about twice — the sweet spot between a risky single-load mega-agent and paying
    the corpus per chunk. Spawn the crafting agents together in one message
    (read-only, no browser, so concurrency is safe).
+   - **Spawn each crafting agent as `subagent_type: "answer-crafter"` and pass
+     `model: "opus"` explicitly** (the definition in `.claude/agents/answer-crafter.md`
+     already pins Opus; the explicit parameter is a second guard so a draft never
+     silently runs on a smaller model). Only the crafting lane is pinned: the inline
+     lane stays in the main context because it only fills verbatim profile values
+     and closed choices, no drafting.
    - Each crafting agent calls `get_cover_letter_examples` **once** and reuses that
      voice across its 3–4 jobs (the amortization).
+   - Cost note: Opus raises the per-token price of the crafting lane only, which is
+     why the `freetext_count` routing matters more, not less. Jobs with no essay
+     never reach an Opus agent.
    - **Process each job independently:** pass the right `company` per job to
      `resolve_fields`, craft each essay from *that* job's `jd_text` + scoped
      `search_history`/`search_context`, and never reuse one job's draft for
@@ -138,11 +147,13 @@ number of multi-line/free-text fields (textarea / contenteditable / ARIA textbox
 **Chunk-agent prompt template** (fill in the bracketed parts — give each agent
 its **list** of `{prep_path, sheet_path, company}` rows):
 
-> You are a read-only prep agent. Process EACH job in this list independently,
+> You are the answer-crafter prep agent (its definition already carries the style
+> rules; they are repeated here so the prompt is self-contained, and any conflict
+> goes to the stricter rule). Process EACH job in this list independently,
 > reusing your loaded context across all of them (do not re-read anything per
 > job you can hold once): `[list of {prep_path, sheet_path, company}]`.
 > First load the MCP tools with ToolSearch (query
-> "select:mcp__job-applier__resolve_fields,mcp__job-applier__search_history,mcp__job-applier__search_context,mcp__job-applier__get_profile_field,mcp__job-applier__get_cover_letter_examples").
+> "select:mcp__job-applier__resolve_fields,mcp__job-applier__search_history,mcp__job-applier__search_context,mcp__job-applier__get_profile_field,mcp__job-applier__get_cover_letter_examples,mcp__job-applier__lint_text").
 > Do NOT read any SKILL.md — the rules you need are below.
 >
 > For each job: read its prep file, then resolve every fillable field:
@@ -198,6 +209,11 @@ its **list** of `{prep_path, sheet_path, company}` rows):
 >   it; if there's no genuine value, leave it out (voluntary).
 > - A **required** field with no honest, supportable answer goes in `flags`, never
 >   `answers` — do not fabricate to fill it.
+> - **Cover letter field:** follow `context/cover_letter_template.md` in the active
+>   profile (via `search_context` or `get_profile_paths`), and **never type the
+>   letterhead** (code renders it from the profile when the letter is saved).
+> - **Lint:** run `lint_text` on every free-text answer (`kind="cover_letter"` for
+>   letters) and fix every HARD failure before writing the sheet.
 >
 > Write each job's prep sheet to its `[sheet_path]` with this shape:
 >
@@ -223,8 +239,8 @@ its **list** of `{prep_path, sheet_path, company}` rows):
 > `"fill"`; everything crafted, adapted from another company, or conditional →
 > `"review"`.
 > STRICT LIMITS: read-only. Use ONLY `resolve_fields`, `search_history`,
-> `search_context`, `get_profile_field`, `get_cover_letter_examples`, and
-> Read/Write. Never call browser tools (`open_job`, `read_form`, `fill_*`,
+> `search_context`, `get_profile_field`, `get_cover_letter_examples`, `lint_text`,
+> and Read/Write. Never call browser tools (`open_job`, `read_form`, `fill_*`,
 > `get_job_text`, `screenshot`) — the JD is already in each prep file — and never
 > call `save_answer` (other agents run concurrently).
 > Return a compact one-line-per-job summary (counts by source/confidence + any

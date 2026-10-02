@@ -82,7 +82,7 @@ def find_cli() -> str | None:
         return None
     # Highest version-ish path wins (lexicographic on the version dir name)
     return str(sorted(candidates, key=lambda p: p.parent.as_posix())[-1])
-def _log_usage(result) -> None:
+def _log_usage(result, model=None) -> None:
     """Append the SDK-reported usage/cost for one web-chat turn to the active
     profile's token_usage.jsonl (dev-loop cost metric). Tagged source=webchat:
     the repo's Stop hook (token_report.py) also fires for SDK-spawned sessions
@@ -93,6 +93,7 @@ def _log_usage(result) -> None:
         rec = {
             "session_id": getattr(result, "session_id", None),
             "source": "webchat",
+            "model": model,
             "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
             "turns": 1,
             "usage": getattr(result, "usage", None),
@@ -136,6 +137,9 @@ async def chat_session(ws: WebSocket) -> None:
 
     options = ClaudeAgentOptions(
         cwd=str(config.BASE_DIR),
+        # Pin the reasoner: drafting quality (cover letters, essays) degrades
+        # on smaller models. Subagents pin their own model in their definition.
+        model="opus",
         permission_mode="bypassPermissions",
         # user+project: load ~/.claude auth/config AND this repo's .mcp.json,
         # .claude/skills, CLAUDE.md — the same surface a terminal session gets.
@@ -162,10 +166,12 @@ async def chat_session(ws: WebSocket) -> None:
 
     async def run_turn(text: str) -> None:
         got_result = False
+        last_model = None  # model id the latest AssistantMessage reported
         try:
             await client.query(text)
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
+                    last_model = getattr(message, "model", None) or last_model
                     for block in message.content:
                         if isinstance(block, TextBlock) and block.text.strip():
                             await send({"type": "agent_text",
@@ -174,7 +180,7 @@ async def chat_session(ws: WebSocket) -> None:
                             await send(_tool_step(block.name, block.input))
                 elif isinstance(message, ResultMessage):
                     got_result = True
-                    _log_usage(message)
+                    _log_usage(message, last_model)
                     await send({
                         "type": "done",
                         "ok": not message.is_error,
