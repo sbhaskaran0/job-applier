@@ -164,10 +164,13 @@ def _countries_in(raw: str) -> set:
             if t.lower() in _COUNTRIES}
 
 
-def _derive_allowed(allowed_metros) -> set:
+def derive_allowed(allowed_metros) -> set:
     """Countries a profile implicitly allows: the US, plus any country already
     named in locations_allowed / relocation_targets (a profile listing "Canada"
-    as a relocation target implicitly allows Canada)."""
+    as a relocation target implicitly allows Canada).
+
+    Public alongside region_of: it is the exact derivation foreign_scope uses,
+    and JOB-138's country-scope rule has to agree with it exactly."""
     allowed = {"United States"}
     for place in allowed_metros or ():
         canon = _COUNTRIES.get(str(place).strip().lower())
@@ -217,7 +220,7 @@ def foreign_scope(raw: str, allowed_countries=None, allowed_metros=None) -> bool
     if not raw:
         return False
     allowed = ({str(c) for c in allowed_countries} if allowed_countries
-               else _derive_allowed(allowed_metros))
+               else derive_allowed(allowed_metros))
     if _allowed_signal(raw, allowed, allowed_metros):
         return False
     return _foreign_signal(raw, allowed)
@@ -261,8 +264,13 @@ def _remote_canonical(token: str) -> str:
     return "Remote"
 
 
-def _region_of(segment: str) -> str | None:
-    """Canonical region if the segment IS a state/province/country, else None."""
+def region_of(segment: str) -> str | None:
+    """Canonical region if the segment IS a state/province/country, else None.
+
+    WHOLE-segment, never substring: "us" can therefore not match inside a city
+    name. Public because store.py's country-scope rule (JOB-138) needs the same
+    vocabulary and this module owns it -- store must not grow its own country
+    table."""
     s = segment.strip().rstrip(".")
     if s.upper() in _US_STATE_ABBR or s.upper() in _CA_PROVINCE_ABBR:
         return s.upper()
@@ -360,7 +368,7 @@ def normalize(raw: str, remote_hint: bool = False) -> dict:
             if prefixed and pending:  # standalone location, not a qualifier
                 add(_city_canonical(pending[0]), "city", pending[1])
                 pending = None
-            region = _region_of(segment)
+            region = region_of(segment)
             # a city-like state name ("New York") mid-list is a city in its own
             # right, not a qualifier: "San Francisco, New York, Seattle"
             qualifier = (region is not None and not prefixed and pending
