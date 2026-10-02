@@ -497,6 +497,132 @@ _CODE_INPUTS_JS = r"""
 """
 
 
+# --- file-upload slot selection (upload_resume) ---------------------------
+# Greenhouse hides BOTH its Resume/CV and Cover Letter <input type=file>, so
+# read_form never lists them and callers cannot pass an index. upload_resume
+# therefore locates the input itself. JS only DESCRIBES every file input; the
+# choice is made in pure Python (_choose_file_input) so it is unit-testable.
+#
+# The "container" text is the load-bearing detail. The old code used
+# closest('div,section,fieldset,li'), which on a form that nests both uploads
+# in one wrapper yields text containing "resume" AND "cover" for each input, so
+# every input looked like a cover letter (score 0) and the resume pick became
+# arbitrary. Here we climb ancestors only while the ancestor holds exactly ONE
+# file input (so it can never span both uploads), max 4 levels, and never take
+# an ancestor whose text mixes resume/cv with cover. `label` is the explicit
+# label (label[for], aria-labelledby) which beats container text.
+_FILE_HELPERS_JS = r"""
+const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+const MIX = (t) => /resume|\bcv\b/i.test(t) && /cover/i.test(t);
+const tightBox = (el) => {
+  let best = el.parentElement, cur = el.parentElement;
+  for (let n = 0; cur && n < 4; n++, cur = cur.parentElement) {
+    if (cur.querySelectorAll('input[type=file]').length !== 1) break;
+    if (MIX(clean(cur.innerText))) break;
+    best = cur;
+  }
+  return best;
+};
+const labelOf = (el) => {
+  const parts = [];
+  if (el.id) {
+    const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+    if (l) parts.push(l.innerText);
+  }
+  const lb = el.getAttribute('aria-labelledby');
+  if (lb) lb.split(/\s+/).forEach(id => {
+    const n = document.getElementById(id); if (n) parts.push(n.innerText);
+  });
+  const wrap = el.closest('label');
+  if (wrap) parts.push(wrap.innerText);
+  return clean(parts.join(' '));
+};
+"""
+
+_FILE_CANDIDATES_JS = "() => {" + _FILE_HELPERS_JS + r"""
+  return Array.from(document.querySelectorAll('input[type=file]')).map((el, i) => {
+    const box = tightBox(el);
+    return {i: i, text: clean(box && box.innerText).slice(0, 200),
+            name: el.name || '', id: el.id || '',
+            aria: el.getAttribute('aria-label') || '',
+            label: labelOf(el),
+            file: (el.files && el.files[0] && el.files[0].name) || ''};
+  });
+}"""
+
+_TAG_FILE_JS = r"""
+(i) => {
+  const inputs = Array.from(document.querySelectorAll('input[type=file]'));
+  inputs.forEach(el => el.removeAttribute('data-jaidx-file'));
+  if (inputs[i]) inputs[i].setAttribute('data-jaidx-file', '1');
+}"""
+
+_FILE_READBACK_JS = "(el) => {" + _FILE_HELPERS_JS + r"""
+  const box = tightBox(el);
+  return {name: (el.files && el.files[0] && el.files[0].name) || '',
+          text: clean(box && box.innerText).slice(0, 300)};
+}"""
+
+_RESUME_RE = re.compile(r"resume|\bcv\b|curriculum", re.I)
+_COVER_RE = re.compile(r"cover", re.I)
+
+
+def _choose_file_input(candidates: list[dict], target: str = "resume"):
+    """Pick which file input to use; returns its `i` or None.
+
+    target="cover": ONLY an input whose own attributes (name/id/aria-label/
+    label) match /cover/ -- or, with no signal of its own, whose tight
+    container text mentions cover -- and that does not look like a resume.
+    Resume/CV-labelled inputs are never eligible; there is no fallback, so a
+    page with no cover slot yields None (the caller reports no_cover_slot).
+
+    target="resume": the historical scoring -- cover-labelled 0, resume/cv-
+    labelled 2, otherwise 1; highest wins, first on ties."""
+    best, best_score = None, -1
+    for c in candidates:
+        own = " ".join(str(c.get(k) or "") for k in ("name", "id", "aria", "label"))
+        text = str(c.get("text") or "")
+        if target == "cover":
+            if _RESUME_RE.search(own):
+                continue
+            if _COVER_RE.search(own):
+                return c["i"]
+            if _COVER_RE.search(text) and not _RESUME_RE.search(text) and best is None:
+                best = c["i"]
+            continue
+        t = own + " " + text
+        score = 0 if _COVER_RE.search(t) else 2 if _RESUME_RE.search(t) else 1
+        if score > best_score:
+            best, best_score = c["i"], score
+    return best
+
+
+def _is_resume_slot(c: dict) -> bool:
+    own = " ".join(str(c.get(k) or "") for k in ("name", "id", "aria", "label"))
+    if _COVER_RE.search(own):
+        return False
+    return bool(_RESUME_RE.search(own + " " + str(c.get("text") or "")))
+
+
+def _cover_landed_in_resume(before: list[dict], after: list[dict],
+                            fname: str) -> bool:
+    """True if a resume-labelled slot newly shows the cover filename."""
+    if not fname:
+        return False
+    key = lambda c: (c.get("frame", 0), c.get("i"))
+    prev = {key(c): c for c in before}
+    low = fname.lower()
+    for c in after:
+        if not _is_resume_slot(c):
+            continue
+        old = prev.get(key(c)) or {}
+        shows = low in str(c.get("text") or "").lower() or c.get("file") == fname
+        was = low in str(old.get("text") or "").lower() or old.get("file") == fname
+        if shows and not was:
+            return True
+    return False
+
+
 # JS: the validation errors a page is currently showing, mapped back to the
 # fields that caused them. Generic on purpose: an error node with an `id` is
 # linked to its input by `aria-describedby` — an ARIA contract, not a Workday
@@ -1237,54 +1363,108 @@ class BrowserSession:
         return results
 
     async def upload_resume(self, index: int | None = None,
-                            path: str | None = None) -> dict:
-        """Attach the resume. With an explicit `index`, use that field. Without
-        one, auto-locate a file input anywhere on the page — **even if hidden**
+                            path: str | None = None,
+                            target: str = "resume") -> dict:
+        """Attach the resume (target="resume", default) or a cover-letter FILE
+        (target="cover"). With an explicit `index`, use that field. Without
+        one, auto-locate a file input anywhere on the page -- **even if hidden**
         (Greenhouse/Ashby "Attach" widgets back their dropzone with a hidden
-        <input type=file>, which read_form doesn't list) — preferring a
-        resume/CV input over a cover-letter one."""
-        resume_path = path or str(config.resume_upload_path())
+        <input type=file>, which read_form doesn't list).
+
+        target="resume" prefers a resume/CV input over a cover-letter one.
+        target="cover" only ever picks an input labelled "cover" and NEVER falls
+        back to the resume slot: with none it returns {"status":
+        "no_cover_slot"} (use the free-text path instead). Both paths read the
+        result back and return `verified` + `observed_filename`; a cover upload
+        that changed the resume slot returns status "error"."""
+        if target not in ("resume", "cover"):
+            raise ValueError("target must be 'resume' or 'cover'")
+        cover = target == "cover"
+        up_path = path or (None if cover else str(config.resume_upload_path()))
+        if not up_path:
+            raise ValueError("target='cover' needs a path (the cover_letter_path "
+                             "from get_job_artifacts)")
+        fname = up_path.replace("\\", "/").rsplit("/", 1)[-1]
+        before = await self._file_slot_snapshot() if cover else []
+
         if index is not None and index >= 0:
             loc, _ = self._locator(index)
-            await loc.set_input_files(resume_path)
-            return {"index": index, "status": "uploaded", "path": resume_path}
+            await loc.set_input_files(up_path)
+            res = {"index": index, "status": "uploaded", "path": up_path,
+                   "target": target}
+            res.update(await self._file_readback(loc, fname))
+            return await self._guard_cover_landing(res, before, fname, cover)
 
-        pick_js = r"""
-        (hint) => {
-          const inputs = Array.from(document.querySelectorAll('input[type=file]'));
-          if (!inputs.length) return -1;
-          const h = (hint || '').toLowerCase();
-          const score = (el) => {
-            const c = el.closest('div,section,fieldset,li') || el.parentElement;
-            const t = (((c && c.innerText) || '') + ' ' + (el.name || '') + ' ' + (el.id || '')).toLowerCase();
-            if (t.includes('cover')) return 0;          // deprioritize cover letter
-            if (t.includes(h) || t.includes('cv')) return 2;
-            return 1;
-          };
-          inputs.forEach(el => el.removeAttribute('data-jaidx-file'));
-          let bestIdx = 0, best = -1;
-          inputs.forEach((el, i) => { const s = score(el); if (s > best) { best = s; bestIdx = i; } });
-          inputs[bestIdx].setAttribute('data-jaidx-file', '1');
-          return bestIdx;
-        }
-        """
         for frame in self.page.frames:
             try:
-                picked = await frame.evaluate(pick_js, "resume")
+                cands = await frame.evaluate(_FILE_CANDIDATES_JS)
             except Exception:
-                picked = -1
-            if picked is not None and picked >= 0:
-                loc = frame.locator('[data-jaidx-file="1"]').first
-                await loc.set_input_files(resume_path)
+                cands = []
+            pick = _choose_file_input(cands or [], target)
+            if pick is None:
+                continue
+            await frame.evaluate(_TAG_FILE_JS, pick)
+            loc = frame.locator('[data-jaidx-file="1"]').first
+            try:
+                await loc.set_input_files(up_path)
+                res = {"index": -1, "status": "uploaded", "path": up_path,
+                       "target": target, "note": "auto-located file input"}
+                res.update(await self._file_readback(loc, fname))
+            finally:
                 try:
                     await frame.evaluate(
-                        "() => { const e = document.querySelector('[data-jaidx-file]');"
-                        " if (e) e.removeAttribute('data-jaidx-file'); }")
+                        "() => document.querySelectorAll('[data-jaidx-file]')"
+                        ".forEach(e => e.removeAttribute('data-jaidx-file'))")
                 except Exception:
                     pass
-                return {"index": -1, "status": "uploaded", "path": resume_path,
-                        "note": "auto-located file input"}
+            return await self._guard_cover_landing(res, before, fname, cover)
+        if cover:
+            return {"index": -1, "status": "no_cover_slot", "target": target,
+                    "path": up_path,
+                    "note": "no file input labelled 'cover' on the page; the "
+                            "resume slot was NOT touched. Use the free-text "
+                            "cover letter (cover_letter_text) instead."}
         raise RuntimeError("No file input found on the page to attach the resume.")
+
+    async def _file_slot_snapshot(self) -> list[dict]:
+        """Descriptors of every file input in every frame, tagged with the
+        frame ordinal so before/after snapshots line up."""
+        out: list[dict] = []
+        for n, frame in enumerate(self.page.frames):
+            try:
+                cands = await frame.evaluate(_FILE_CANDIDATES_JS)
+            except Exception:
+                continue
+            for c in cands or []:
+                out.append({**c, "frame": n})
+        return out
+
+    async def _file_readback(self, loc, fname: str) -> dict:
+        """Read the target input's files[0].name and its container's visible
+        text (dropzones render the filename) and decide `verified`."""
+        try:
+            rb = await loc.evaluate(_FILE_READBACK_JS) or {}
+        except Exception as e:
+            return {"verified": False, "observed_filename": "",
+                    "readback_error": f"{type(e).__name__}: {e}"}
+        observed = rb.get("name") or ""
+        text = rb.get("text") or ""
+        ok = observed == fname or (bool(fname) and fname.lower() in text.lower())
+        return {"verified": bool(ok), "observed_filename": observed,
+                "container_text": text[:160]}
+
+    async def _guard_cover_landing(self, res: dict, before: list[dict],
+                                   fname: str, cover: bool) -> dict:
+        """A cover upload must leave the resume slot alone; if the resume
+        slot now shows the cover filename it was overwritten."""
+        if not cover:
+            return res
+        after = await self._file_slot_snapshot()
+        if _cover_landed_in_resume(before, after, fname):
+            res["status"] = "error"
+            res["error"] = "cover upload landed in resume slot"
+            res["verified"] = False
+        return res
 
     async def get_field_options(self, index: int) -> dict:
         """Return the selectable options for a dropdown. For a native `select`

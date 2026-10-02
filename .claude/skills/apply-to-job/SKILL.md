@@ -139,13 +139,20 @@ issue any genuinely independent calls together in a single message.
      "Attach"/dropzone widget, preferring resume over cover-letter. If
      `resume_is_tailored` is true, pass the tailored file:
      `upload_resume(path=<resume_path>)`; otherwise call `upload_resume()` with
-     no args (default resume.pdf/.docx, else resume.txt).
-   - **Cover letter (if tailored):** when `get_job_artifacts` returns
-     `has_cover_letter`, use it — upload `cover_letter_path` into a cover-letter
-     **file** input (`upload_resume(index=<that file field>, path=<cover_letter_path>)`),
-     and/or paste `cover_letter_text` into a free-text cover-letter field. If no
-     tailored cover letter exists, only fill a cover-letter field if the user
-     asks (the default flow doesn't require one).
+     no args (default resume.pdf/.docx, else resume.txt). Check `verified` in
+     the result.
+   - **Cover letter (if tailored):** upload the resume FIRST. Then, when
+     `get_job_artifacts` returns `has_cover_letter`, call
+     `upload_resume(target="cover", path=<cover_letter_path>)` (no index —
+     Greenhouse hides both file inputs) and check `verified`. Status
+     `no_cover_slot` means the page has no cover-letter file input: paste
+     `cover_letter_text` into a cover-letter textarea if one is listed, else
+     flag it for the user (on Greenhouse an "Enter manually" button may reveal
+     one; it can't be clicked via the tools, so it is a manual step). Never
+     retry a cover upload without `target="cover"` — that overwrites the
+     resume. Status `error` ("landed in resume slot") means re-upload the
+     resume. If no tailored cover letter exists, only fill a cover-letter
+     field if the user asks.
 5. **Craft + gate the rest** — for `context` rows, `review`-confidence history
    rows, and anything uncertain:
    - **Auto-fill** (add to a `fill_many` batch) only factual, well-supported

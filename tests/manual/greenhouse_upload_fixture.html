@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Greenhouse-style upload fixture</title>
+<!-- Synthetic: two hidden file inputs, each in its own labelled group, inside
+     one outer wrapper (so a naive closest(div) climb would span BOTH). -->
+<form id="app">
+  <div class="uploads">
+    <div class="group" id="g-resume">
+      <label for="resume">Resume/CV</label>
+      <button type="button">Attach</button>
+      <input type="file" id="resume" name="resume" style="display:none">
+      <span class="filename" id="resume-name"></span>
+    </div>
+    <div class="group" id="g-cover">
+      <label for="cover_letter">Cover Letter</label>
+      <button type="button">Attach</button>
+      <input type="file" id="cover_letter" name="cover_letter" style="display:none">
+      <span class="filename" id="cover-name"></span>
+    </div>
+  </div>
+</form>
+<script>
+  // Dropzones render the chosen filename next to the button.
+  ['resume', 'cover_letter'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function (e) {
+      var f = e.target.files[0];
+      var span = e.target.parentElement.querySelector('.filename');
+      span.textContent = f ? f.name : '';
+    });
+  });
+</script>

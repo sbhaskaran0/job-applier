@@ -106,14 +106,20 @@ async def fill_many(fields: list[dict]) -> list:
 
 
 @mcp.tool()
-async def upload_resume(index: int = -1, path: str = "") -> dict:
-    """Attach the resume. Pass `index` >= 0 to use a specific file field from
-    read_form; omit it (or -1) to auto-locate a file input anywhere on the page,
-    including hidden ones behind an "Attach"/dropzone widget (Greenhouse/Ashby),
-    preferring a resume/CV input over a cover-letter one. Uses the project resume
-    file (resume.pdf/.docx if present, else resume.txt) unless `path` is given."""
+async def upload_resume(index: int = -1, path: str = "",
+                        target: str = "resume") -> dict:
+    """Attach the resume, or a cover-letter file. Pass `index` >= 0 to use a
+    specific file field from read_form; omit it (or -1) to auto-locate a file
+    input anywhere on the page, including hidden ones behind an "Attach"/
+    dropzone widget (Greenhouse/Ashby). target="resume" (default) prefers a
+    resume/CV input and uses the project resume file unless `path` is given.
+    For a cover letter pass target="cover" AND path=cover_letter_path: only an
+    input labelled "cover" is eligible and the resume slot is never used; with
+    none the result is {status: "no_cover_slot"} (fall back to pasting
+    cover_letter_text). Always check `verified` (+ `observed_filename`) in the
+    result; status "error" means a cover upload landed in the resume slot."""
     return await browser.session.upload_resume(index if index >= 0 else None,
-                                               path or None)
+                                               path or None, target)
 
 
 @mcp.tool()
