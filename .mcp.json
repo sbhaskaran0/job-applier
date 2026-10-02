@@ -3,6 +3,11 @@
     "job-applier": {
       "command": "python",
       "args": ["-m", "src.mcp_server"]
+    },
+    "taskman": {
+      "type": "http",
+      "url": "${TASKMAN_URL:-http://localhost:8000}/mcp/",
+      "headers": { "Authorization": "Bearer ${TASKMAN_API_KEY}" }
     }
   }
 }

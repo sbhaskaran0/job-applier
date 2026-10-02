@@ -767,19 +767,53 @@ def _claude_cli_available() -> bool:
         return False
 
 
+def _taskman_reachable() -> bool:
+    """True when the local taskman server answers /health.
+
+    Configured-in-.mcp.json is not the same as usable: taskman is a separate
+    service (Postgres + FastAPI) that is often simply not running. Probe it so
+    the Connections row can tell those two states apart. Short timeout — this
+    runs inside a sync route, i.e. on FastAPI's threadpool.
+    """
+    import socket
+    from urllib.parse import urlparse
+
+    base = (os.environ.get("TASKMAN_URL") or "http://localhost:8000").rstrip("/")
+    u = urlparse(base)
+    host = u.hostname or "localhost"
+    port = u.port or (443 if u.scheme == "https" else 80)
+    # Cheap TCP pre-check first. The common case is "server not running", and
+    # an HTTP probe alone costs ~1.5s there: `localhost` resolves to both ::1
+    # and 127.0.0.1 and the timeout applies per connect attempt. A refused
+    # socket answers fast; 0.15s x2 address families caps the wait at ~0.3s.
+    try:
+        socket.create_connection((host, port), timeout=0.15).close()
+    except OSError:
+        return False
+    try:
+        import httpx
+        return httpx.get(f"{base}/health", timeout=1.0).status_code == 200
+    except Exception:
+        return False
+
+
 @router.get("/connections")
 def connections():
     claude_cli = _claude_cli_available()
-    job_applier = False
+    mcp_servers = {}
     mcp_json = config.BASE_DIR / ".mcp.json"
     if mcp_json.exists():
         try:
-            job_applier = "job-applier" in json.loads(
+            mcp_servers = json.loads(
                 mcp_json.read_text(encoding="utf-8")).get("mcpServers", {})
         except json.JSONDecodeError:
             pass
-    # Gmail/Linear are configured in the user-level Claude Code config
-    # (~/.claude.json) or as claude.ai connectors — detect by name.
+    job_applier = "job-applier" in mcp_servers
+    # taskman is configured in THIS repo's .mcp.json (unlike Gmail, which is a
+    # user-level Claude Code / claude.ai connector detected by name below).
+    taskman = "taskman" in mcp_servers and _taskman_reachable()
+    # Gmail is configured in the user-level Claude Code config
+    # (~/.claude.json) or as a claude.ai connector — detect by name.
     user_cfg_text = ""
     user_cfg = Path.home() / ".claude.json"
     if user_cfg.exists():
@@ -803,11 +837,12 @@ def connections():
          "short": "Fetches email verification codes",
          "desc": "Lets the agent fetch email verification codes (e.g. "
                  "Greenhouse 8-char codes) and re-submit on its own."},
-        {"id": "linear", "name": "Linear", "mono": "LN", "required": False,
-         "connected": "linear" in user_cfg_text,
+        {"id": "taskman", "name": "taskman", "mono": "TM", "required": False,
+         "connected": taskman,
          "short": "Optional task tracking",
-         "desc": "Keeps the JOB-* backlog in sync when the agent completes "
-                 "dev tasks. Not needed for applying."},
+         "desc": "Local task graph (project JOB) the agent keeps in sync when "
+                 "it completes dev tasks. Needs the taskman server running "
+                 "locally. Not needed for applying."},
     ],
         # The Gmail connector's account email isn't discoverable locally (it
         # lives in claude.ai connector state). When a future check can read

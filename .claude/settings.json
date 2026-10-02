@@ -1,4 +1,5 @@
 {
+  "enabledMcpjsonServers": ["job-applier", "taskman"],
   "hooks": {
     "Stop": [
       {
