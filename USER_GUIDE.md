@@ -222,8 +222,15 @@ stated explicitly.
   Refresh"*, daily 09:00 + at-logon catch-up):
   Run `powershell -ExecutionPolicy Bypass -File scripts\setup_refresh_task.ps1`
   to register/update the scheduled task.
-  - **Wake timers:** Requires Windows "Allow wake timers" to be enabled in the power plan (checked automatically).
-  - **Catch-up on logon:** The task also runs 10 minutes after logon to catch up if the machine was asleep at 09:00.
+  - **Wake timers:** `WakeToRun` only works when the power plan's "Allow wake
+    timers" is Enable (some machines show "Important Wake Timers Only", which
+    is not enough). Check with `powercfg /q SCHEME_CURRENT SUB_SLEEP RTCWAKE`;
+    enable with `powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKE 1`
+    then `powercfg /setactive SCHEME_CURRENT`. The setup script never changes it.
+  - **Logged-on only:** the task uses an Interactive principal, so it runs only
+    while you are logged on (it can wake a sleeping machine, but not a
+    logged-off one).
+  - **Catch-up on logon:** The task also runs 10 minutes after logon, which catches up a missed 09:00 run (a run is skipped if one succeeded in the last 12h; `--force` overrides).
   - **Log location:** Runs are logged to `data\refresh.log`.
 - **Linux (cron):** `0 9 * * * cd /path/to/job-applier && python3 -m src.refresh`
 - **macOS:** the same cron line, or a launchd agent.

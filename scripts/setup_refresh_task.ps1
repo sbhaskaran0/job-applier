@@ -19,7 +19,8 @@ $taskAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c "' + $re
 $dailyTrigger = New-ScheduledTaskTrigger -Daily -At 09:00
 
 # Trigger 2: At logon for the current user with a 10-minute delay
-$atLogonTrigger = New-ScheduledTaskTrigger -AtLogon -RandomDelay 0
+$me = "$env:USERDOMAIN\$env:USERNAME"
+$atLogonTrigger = New-ScheduledTaskTrigger -AtLogon -User $me
 # Set the delay to 10 minutes
 $atLogonTrigger.Delay = 'PT10M'
 
@@ -36,7 +37,7 @@ $taskSettings = New-ScheduledTaskSettingsSet `
 # WakeToRun allows the task to wake the machine; StartWhenAvailable + the at-logon trigger
 # (with a 10-minute delay) ensure we catch up even if the machine sleeps through 09:00.
 # Interactive LogonType preserves the network profile without requiring password prompts.
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
+$principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive
 
 # Build the task object
 $taskParams = @{
@@ -65,7 +66,7 @@ if ($DryRun) {
     Write-Host "    - ExecutionTimeLimit: 1 hour"
     Write-Host "    - MultipleInstances: IgnoreNew"
     Write-Host "  Principal:"
-    Write-Host "    - User: $env:USERNAME"
+    Write-Host "    - User: $me"
     Write-Host "    - LogonType: Interactive"
     Write-Host ""
     Write-Host "Wake timers check (powercfg /q SCHEME_CURRENT SUB_SLEEP RTCWAKE):"
@@ -75,18 +76,11 @@ if ($DryRun) {
     exit 0
 }
 
-# Check if the task already exists
-$existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-
-if ($existingTask) {
-    Write-Host "Task '$taskName' already exists. Updating..."
-    Set-ScheduledTask @taskParams -TaskName $taskName
-    Write-Host "Task updated."
-} else {
-    Write-Host "Task '$taskName' does not exist. Registering..."
-    Register-ScheduledTask @taskParams -TaskName $taskName -Force
-    Write-Host "Task registered."
-}
+# Register-ScheduledTask -Force creates or replaces, so re-running is idempotent.
+# (Set-ScheduledTask has no -Description parameter, so it is not used.)
+Write-Host "Registering '$taskName' (create or update)..."
+Register-ScheduledTask @taskParams -TaskName $taskName -Force | Out-Null
+Write-Host "Task registered."
 
 # Print the resulting settings
 Write-Host "`nFinal task settings:"
@@ -97,7 +91,7 @@ $finalTask | Select-Object -ExpandProperty Triggers | Format-List
 
 # Print wake-timer status reminder
 Write-Host "`n--- Wake Timers Status ---"
-Write-Host "NOTE: WakeToRun requires Windows 'Allow wake timers' to be enabled in the power plan."
+Write-Host "NOTE: WakeToRun requires 'Allow wake timers' to be enabled in the power plan; this script does not change it."
 Write-Host "Checking current status with 'powercfg /q SCHEME_CURRENT SUB_SLEEP RTCWAKE':"
 Write-Host ""
 & powercfg /q SCHEME_CURRENT SUB_SLEEP RTCWAKE
