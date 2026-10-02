@@ -63,7 +63,10 @@ def test_crlf_and_cr_normalized():
     for nl in ("\r\n", "\r"):
         r = tailor.lint_cover_letter(GOOD.replace("\n", nl), PROFILE)
         assert r["ok"], (nl, r["hard"])
-    assert tailor.lint_text(GOOD.replace("\n", "\r\n"), kind="cover_letter")["ok"]
+    # Pass PROFILE explicitly: without it lint_text reads the ACTIVE profile,
+    # whose full_name won't match the fixture's signature on a real checkout.
+    assert tailor.lint_text(GOOD.replace("\n", "\r\n"), kind="cover_letter",
+                            profile=PROFILE)["ok"]
     typed = "Jane Q Doe\r\n\r\n" + GOOD.replace("\n", "\r\n")
     assert tailor.strip_letterhead(typed, PROFILE).startswith("To the Acme")
 
