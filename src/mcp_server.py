@@ -106,6 +106,37 @@ async def fill_many(fields: list[dict]) -> list:
 
 
 @mcp.tool()
+async def fill_credential(index: int, field: str = "password",
+                          service: str = "workday") -> dict:
+    """Fill the account email or password for an ATS login/signup field at
+    `index`, from the user's local credentials.yaml. The value is loaded and
+    typed SERVER-SIDE and never returned. NEVER invent, generate, or type a
+    password yourself, and never pass one through fill_field/fill_many (they
+    refuse password fields with status "use_fill_credential").
+
+    `field` is "password" or "email". A password is only typed into a real
+    type=password input; otherwise status is "not_a_password_field".
+    Returns {index, status, verified, sensitive: true}, or
+    {status: "no_credentials", hint} when the user has not created
+    profiles/<id>/secrets/credentials.yaml: then PARK and ask the user to
+    create it; do not make one up."""
+    if field not in ("password", "email"):
+        return {"index": index, "status": "bad_field",
+                "error": 'field must be "password" or "email"'}
+    entry = (config.load_credentials() or {}).get(service)
+    value = entry.get(field) if isinstance(entry, dict) else None
+    if not value:
+        return {"status": "no_credentials",
+                "hint": "user must create profiles/<id>/secrets/credentials.yaml "
+                        "(see profiles/_template/secrets/credentials.example.yaml)"}
+    res = await browser.session.fill_sensitive(
+        index, str(value), require_password=(field == "password"))
+    res = {k: res[k] for k in ("index", "status", "verified") if k in res}
+    res["sensitive"] = True
+    return res
+
+
+@mcp.tool()
 async def upload_resume(index: int = -1, path: str = "") -> dict:
     """Attach the resume. Pass `index` >= 0 to use a specific file field from
     read_form; omit it (or -1) to auto-locate a file input anywhere on the page,

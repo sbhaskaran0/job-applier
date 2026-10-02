@@ -108,6 +108,10 @@ class ActiveProfile:
     def secrets_dir(self) -> Path:
         return self.root / "secrets"
 
+    @property
+    def credentials_yaml(self) -> Path:
+        return self.secrets_dir / "credentials.yaml"  # local-only, user-written
+
     def ensure_dirs(self) -> None:
         for d in (self.context_dir, self.data_dir, self.prep_dir,
                   self.resumes_dir, self.runtime_dir):

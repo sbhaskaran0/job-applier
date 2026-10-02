@@ -6,6 +6,8 @@
 # skeleton stays tracked.
 profiles/*
 !profiles/_template/
+# a real credentials file must never be committed, even if copied into the template
+profiles/_template/secrets/credentials.yaml
 
 # Per-machine profile selection ({"profile": "<id>"})
 applyer.local.json

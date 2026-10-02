@@ -148,6 +148,28 @@ async def run(headless=True):
               res.get("verified") is True,
               "wrote 4155551212, field holds %r" % observed)
 
+        # --- password fields: fillable, flagged, never echoed ------------
+        pw = idx_by_label(fields, "Create Password")
+        check("scanner emits sensitive=true for type=password",
+              pw is not None and by_index[pw].get("sensitive") is True,
+              by_index.get(pw))
+        res = await s.fill_field(pw, "fake-pw-123")
+        check("generic fill_field refuses a password field",
+              res.get("status") == "use_fill_credential", res)
+        res = await s.fill_sensitive(pw, "fake-pw-123", require_password=True)
+        check("fill_sensitive fills + verifies on presence, no echo",
+              res.get("verified") is True
+              and "fake-pw-123" not in repr(res), res)
+        after_pw = await s.read_form()
+        masked = [f for f in after_pw if f.get("sensitive")]
+        check("read_form masks the filled password value",
+              masked and masked[0].get("current_value") == "********"
+              and "fake-pw-123" not in repr(after_pw), masked)
+        check("values_only read_form masks it too",
+              "fake-pw-123" not in repr(await s.read_form(values_only=True)))
+        check("_read_back masks it",
+              await s._read_back(masked[0]["index"]) == "********")
+
         # --- Defect 3: the overlaid radio --------------------------------
         yes = None
         for f in fields:
