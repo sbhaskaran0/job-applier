@@ -266,9 +266,28 @@ For each approved job, in order:
    normalization). Unmatched sheet keys: try token-subset matching; a
    leftover **required** form field not covered by the sheet → **park**.
 3. `fill_many` the mapped batch (style rules already applied at prep time).
-   Combobox rows returning `status:"unmatched"` with real options: one retry
-   with the exact option text if the intended answer clearly matches one;
-   otherwise **park**.
+   Check every row's `verified` key, not just `status`: `verified:true` means
+   the read-back matched — done. A pick-from-a-list field (select/radio/
+   checkbox/combobox) with `verified:false` comes back `status:"uncommitted"`
+   with an `observed_value` (what's actually in the widget instead) — use it
+   to tell "empty, refill the same way" from "wrong option, refill
+   differently." A **text** field with `verified:false` is only a real
+   failure when `observed_value` isn't a plausible normalization of what you
+   sent (comparison is loose: casefold, strip non-alphanumerics, substring
+   either way — e.g. `4155551212` read back as `(415) 555-1212` is correct,
+   not a failure); don't spend the retry on those. A row can also come back
+   `verified:null` (no `observed_value`, just a `note`) — the widget exposes
+   no readable value in this DOM at all; also not a failure (see step 5's
+   note on this same signal). `status:"unmatched"` with
+   real `options` (e.g. the list says `US`, not "United States") is a
+   deterministic fix: refill with the exact option text. For any other
+   genuine mismatch (using `observed_value`/`options` to pick the
+   correction): one retry with the exact option text if the intended answer
+   clearly matches one; otherwise **park**. A combobox reported with
+   `widget:"listbox"` (Workday's entire form is these; also Oracle,
+   SuccessFactors, Radix, MUI) is filled **directly** in the mapped batch —
+   `fill_field`/`fill_many` handle the open/enumerate/pick/verify flow
+   themselves, so do not call `get_field_options` first for one of these.
 4. **Resume/cover letter** — call `get_job_artifacts(company, job_title, url)`.
    If `resume_is_tailored` (a `/tailor-application` artifact exists for this
    job), `upload_resume(path=<resume_path>)`; else `upload_resume()` (no index,
@@ -278,7 +297,15 @@ For each approved job, in order:
 5. Verify via `read_form(values_only=True)` — the lean payload
    (`{index, kind, label, current_value}`, no option lists) is all a
    verification pass needs; confirm every intended `current_value` is set.
-   Mismatch after one refill attempt → **park**.
+   This re-read is deliberately **blanket** — every field, not just the ones
+   step 3 flagged — and stays that way until the `verified`/`observed_value`
+   signals have been proven against a real browser (CI has no browser and the
+   live Workday run is still pending); narrowing it to just the
+   uncommitted/unreadable rows is a deliberate future change, not something
+   to do early. A `current_value` the DOM can't read back is not automatically
+   a mismatch — that's the `verified:null` case from step 3 (no
+   `observed_value`, just a `note`), and the widget can still be correctly
+   set. Mismatch after one refill attempt → **park**.
    **Do NOT add a routine screenshot+Read verify on top of this** — it adds
    nothing `read_form` didn't already prove, and reading the shared default
    screenshot file (`current_page.png` in the active profile's runtime dir)
@@ -326,6 +353,57 @@ spam-rejected and needs-a-human-click jobs are logged as `"manual_submission"`
 only after a confirmed submit at Stage E). Because each parked job lives in its
 own filled tab, the user finishes it later with a click or two — you never
 re-fill it.
+
+## Multi-page wizards (Workday, Oracle, SuccessFactors, ...)
+
+Some ATSes split one application across several pages instead of one long
+form (Workday's entire application is this). Everything above — Stage A's
+`snapshot_job`, Stage B's prep, Stage D's `fill_many`/verify — only ever sees
+the page it's given. In particular, **`snapshot_job` still reads page 1
+only**, so Stage B's `freetext_count` routing is page-1-based: a wizard's
+later pages can carry free-text fields the router never saw and so never
+routed to a crafting agent. Don't assume Stage B's routing covered a job's
+whole form.
+
+**Advancing to the next page is not submitting, and it is not gated** — both
+are wrong reads of it. Don't stall a job waiting for a consent that doesn't
+apply to advancing, and don't record a job as submitted just because a page
+moved; only a real `submit_application` confirmed at Stage D step 7 counts.
+Concretely, insert this into Stage D between step 4 (resume/cover letter) and
+step 6 (intervention check) for any job whose current page isn't a
+single-page form:
+
+1. After filling the current page (Stage D steps 2-3) and step 4's uploads,
+   call `advance_step()`. Loop fill → advance for **up to about 6 advances**
+   per job; more than that is unusual enough to **park** rather than push
+   through blindly.
+2. **`advanced`** — the page moved, no errors. Its `fields` **is already a
+   fresh `read_form`** of the new page — don't re-read. **Dead-index rule:**
+   every index from the page you just left is now invalid; resolve only
+   against this new `fields`. Run `resolve_fields` on it **inline in the main
+   context** (the same inline lane as Stage B step 1, not a subagent — a page
+   discovered mid-run has no prep file) and `fill_many` the `profile` and
+   history-`high` rows. **Park** if any row on the new page is `context` or
+   `review` (needs crafting or approval) — Stage C's consent covered only the
+   page the user actually reviewed, never a page they never saw.
+3. **`blocked_validation`** — fix the listed `errors`
+   (`[{index, field_label, message}]`) and call `advance_step()` again.
+   `index` can be `null` for a field that was hidden and never scanned
+   (`unmapped_error_count`) — match those by `field_label` instead.
+4. **`no_change`** — one retry, then **park**.
+5. **`is_submit_page`** — nothing was clicked; this page's only control is a
+   real Submit. Fall through to Stage D steps 6-7 (intervention check, gated
+   submit) as usual — never treat reaching this state as itself a submit.
+6. **`no_advance_button`** — the form is actually single-page; proceed to
+   Stage D steps 6-7 as usual.
+7. **Fill parent fields before children, and re-read in between.** Some
+   wizard widgets don't exist until a parent is set — e.g. Workday's State
+   field does not exist until Country is chosen, and changing Country
+   destroys and recreates it. Fill Country, re-read, then fill State from
+   that fresh read; never fill a child field from a `read_form` taken before
+   its parent was set. (Handled by instruction, not by auto-rescanning inside
+   `fill_many` — auto-rescanning would make mid-batch index semantics
+   unpredictable.)
 
 ## Stage E — Screenshot audit + final report
 

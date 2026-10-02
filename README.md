@@ -2,11 +2,13 @@
 
 An AI job-application agent that runs inside **Claude Code**. It finds high-quality
 product/strategy roles across a curated company watchlist and fills out their
-application forms on any ATS (Greenhouse, Lever, Ashby, Workday…) — intelligently,
-and **never submitting without your say-so**.
+application forms — intelligently, and **never submitting without your
+say-so**. Applications run on Greenhouse, Lever and Ashby. Workday sourcing is
+**verified live**; the browser layer now supports multi-page wizard flows,
+pending one live application.
 
 Claude Code is the reasoner; a local **MCP server** gives it a real browser
-(Playwright), your profile/history/knowledge base, and live jobs from company
+(Playwright, **35 tools**), your profile/history/knowledge base, and live jobs from company
 career boards. **No LLM API key or cost** in the core flow.
 
 ## Quick start
@@ -104,9 +106,9 @@ deep-reads.
 ```mermaid
 flowchart TD
     subgraph ING["python -m src.refresh — pure Python, no LLM, scheduler-friendly"]
-        B["~79 watchlist boards<br/>public Greenhouse/Lever/Ashby APIs"] --> N["normalize<br/>(ats, slug, job_id)"]
+        B["100 watchlist boards (verified 2026-09-09)<br/>public Greenhouse/Lever/Ashby REST APIs<br/>+ 20 Workday boards via the CXS API below"] --> N["normalize<br/>(ats, slug, job_id)"]
         N --> X["extract once per posting:<br/>salary from JD text · min-years (advisory)<br/>· excluded-seniority flag · locations →<br/>canonical tokens + work_mode<br/>(regex + location_aliases.yaml)"]
-        X --> DB[("data/postings.db<br/>first_seen · last_seen · removed_at<br/>(removals only from boards that fetched OK)")]
+        X --> DB[("data/postings.db<br/>first_seen · last_seen · removed_at<br/>(removals only from boards whose fetch<br/>succeeded AND saw the whole board)")]
         DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield & company<br/>concentration per side of the funnel"]
     end
     DB --> Q["list_watchlist_postings<br/>deterministic baseline filter<br/>+ already_applied · is_new<br/>(live-fetch fallback if store > 36h old)"]
@@ -120,6 +122,90 @@ matching roles; see the USER_GUIDE. `python -m src.refresh --near-misses` (or
 `python scripts/near_misses.py`) audits what the title gate in
 `job_criteria.yaml` is silently discarding, in case `acceptable_titles` is
 drawn too tightly.
+
+### Workday boards (M0 — sourcing verified; apply wizard framework ready)
+
+Workday postings are discovered, ranked, and deep-read exactly like any other
+board. The browser layer now supports multi-page wizard flows via `advance_step()`
+(**not yet run against a live Workday application** — the generic framework is
+verified by 181 tests and a synthetic DOM harness; one live run on a real posting
+is still outstanding). `src/providers/workday.py` pulls a tenant's public
+`myworkdayjobs` board through the same keyless JSON API its own SPA calls
+(`POST .../wday/cxs/{tenant}/{site}/jobs`, no auth, no cookies). Its shape is
+different enough from the REST-list ATSs above to earn its own diagram:
+
+```mermaid
+flowchart TD
+    PB["probe page 0<br/>(POST /jobs, offset 0)<br/>reads total + facets"] --> TOT{"total >= 2000?<br/>(the wall — total<br/>itself clamps at 2000)"}
+    TOT -- "no — common case" --> FULL["page the full list<br/>(20 rows/POST, stop at total<br/>or an empty/short page)"]
+    TOT -- "yes" --> FAM{"board exposes a<br/>jobFamilyGroup facet?"}
+    FAM -- "no" --> FULLT["page to the wall only<br/>(full_truncated)"]
+    FAM -- "yes" --> PART["page EVERY family value<br/>separately, biggest first,<br/>within a request budget<br/>(each family is individually<br/>under its own wall)"]
+    PART --> UNION["union by job_id<br/>(partitioned[_truncated] —<br/>truncated if a family hit its<br/>own wall, the budget skipped<br/>one, or family counts don't<br/>sum to the board total)"]
+    FULL --> TITLE["title-prefilter<br/>(.get, never KeyError<br/>on a titleless row)"]
+    FULLT --> TITLE
+    UNION --> TITLE
+    TITLE --> DETAIL["one detail GET per survivor<br/>(concurrency-capped) →<br/>real posted date, description,<br/>every location; salary always None"]
+    DETAIL --> NOTES[("LAST_RUN_NOTES[slug]<br/>strategy · requests · truncated ·<br/>board_total vs partition_total ·<br/>per-family breakdown")]
+    NOTES --> INC{"truncated?"}
+    INC -- "yes" --> SKIP["ingest skips the removal pass<br/>for this board (not logged<br/>as a failure — healthy signal)"]
+    INC -- "no" --> RM["ingest trusts absence<br/>= removed, as normal"]
+```
+
+### Workday multi-page apply wizard (M1 — framework ready, pending live run)
+
+The framework for stepping through multi-page forms is now in place, wired for
+Workday's style but ATS-agnostic. A form with a **Next**/**Continue** button
+(distinct from **Submit**) can now be advanced programmatically via `advance_step()`:
+
+```mermaid
+flowchart TD
+    A["fill_many([fields])<br/>verified fills →<br/>1 corrective pass on<br/>uncommitted / verified:false"] --> PC["parent-then-child:<br/>set Country → re-read →<br/>set State (SAME page)"]
+    PC --> AD["advance_step()<br/>not a submit · not gated"]
+    AD --> S{"status?"}
+    S -->|"advanced"| NEW["next page + FRESH fields<br/>(every prior index is dead —<br/>use the returned `fields`)"]
+    S -->|"blocked_validation"| ERR["errors[] — index may be null<br/>for a visually-hidden field<br/>(unmapped_error_count);<br/>match those by field_label"]
+    S -->|"no_change"| NC["clicked, nothing moved —<br/>swallowed click or a modal:<br/>screenshot, then park"]
+    S -->|"is_submit_page"| SUBMIT["only a Submit control here —<br/><b>nothing was clicked</b>"]
+    S -->|"no_advance_button"| NAB["single-page form"]
+    NEW --> CAP{"advance count<br/>&lt; ~6?"}
+    CAP -->|"yes"| A
+    CAP -->|"no"| PARK["park — a wizard this long<br/>needs a human"]
+    ERR -->|"fix fields on THIS page,<br/>then advance again"| A
+    NC --> PARK
+    SUBMIT --> GATE["submit_application<br/><b>gated</b> — explicit user say-so"]
+    NAB --> GATE
+```
+
+**Dependent fields matter:** Workday's State widget does not exist until Country is
+set, and changing Country destroys and recreates it — so the rule is fill the
+parent, **re-read the form**, then fill the child from that fresh read. This is
+within one page; it has nothing to do with `advance_step`.
+
+Three quirks force this shape: the list endpoint's `limit` maxes at 20;
+`offset` is clamped at 2000 (past it the API silently replays page 0); and
+`total` is only trustworthy on the first page (2000 there means "2000 or
+more", not exactly 2000). Above the wall, the board is fetched by
+**partition, not paging**: the board's own `jobFamilyGroup` facet reports a
+count per family, and those counts are the true numbers — measured live on
+NVIDIA, whose facet counts sum to roughly 2614 while `total` admits only
+2000, and whose largest single family (Engineering, 1723) is still
+comfortably under the wall on its own. Paging every family separately and
+unioning by `job_id` reconstructs the **complete** board with no keyword
+guessing about which families matter — a fixed request budget spends on the
+biggest families first, and a board still flags `truncated` if a family hits
+its own wall, the budget runs out before every family is paged, or the
+family counts don't add up to the board's `total`. Workday exposes no salary
+anywhere, so every Workday row shows as "salary not listed" — the baseline
+already keeps and flags undisclosed-salary rows rather than dropping them,
+so this doesn't silently lose roles.
+
+A Workday board's identity — tenant, shard, and site — is packed into the
+existing single `slug` column as `"tenant:shard:site"` (e.g.
+`capitalone:wd12:Capital_One`), which needed no store migration: the
+`(ats, slug, job_id)` primary key already covers it. `scripts/workday_bootstrap.py`
+proposes the triples for boards you want to add (see USER_GUIDE §5c for a
+worked example) — it never writes `watchlist.yaml` itself.
 
 ## Growing the watchlist automatically
 
@@ -186,7 +272,7 @@ flowchart TD
     FM --> REV
 
     REV -- "field won't commit/verify<br/>after one fix" --> RF["Flag for manual intervention<br/>left set in the open browser"]
-    REV -- "all fields verified,<br/>user explicitly says submit" --> S{"submit_application<br/>verify from page TEXT"}
+    REV -- "all fields verified,<br/>user explicitly says submit" --> S{"submit_application<br/>verify from page TEXT<br/>(verified result, not assumed)"}
     S -- "explicit success text" --> SS["submitted"]
     S -- "'flagged as possible spam'" --> SR["rejected_spam<br/>leave form for manual click"]
     S -- "neither (vanished form ≠ success)" --> SA["attempted<br/>screenshot-audit"]
@@ -195,6 +281,8 @@ flowchart TD
 
     HIST -. "reused on the<br/>next application" .-> H
 ```
+
+**Verified fills:** `fill_field` and `fill_many` now return `verified: true|false|null` plus `observed_value` to confirm each field actually accepted the input. A proven failure on a pick-from-a-list field returns `status: "uncommitted"` for safe error handling — the Review step has a real machine-readable signal instead of guessing from absence of errors.
 
 - **Profile** (deterministic): ~30 curated facts matched by alias phrases;
   filled verbatim, never re-stored. EEO self-ID values are flagged and only
@@ -384,7 +472,7 @@ flowchart LR
     CC["any Claude Code session<br/>in this repo"] -- "Stop hook<br/>scripts/token_report.py" --> TU[("profiles/&lt;id&gt;/data/<br/>token_usage.jsonl<br/>per-session cost @ real model rates")]
     WS["webapp chat turns<br/>(Agent SDK ResultMessage)"] --> TU
     APPS[("applications.json<br/>(submits — success ledger)")] --> LOOP
-    YH --> LOOP["dev-loop repo:<br/>morning evaluation →<br/>Linear stories → PRs"]
+    YH --> LOOP["dev-loop repo:<br/>morning evaluation →<br/>taskman stories → PRs"]
     BR --> LOOP
     TU --> LOOP
 ```

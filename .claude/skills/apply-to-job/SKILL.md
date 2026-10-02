@@ -97,18 +97,41 @@ issue any genuinely independent calls together in a single message.
    - For a **combobox** whose options you don't already know ("How did you hear
      about us?", a consent dropdown), call `get_field_options(index)` first, then
      include the exact option label in the `fill_many` batch. Yes/No and
-     free-type comboboxes can be filled directly.
-   - **Check every fill result — one corrective pass, then flag.** A combobox
-     row may come back `unmatched` with the widget's real `options` (e.g. the
-     list says `US`, not "United States"). That is a **deterministic** fix — the
-     tool handed you the exact labels — so refill those indexes with the correct
-     option text in **one** follow-up `fill_many`. `uncommitted` means the click
-     didn't stick — try **one** re-fill. If a field is still `unmatched` /
-     `uncommitted` after that single corrective pass, or a widget behaves
-     erratically (e.g. a multi-select that won't commit a single value), **do
-     not keep fighting it** — leave it and flag it for the user at the Review
-     step (see step 6). Looping retries and screenshots against a stubborn
-     widget burns round-trips and rarely wins.
+     free-type comboboxes can be filled directly. A combobox reported with
+     `widget: "listbox"` (Workday's entire form is these; also Oracle,
+     SuccessFactors, Radix, MUI — any `button[aria-haspopup="listbox"]`
+     dropdown) is filled **directly**: `fill_field`/`fill_many` open it,
+     enumerate, pick, and verify in one call, so do **not** call
+     `get_field_options` first for one of these.
+   - **Check every fill result — one corrective pass, then flag.** Every
+     result row carries a `verified` key alongside `status`. `verified: true`
+     means the read-back matched — done. A pick-from-a-list field (select/
+     radio/checkbox/combobox) that mismatches or reads back empty comes back
+     `status: "uncommitted"`, `verified: false`, with an `observed_value`
+     saying what's actually in the widget instead of what you sent — that's
+     what tells you "empty, refill the same way" from "wrong option, refill
+     differently." A **text** field that's non-empty but different is
+     `status: "filled"`, `verified: false`, also with `observed_value` — but
+     the comparison is deliberately loose (casefold, strip non-alphanumerics,
+     substring either way), so if `observed_value` is a plausible
+     normalization of what you sent (e.g. a phone widget turning
+     `4155551212` into `(415) 555-1212`), the fill is **correct** and this is
+     not a failure — do not spend the corrective pass on it. A row can also
+     come back `verified: null` (no `observed_value`, just a `note`) — that
+     means the widget exposes no readable value in this DOM at all, which is
+     also not a failure (see step 6 for how to close that out). A combobox row
+     may separately come back `unmatched` with the widget's real `options`
+     (e.g. the list says `US`, not "United States"). That is a
+     **deterministic** fix — the tool handed you the exact labels — so refill
+     those indexes with the correct option text in **one** follow-up
+     `fill_many`. For any other genuine mismatch, use `observed_value` to
+     pick the right correction and try **one** re-fill. If a field is still
+     `unmatched` / `uncommitted`, or shows a genuine mismatch, after that
+     single corrective pass, or a widget behaves erratically (e.g. a
+     multi-select that won't commit a single value), **do not keep fighting
+     it** — leave it and flag it for the user at the Review step (see step
+     6). Looping retries and screenshots against a stubborn widget burns
+     round-trips and rarely wins.
    - **Resume/CV:** first call `get_job_artifacts(company, job_title, url)` to
      see whether a **tailored** resume/cover letter was generated for this
      posting (via `/tailor-application`, JOB-6). Then call `upload_resume()` with
@@ -147,7 +170,13 @@ issue any genuinely independent calls together in a single message.
    Re-read the DOM with `read_form(values_only=True)` (lean payload — just
    `{index, kind, label, current_value}`, no option lists to re-send) and
    confirm each field's `current_value` is set as intended; prefer this over a
-   screenshot. **When a field looks wrong** (empty where it should be set, the
+   screenshot. This re-read is deliberately **blanket** — every field, not
+   just the ones `fill_many` flagged — and stays that way until the
+   `verified`/`observed_value` signals from step 4 have been proven against a
+   real browser (as of this writing they haven't: CI has no browser and the
+   live Workday run is still pending); narrowing it to just the
+   `uncommitted`/unreadable rows is a deliberate future change, not something
+   to do early. **When a field looks wrong** (empty where it should be set, the
    wrong option, a multi-select showing extra values, or a `current_value` the
    DOM can't read back), you get **one** cheap corrective attempt: a single
    `fill_many` / `fill_field` refill with the exact option text, or at most
@@ -164,11 +193,15 @@ issue any genuinely independent calls together in a single message.
    Do **not** loop retries or take repeated screenshots to force a stubborn
    widget; that burns tokens and round-trips for little gain (a react-select
    multi-select that wouldn't commit a single Gender value, then read back empty,
-   was a real case). One nuance: a widget can be **correctly set visually while
-   `read_form` fails to read its value back** — if a single screenshot confirms
-   it looks right, say it's set but couldn't be verified in the DOM, and still
-   ask the user to glance at it. Then summarize what you filled and from which
-   source, and list everything you skipped or flagged.
+   was a real case). One nuance, now machine-readable instead of a judgment
+   call: `verified: null` (no `observed_value`, just a `note`) is the tool
+   telling you this widget exposes no readable value in this DOM — it is
+   **not** a failure signal, and a widget reported this way can still be
+   **correctly set visually**. Treat `verified: null` as exactly this case: take
+   a single screenshot to confirm it looks right, say it's set but couldn't be
+   verified in the DOM, and still ask the user to glance at it. Then summarize
+   what you filled and from which source, and list everything you skipped or
+   flagged.
 7. **Submit** — call `submit_application(company=..., job_title=...)` **only
    after the user explicitly says to submit.** Never auto-submit; this is
    destructive and always gated, regardless of confidence.
@@ -207,6 +240,53 @@ issue any genuinely independent calls together in a single message.
    (see **Email verification-code gate**); otherwise screenshot, look for a
    validation error, hand off to the user if needed, and don't claim success.
    Mention the `capture` summary in your wrap-up.
+
+## Multi-page wizards (Workday, Oracle, SuccessFactors, ...)
+
+Some ATSes split one application across several pages instead of one long
+form (Workday's entire application is this). Nothing in the Workflow above
+assumes multiple pages — `open_job`/`read_form` only ever see the current
+one — so without this section a wizard run either stalls waiting for
+permission it doesn't need, or gets misreported as done when it's only
+halfway through. Both are wrong: **advancing to the next page is not
+submitting, and it is not gated.** Don't ask the user before calling
+`advance_step`, and don't tell them (or log) a job as submitted just because
+a page advanced — only a real `submit_application` confirmed at step 7 counts.
+
+1. Fill the current page as in steps 3-6 above, then call `advance_step()` to
+   move to the next one. Loop fill → advance for **up to about 6 advances**;
+   a form that still hasn't reached a submit page by then is unusual enough
+   to stop and flag rather than push through blindly.
+2. Route on the returned `status`:
+   - **`advanced`** — the page moved with no validation errors. `fields` in
+     this response **is already a fresh `read_form`** of the new page — don't
+     call `read_form` again. And the **dead-index rule**: every field `index`
+     from the page you just left is now meaningless; resolve and fill only
+     against the indexes in this new `fields`.
+   - **`blocked_validation`** — the page didn't move; `errors` is
+     `[{index, field_label, message}]`. Fix those fields and call
+     `advance_step()` again. **`index` can be `null`** when the failing field
+     was visually hidden and so was never scanned (counted in
+     `unmapped_error_count`) — match a null-index error by `field_label`
+     instead.
+   - **`no_change`** — the click landed but nothing moved (a swallowed click
+     or a modal). Treat like a stubborn widget: one retry, then flag/park —
+     don't loop.
+   - **`is_submit_page`** — this page's only control reads as Submit, not
+     Next. **Nothing was clicked.** Stop advancing and hand off to the normal
+     gated Submit step (step 7) — that's where the destructive, user-approved
+     action happens, never inside this loop.
+   - **`no_advance_button`** — the form is actually single-page; proceed to
+     Submit as usual.
+3. **Fill parent fields before their children, and re-read in between.** Some
+   wizard widgets don't exist until a parent field is set — e.g. Workday's
+   State field does not exist until Country is chosen, and changing Country
+   destroys and recreates it. Fill Country, **re-read the form**, then fill
+   State from that fresh read. Never fill a child field from a `read_form`
+   taken before its parent was set — the index, or the widget itself, may not
+   match what's now on screen. (This is handled by instruction, not by
+   auto-rescanning inside `fill_many`: auto-rescanning would make mid-batch
+   index semantics unpredictable.)
 
 ## Email verification-code gate (Greenhouse et al.)
 
