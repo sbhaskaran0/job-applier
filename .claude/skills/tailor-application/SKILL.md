@@ -81,8 +81,10 @@ they appear on the posting.
    output, always gated. After they approve or edit, call
    `save_cover_letter(company, job_title, url, text)` (saves `cover_letter.txt`
    body-only, plus a `cover_letter.pdf` with the letterhead rendered by code).
-   `save_cover_letter` lints first and **may refuse** (`saved: false` with a
-   `lint` block and nothing written): fix the HARD failures and call again. Use
+   `save_cover_letter` always returns `saved` and `lint` (paths, `pdf_exported`
+   and `render_warnings` only when saved). It lints first and **may refuse**
+   (`saved: false` with a `lint` block and nothing written; SOFT findings in
+   `lint.soft` never block): fix the HARD failures and call again. Use
    `force=True` only with the user's explicit OK.
 
 7. **Report.** Summarize: which bullets you reordered/re-emphasized/dropped, how

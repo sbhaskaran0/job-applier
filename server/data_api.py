@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api")
 # dicts flagged eeo:true and are never exposed or written by the web API.
 EDITABLE_PROFILE_KEYS = [
     "first_name", "last_name", "full_name", "email", "phone",
-    "address", "city", "state", "country", "location",
+    "address", "city", "state", "zip", "country", "location",
     "linkedin_url", "github_url", "portfolio_url", "website_url",
     "current_company", "current_title", "years_experience",
     "work_authorization", "requires_sponsorship", "willing_to_relocate",

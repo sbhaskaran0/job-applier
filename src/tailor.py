@@ -202,7 +202,7 @@ _SAMPLE_PAT = re.compile(r"writing[_ ]sample|personal statement|statement of pur
 # Reference material and structured knowledge files that are NOT the user's own
 # free-form prose — kept out of the voice corpus. background/stories/preferences
 # still feed the cover letter as SUBSTANCE via search_context, separately.
-_NON_VOICE_PAT = re.compile(r"transcript|resume|^background\.|^stories\.|^preferences\.", re.I)
+_NON_VOICE_PAT = re.compile(r"transcript|resume|template|^background\.|^stories\.|^preferences\.", re.I)
 
 
 def cover_letter_examples() -> dict:
@@ -258,29 +258,85 @@ def cover_letter_examples() -> dict:
 
 # --------------------------------------------------------------------------- #
 # Cover-letter lint (data-driven: tune COVER_LINT_RULES, not the code)
+# Rule ids follow the B1 lint spec: CL-Hnn = HARD (blocks save), CL-Snn = SOFT.
 # --------------------------------------------------------------------------- #
 COVER_LINT_RULES = {
-    # HARD: any hit blocks save_cover_letter unless force=True.
-    "hard_phrases": ["—", " -- "],              # em dash, spaced double hyphen
-    "salutation_re": r"^(To the .+ Hiring Team|Dear .+),\s*$",
-    "signoff": "Sincerely,",                         # must be followed by the full name
-    # SOFT: advisory warnings only.
-    "word_band": (330, 520),
-    "soft_phrases": ["I'm writing to express", "I am writing to express",
-                     "I’m writing to express"],
-    "paren_aside_re": r"\([^)]{15,}\)",
-    "zero_to_one_re": r"(?<![\"“'])\b0[- ]to[- ]1\b(?![\"”'])",
+    "signoff": "Sincerely,",                     # must be followed by the full name
+    "allowed_salutations": 'To the <Company> Hiring Team,  |  Dear <Name>,',
+    "salutation_re": r"To the (?P<company>\S.*?) Hiring Team,|Dear \S.*?[,:]",
+    # HARD (CL-H05): em/en dash, figure dash, horizontal bar, double hyphen.
+    "dash_re": r"[‒–—―]|(?<!-)--(?!-)",
+    # HARD (CL-H10): body words between salutation and sign-off.
+    "hard_words": (270, 460),
+    # SOFT (CL-S01): target band.
+    "soft_words": (295, 425),
+    # HARD (CL-H12) / SOFT (CL-S02): body paragraph counts.
+    "hard_paragraphs": (3, 6),
+    "soft_paragraphs": (4, 5),
+    # HARD (CL-H11): unfilled placeholders.
+    "placeholder_re": (r"<[^<>\n]{1,60}>|\{[A-Za-z_]+\}|\[(?:TODO|TBD|Company|Role|Team)[^\]]*\]"
+                       r"|\bTODO\b|\bTBD\b|\bXX+\b"),
+    # HARD (CL-H09): no parentheses outside the opener's first sentence.
+    "paren_re": r"[()]",
+    # SOFT: canonical opener / closer.
+    "opener_re": r"^I recently came across (?:the|your) posting for (?:the )?.+? role\b",
+    "closer_required": [r"\bI excel at\b", r"Swiss Army Knife"],
+    # SOFT: banned phrasing.
+    "soft_phrases": [r"\bI(?:'|’)m writing to express\b", r"\bI am writing to express\b",
+                     r"\bWhat draws me to\b"],
+    "zero_to_one_re": r"(?<![\"“'])\b0[- ]to[- ]1\b(?![\"”'])|\bzero[- ]to[- ]one\b|0\s*→\s*1",
+    # SOFT (CL-S06): AI-tell lexicon absent from the user's own letters.
+    "lexicon": [r"\bgenuinely\b", r"\brather than\b", r"\broughly \d", r"\b(?:nearly|near) zero\b",
+                r"\bI would rather\b", r"\bThat is (?:my|the same|a pattern|exactly)\b",
+                r"\bmuscle\b", r"\bthe lesson I took\b", r"\bpoint of view\b",
+                r"\bwelcome the chance\b", r"\bThank you for your consideration\b",
+                r"\bstrong fit\b"],
+    "contraction_re": (r"\b(?:I|you|we|they|it|that|there|isn|aren|don|doesn|didn|can|won|wouldn|"
+                       r"couldn|shouldn)(?:'|’)(?:m|d|ve|ll|s|re|t)\b"),
+    "max_colon_reveals": 1,
+    # Free-text ANSWER rules (lint_text kind="answer").
+    "answer_paren_aside_re": r"\([^)]{15,}\)",
     "max_consecutive_i_sentences": 2,
 }
 
-_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)")
-_DATE_RE = re.compile(
-    r"\b\d{1,2}/\d{1,2}/\d{2,4}\b|"
-    r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4}\b")
+_DATE_LINE_RE = re.compile(r"\d{1,2}/\d{1,2}/(?:\d{2}|\d{4})")
 _STREET_RE = re.compile(
     r"\b\d{1,6}\s+(?:[A-Z][\w.'-]*\s+){1,4}(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|"
     r"Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Place|Pkwy|Parkway)\b\.?")
+_SENT_SPLIT_RE = re.compile(r"(?:(?<=[.!?])|(?<=[.!?][\"”]))\s+(?=[A-Z\"“])")
+
+_STATE_ABBR = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
+    "colorado": "CO", "connecticut": "CT", "delaware": "DE", "district of columbia": "DC",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL",
+    "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA",
+    "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI",
+    "minnesota": "MN", "mississippi": "MS", "missouri": "MO", "montana": "MT",
+    "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
+    "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND",
+    "ohio": "OH", "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA",
+    "rhode island": "RI", "south carolina": "SC", "south dakota": "SD", "tennessee": "TN",
+    "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA",
+    "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+}
+
+
+def state_abbrev(state: str) -> str:
+    """2-letter US state abbreviation; a value already 2 letters (or unknown) passes through."""
+    s = (state or "").strip()
+    if len(s) == 2:
+        return s.upper()
+    return _STATE_ABBR.get(s.lower(), s)
+
+
+def _norm_newlines(text: str) -> str:
+    return (text or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _ws(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def _digits(s: str) -> str:
@@ -304,16 +360,36 @@ def _pval(profile: dict, key: str) -> str:
     return str(v or "").strip()
 
 
+def _name_tokens(name: str) -> list:
+    return [t for t in re.sub(r"[^a-z0-9 ]", " ", (name or "").lower()).split() if t]
+
+
+def _name_matches(line: str, full_name: str) -> bool:
+    """First and last name tokens both present (case/punctuation-insensitive),
+    so a middle initial or suffix is optional."""
+    want = _name_tokens(full_name)
+    if not want:
+        return bool(line.strip())
+    got = set(_name_tokens(line))
+    return want[0] in got and want[-1] in got
+
+
+def _excerpt(text: str, m) -> str:
+    if m is None:
+        return ""
+    lo = max(0, m.start() - 30)
+    return _ws(text[lo:m.end() + 30])[:80]
+
+
 def _style_warnings(text: str) -> list:
-    """Soft style rules shared by cover letters and free-text answers."""
+    """Soft style rules for free-text ANSWERS (not cover letters)."""
     r = COVER_LINT_RULES
     out = []
-    low = text.lower()
     for ph in r["soft_phrases"]:
-        if ph.lower() in low:
-            out.append(f'cliche opener: "{ph}"')
+        if re.search(ph, text, re.I):
+            out.append("cliche opener or phrase: " + re.search(ph, text, re.I).group(0))
             break
-    if re.search(r["paren_aside_re"], text):
+    if re.search(r["answer_paren_aside_re"], text):
         out.append("parenthetical aside (15+ chars); fold it into the sentence")
     if re.search(r["zero_to_one_re"], text, re.I):
         out.append('"0-to-1" used unquoted')
@@ -330,78 +406,151 @@ def _style_warnings(text: str) -> list:
 
 
 def _hard_dash(text: str) -> list:
-    return [f"contains {ph.strip()!r}: no em dashes / double hyphens"
-            for ph in COVER_LINT_RULES["hard_phrases"] if ph in text]
+    m = re.search(COVER_LINT_RULES["dash_re"], text)
+    return [f"no em dashes, en dashes or double hyphens (found {m.group(0)!r})"] if m else []
 
 
-def _letterhead_line_re(profile: dict):
-    pats = [_EMAIL_RE.pattern, _PHONE_RE.pattern, _DATE_RE.pattern]
-    for key in ("full_name", "address"):
-        v = _pval(profile, key)
-        if v:
-            pats.append(re.escape(v))
-    return re.compile("|".join(f"(?:{p})" for p in pats), re.I)
+def _letterhead_line(line: str, profile: dict) -> bool:
+    name = _pval(profile, "full_name")
+    if name and _ws(line).casefold() == _ws(name).casefold():
+        return True
+    if _EMAIL_RE.search(line) or _PHONE_RE.search(line) or _DATE_LINE_RE.fullmatch(line.strip()):
+        return True
+    if re.search(r"\s\|\s", line):
+        return True
+    addr = _pval(profile, "address")
+    return bool(addr and addr.lower() in line.lower())
 
 
 def strip_letterhead(text: str, profile=None) -> str:
     """Remove a model-typed letterhead: leading lines BEFORE the salutation that
-    contain the full name, an email, a phone number, an address or a date. The
-    code renders the letterhead, so any typed copy is a duplicate (or stale)."""
+    contain the full name, an email, a phone number, a pipe-joined contact line,
+    the street address or a date. The code renders the letterhead, so any typed
+    copy is a duplicate (or stale)."""
     profile = _profile_or_empty(profile)
-    lines = text.strip().splitlines()
+    lines = _norm_newlines(text).strip().splitlines()
     sal = re.compile(COVER_LINT_RULES["salutation_re"])
-    idx = next((i for i, ln in enumerate(lines) if sal.match(ln.strip())), None)
+    idx = next((i for i, ln in enumerate(lines) if sal.fullmatch(ln.strip())), None)
     if not idx:
-        return text.strip()
-    pat = _letterhead_line_re(profile)
-    head = [ln for ln in lines[:idx] if ln.strip() and not pat.search(ln)]
+        return "\n".join(lines).strip()
+    head = [ln for ln in lines[:idx] if ln.strip() and not _letterhead_line(ln, profile)]
     return "\n".join(head + lines[idx:]).strip()
 
 
-def lint_cover_letter(text: str, profile=None) -> dict:
-    """Lint a cover-letter body. Returns {ok, hard, soft, word_count}; `ok` is
-    False when any HARD rule fails. Rules live in COVER_LINT_RULES."""
+def lint_cover_letter(text: str, profile=None, posting_company: str = "") -> dict:
+    """Lint a cover-letter body (rules: COVER_LINT_RULES, ids per the B1 spec).
+    Returns {ok, hard, soft, word_count, paragraphs, findings}; `ok` is False
+    when any HARD rule fails. `hard`/`soft` are "CL-xxx: message" strings."""
     r = COVER_LINT_RULES
     profile = _profile_or_empty(profile)
     name = _pval(profile, "full_name")
-    hard = _hard_dash(text)
-    lines = text.strip().splitlines()
+    text = _norm_newlines(text).strip()
+    lines = [ln.strip() for ln in text.split("\n")]
+    ne = [ln for ln in lines if ln]
+    findings = []
+
+    def add(fid, msg, m=None):
+        findings.append({"id": fid, "severity": "HARD" if "-H" in fid else "SOFT",
+                         "message": msg, "excerpt": _excerpt(text, m)})
+
     sal = re.compile(r["salutation_re"])
-    sal_idx = next((i for i, ln in enumerate(lines) if sal.match(ln.strip())), None)
-    if sal_idx is None:
-        hard.append('missing salutation ("To the <Company> Hiring Team," or "Dear <Name>,")')
-    elif any(ln.strip() for ln in lines[:sal_idx]):
-        hard.append("letterhead/text above the salutation: never type the "
-                    "letterhead, code renders it")
-    tail = re.search(re.escape(r["signoff"]) + r"[ \t]*\n\s*(\S.*)", text)
-    if not tail:
-        hard.append(f'missing sign-off ("{r["signoff"]}" then the full name)')
-    elif name and name.lower() not in tail.group(1).lower():
-        hard.append(f'sign-off must be followed by the full name "{name}"')
-    # Stale contact details in the body.
-    email = _pval(profile, "email").lower()
-    for m in _EMAIL_RE.findall(text):
-        if email and m.lower() != email:
-            hard.append(f"stale email in body: {m}")
-    phone = _digits(_pval(profile, "phone"))
-    for m in _PHONE_RE.findall(text):
-        if phone and _digits(m) != phone:
-            hard.append(f"stale phone in body: {m.strip()}")
+    sal_idx = next((i for i, ln in enumerate(lines) if sal.fullmatch(ln)), -1)
+    so_idx = max((i for i, ln in enumerate(lines) if ln == r["signoff"]), default=len(lines))
+    if sal_idx < 0:
+        add("CL-H01", "missing salutation; allowed forms: " + r["allowed_salutations"])
+    elif ne[0] != lines[sal_idx]:
+        add("CL-H02", "text above the salutation (never type the letterhead, code "
+                      "renders it); start at the salutation. Allowed forms: "
+                      + r["allowed_salutations"])
+    span = "\n".join(lines[sal_idx + 1:so_idx]).strip() if so_idx > sal_idx else ""
+    paras = [_ws(p) for p in re.split(r"\n\s*\n", span) if p.strip()]
+    body = " ".join(paras)
+    n_words = len(re.findall(r"\S+", body))
+    first = _SENT_SPLIT_RE.split(paras[0])[0] if paras else ""
+    body_wo_s1 = body[len(first):]
+
+    m = _EMAIL_RE.search(text)
+    if m:
+        add("CL-H03", "email address in the letter text (contact details are rendered by code)", m)
+    for m in _PHONE_RE.finditer(text):
+        add("CL-H03", "phone number in the letter text (contact details are rendered by code)", m)
+        break
+    if len(ne) < 2 or ne[-2] != r["signoff"] or not _name_matches(ne[-1], name):
+        add("CL-H04", f'sign-off must end the text: "{r["signoff"]}" then the full name'
+                      + (f' ("{name}")' if name else ""))
+    m = re.search(r["dash_re"], text)
+    if m:
+        add("CL-H05", "no em dashes, en dashes or double hyphens", m)
+    m = re.search(r["paren_re"], body_wo_s1)
+    if m:
+        add("CL-H09", "no parenthetical asides (the opener's first sentence is exempt)", m)
+    lo, hi = r["hard_words"]
+    if not lo <= n_words <= hi:
+        add("CL-H10", f"body is {n_words} words; hard limits are {lo}-{hi}")
+    m = re.search(r["placeholder_re"], text)
+    if m:
+        add("CL-H11", "unfilled placeholder", m)
+    lo, hi = r["hard_paragraphs"]
+    if not lo <= len(paras) <= hi:
+        add("CL-H12", f"{len(paras)} body paragraphs; must be {lo}-{hi} (blank-line separated)")
+
+    # ---- SOFT ----
+    lo, hi = r["soft_words"]
+    if not lo <= n_words <= hi:
+        add("CL-S01", f"word count {n_words} outside the {lo}-{hi} target")
+    lo, hi = r["soft_paragraphs"]
+    if not lo <= len(paras) <= hi:
+        add("CL-S02", f"{len(paras)} body paragraphs; aim for {lo}-{hi}")
+    sm = sal.fullmatch(lines[sal_idx]) if sal_idx >= 0 else None
+    if sm and sm.groupdict().get("company") and posting_company:
+        def norm(s):
+            return re.sub(r"[^a-z0-9]", "", s.casefold())
+        a, b = norm(sm.group("company")), norm(posting_company)
+        if not (a.startswith(b) or b.startswith(a)):
+            add("CL-S03", f'salutation names "{sm.group("company")}" but the posting is "{posting_company}"')
+    if paras and not re.search(r["opener_re"], paras[0]):
+        add("CL-S04", 'opener should be "I recently came across the posting for the <Role> role."')
+    if paras:
+        for pat in r["closer_required"]:
+            if not re.search(pat, paras[-1]):
+                add("CL-S05", f"closing paragraph should contain {pat.replace(chr(92) + 'b', '')!r}")
+    for pat in r["soft_phrases"]:
+        m = re.search(pat, body, re.I)
+        if m:
+            add("CL-S06", "banned phrasing", m)
+    m = re.search(r["zero_to_one_re"], body, re.I)
+    if m:
+        add("CL-S06", '"0-to-1" phrasing (only if quoted from your own letters)', m)
+    for pat in r["lexicon"]:
+        m = re.search(pat, body, re.I)
+        if m:
+            add("CL-S07", "AI-tell phrasing absent from your own letters", m)
+    m = re.search(r["contraction_re"], body, re.I)
+    if m:
+        add("CL-S08", "contraction (your letters do not use them)", m)
+    if len(re.findall(r"[A-Za-z\"”]:\s+\S", body)) > r["max_colon_reveals"]:
+        add("CL-S09", "more than one colon reveal")
+    m = re.search(r"(?<=\w) - (?=\w)", body_wo_s1)
+    if m:
+        add("CL-S10", "spaced hyphen used as a dash", m)
     addr = _pval(profile, "address").lower()
-    for m in _STREET_RE.findall(text):
-        if addr and m.lower().rstrip(".") not in addr and addr not in m.lower():
-            hard.append(f"stale address in body: {m.strip()}")
-    words = len(text.split())
-    soft = _style_warnings(text)
-    lo, hi = r["word_band"]
-    if not lo <= words <= hi:
-        soft.append(f"word count {words} outside {lo}-{hi}")
-    return {"ok": not hard, "hard": hard, "soft": soft, "word_count": words}
+    for m in _STREET_RE.finditer(text):
+        if addr and m.group(0).lower().rstrip(".") not in addr and addr not in m.group(0).lower():
+            add("CL-S12", "street address in the body that differs from the profile", m)
+        elif addr:
+            add("CL-S12", "street address in the body (rendered by code)", m)
+        break
+
+    hard = [f'{f["id"]}: {f["message"]}' for f in findings if f["severity"] == "HARD"]
+    soft = [f'{f["id"]}: {f["message"]}' for f in findings if f["severity"] == "SOFT"]
+    return {"ok": not hard, "hard": hard, "soft": soft, "word_count": n_words,
+            "paragraphs": len(paras), "findings": findings}
 
 
 def lint_text(text: str, kind: str = "answer", profile=None) -> dict:
     """Lint any free-text draft. kind="cover_letter" runs the full cover-letter
-    rules; anything else gets the em-dash HARD rule plus the soft style rules."""
+    rules; anything else gets the dash HARD rule plus the soft style rules."""
+    text = _norm_newlines(text)
     if kind == "cover_letter":
         return lint_cover_letter(text, profile)
     hard = _hard_dash(text)
@@ -412,6 +561,9 @@ def lint_text(text: str, kind: str = "answer", profile=None) -> dict:
 # --------------------------------------------------------------------------- #
 # Letterhead rendering + docx
 # --------------------------------------------------------------------------- #
+LETTER_FONT = "Mongolian Baiti"   # named only; Word falls back silently if absent
+
+
 def _today_str() -> str:
     from datetime import date
     d = date.today()
@@ -419,63 +571,121 @@ def _today_str() -> str:
 
 
 def _letterhead_fields(profile: dict) -> dict:
-    addr = ", ".join(v for v in (_pval(profile, "address"), _pval(profile, "city"),
-                                 _pval(profile, "state")) if v)
+    """{full_name, address, phone, email, date, warnings}. address is
+    "{street}, {city} {ST} {zip}" (no comma between city and state); the zip is
+    omitted, with a warning, when the profile has none."""
+    warnings = []
+    zip_ = _pval(profile, "zip")
+    if not zip_:
+        warnings.append("profile has no `zip`; letterhead address rendered without it")
+    city_line = " ".join(v for v in (_pval(profile, "city"),
+                                     state_abbrev(_pval(profile, "state")), zip_) if v)
+    addr = ", ".join(v for v in (_pval(profile, "address"), city_line) if v)
     return {"full_name": _pval(profile, "full_name"), "address": addr,
             "phone": _pval(profile, "phone"), "email": _pval(profile, "email"),
-            "date": _today_str()}
+            "date": _today_str(), "warnings": warnings}
 
 
 def _body_blocks(body: str) -> list:
-    return [b.strip() for b in re.split(r"\n\s*\n", body.strip()) if b.strip()]
+    """Body paragraphs for rendering; the sign-off becomes "Sincerely," + blank + name."""
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", body.strip()) if b.strip()]
+    if blocks:
+        lines = [ln.strip() for ln in blocks[-1].splitlines() if ln.strip()]
+        if len(lines) >= 2 and lines[-2] == COVER_LINT_RULES["signoff"]:
+            rest = lines[:-2]
+            blocks = blocks[:-1] + (["\n".join(rest)] if rest else []) + [lines[-2], "", lines[-1]]
+    return blocks
 
 
-def _render_cover_docx(body: str, fields: dict, path) -> str:
-    """Write the cover-letter docx. Uses the profile's cover_letter_template.docx
-    (placeholders {{full_name}} {{address}} {{phone}} {{email}} {{date}} {{body}})
-    when present, else generates a plain letterhead. Returns "template"|"generated"."""
-    import copy
+def _set_font(obj, size=None, bold=None):
+    """Name the letter font (run or style); eastAsia too so Word honors it."""
+    from docx.oxml.ns import qn
+    f = obj.font
+    f.name = LETTER_FONT
+    el = obj.element if hasattr(obj, "element") else obj._element
+    rpr = el.get_or_add_rPr()
+    if rpr.rFonts is not None:
+        rpr.rFonts.set(qn("w:eastAsia"), LETTER_FONT)
+    if size is not None:
+        from docx.shared import Pt
+        f.size = Pt(size)
+    if bold is not None:
+        f.bold = bold
+
+
+def _render_generated(blocks: list, fields: dict, path) -> None:
     from docx import Document
     from docx.shared import Pt
-    from docx.text.paragraph import Paragraph
-
-    blocks = _body_blocks(body)
-    tmpl = config.cover_letter_template_docx()
-    if tmpl is not None:
-        doc = Document(str(tmpl))
-        for p in list(_iter_paragraphs(doc)):
-            if "{{" not in p.text:
-                continue
-            text = p.text
-            if "{{body}}" in text:
-                text = text.replace("{{body}}", blocks[0] if blocks else "")
-                prev = p
-                for extra in blocks[1:]:
-                    el = copy.deepcopy(p._p)
-                    prev._p.addnext(el)
-                    prev = Paragraph(el, p._parent)
-                    _set_paragraph_text(prev, extra)
-            for k, v in fields.items():
-                text = text.replace("{{%s}}" % k, v)
-            _set_paragraph_text(p, text)
-        doc.save(str(path))
-        return "template"
 
     doc = Document()
-    head = doc.add_paragraph()
-    run = head.add_run(fields["full_name"])
-    run.bold = True
-    run.font.size = Pt(14)
-    contact = " | ".join(v for v in (fields["address"], fields["phone"],
-                                     fields["email"]) if v)
+    _set_font(doc.styles["Normal"], size=11)
+
+    def para(text, size, after=11):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(after)
+        if text:
+            _set_font(p.add_run(text), size=size, bold=False)
+        return p
+
+    para(fields["full_name"], 26)
+    contact = " | ".join(v for v in (fields["address"], fields["phone"], fields["email"]) if v)
     if contact:
-        doc.add_paragraph(contact)
-    doc.add_paragraph(fields["date"])
-    doc.add_paragraph("")
-    for block in blocks:
-        doc.add_paragraph(block)
+        para(contact, 11)
+    para(fields["date"], 11)
+    for b in blocks:
+        para(b, 11, after=11 if b else 0)
     doc.save(str(path))
-    return "generated"
+
+
+def _render_template(tmpl, blocks: list, fields: dict, path) -> tuple:
+    """Fill the profile's cover_letter_template.docx. Returns (ok, warnings)."""
+    import copy
+    from docx import Document
+    from docx.text.paragraph import Paragraph
+
+    doc = Document(str(tmpl))
+    body_found = False
+    extra = [p for s in doc.sections for part in (s.header, s.footer) for p in part.paragraphs]
+    for p in list(_iter_paragraphs(doc)) + extra:
+        if "{{" not in p.text:
+            continue
+        text = p.text
+        if "{{body}}" in text:
+            body_found = True
+            text = text.replace("{{body}}", blocks[0] if blocks else "")
+            prev = p
+            for more in blocks[1:]:
+                el = copy.deepcopy(p._p)
+                prev._p.addnext(el)
+                prev = Paragraph(el, p._parent)
+                _set_paragraph_text(prev, more)
+        for k in ("full_name", "address", "phone", "email", "date"):
+            text = text.replace("{{%s}}" % k, fields[k])
+        _set_paragraph_text(p, text)
+    leftover = [p.text for p in list(_iter_paragraphs(doc)) + extra if "{{" in p.text]
+    if not body_found:
+        return False, ["cover_letter_template.docx has no {{body}} placeholder"]
+    if leftover:
+        return False, ["cover_letter_template.docx has unfilled placeholders: " + leftover[0][:60]]
+    doc.save(str(path))
+    return True, []
+
+
+def _render_cover_docx(body: str, fields: dict, path) -> tuple:
+    """Write the cover-letter docx. Uses the profile's cover_letter_template.docx
+    ({{full_name}} {{address}} {{phone}} {{email}} {{date}} {{body}}) when it
+    fills cleanly, else generates the letterhead. Returns (mode, warnings) with
+    mode "template" or "generated"."""
+    blocks = _body_blocks(body)
+    warnings = list(fields.get("warnings", []))
+    tmpl = config.cover_letter_template_docx()
+    if tmpl is not None:
+        ok, w = _render_template(tmpl, blocks, fields, path)
+        if ok:
+            return "template", warnings
+        warnings += w + ["fell back to the generated letterhead"]
+    _render_generated(blocks, fields, path)
+    return "generated", warnings
 
 
 def save_cover_letter(company: str = "", job_title: str = "", url: str = "",
@@ -484,13 +694,14 @@ def save_cover_letter(company: str = "", job_title: str = "", url: str = "",
     (body only, for a free-text field) and cover_letter.docx/.pdf with a rendered
     letterhead (for a file input). A model-typed letterhead is stripped first;
     the letter is linted and, if any HARD rule fails, NOTHING is written unless
-    force=True. Returns {saved, lint, slug, dir, txt_path, pdf_path, pdf_exported,
-    note} (just {saved: False, lint, note} when blocked)."""
+    force=True. Returns {saved, lint, ...}: when blocked just that plus `note`;
+    when saved also slug, dir, txt_path, pdf_path, pdf_exported, render_warnings, note."""
+    text = _norm_newlines(text)
     if not text.strip():
         raise ValueError("cover letter text is empty")
     profile = _profile_or_empty(None)
     body = strip_letterhead(text, profile)
-    lint = lint_cover_letter(body, profile)
+    lint = lint_cover_letter(body, profile, posting_company=company)
     if not lint["ok"] and not force:
         return {"saved": False, "lint": lint,
                 "note": "not saved: fix the HARD lint failures and call again "
@@ -502,8 +713,9 @@ def save_cover_letter(company: str = "", job_title: str = "", url: str = "",
 
     docx_path = out_dir / "cover_letter.docx"
     pdf_path = out_dir / "cover_letter.pdf"
+    render_warnings = []
     try:
-        _render_cover_docx(body, _letterhead_fields(profile), docx_path)
+        _mode, render_warnings = _render_cover_docx(body, _letterhead_fields(profile), docx_path)
         pdf_ok, pdf_note = _export_pdf(docx_path, pdf_path)
     except Exception as exc:  # noqa: BLE001 — never lose the .txt over a PDF issue
         pdf_ok, pdf_note = False, f"pdf export failed: {type(exc).__name__}: {exc}"
@@ -511,7 +723,7 @@ def save_cover_letter(company: str = "", job_title: str = "", url: str = "",
     return {"saved": True, "lint": lint, "slug": out_dir.name, "dir": str(out_dir),
             "txt_path": str(txt_path),
             "pdf_path": str(pdf_path) if pdf_ok else None,
-            "pdf_exported": pdf_ok,
+            "pdf_exported": pdf_ok, "render_warnings": render_warnings,
             "note": "cover letter saved (txt + pdf)" if pdf_ok
                     else f"cover letter saved (txt only) — {pdf_note}"}
 

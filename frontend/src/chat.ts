@@ -13,7 +13,7 @@ export interface AgentChat {
   messages: ChatMessage[]
   typing: boolean
   connected: boolean
-  send: (text: string) => void
+  send: (text: string) => boolean
   interrupt: () => void
   /* Sequenced prompts ("Up next"): see enqueue() below. */
   queue: string[]
@@ -133,9 +133,9 @@ export function useAgentChat(): AgentChat {
 
   useEffect(() => { typingRef.current = typing }, [typing])
 
-  const send = useCallback((text: string) => {
+  const send = useCallback((text: string): boolean => {
     const t = text.trim()
-    if (!t || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+    if (!t || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return false
     typingRef.current = true
     currentChip.current = /\bautonomous\b/i.test(t)
       ? 'autonomous'
@@ -144,6 +144,7 @@ export function useAgentChat(): AgentChat {
     setMessages((m) => [...m, { role: 'user', text: t }])
     setTyping(true)
     wsRef.current.send(JSON.stringify({ type: 'user', text: t }))
+    return true
   }, [])
 
   const interrupt = useCallback(() => {
@@ -168,8 +169,8 @@ export function useAgentChat(): AgentChat {
     const list = prompts.map((p) => p.trim()).filter(Boolean)
     if (!list.length) return
     if (!typingRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
-      send(list[0])
-      setQ([...queueRef.current, ...list.slice(1)])
+      const sent = send(list[0])
+      setQ([...queueRef.current, ...(sent ? list.slice(1) : list)])
     } else {
       setQ([...queueRef.current, ...list])
     }
@@ -178,8 +179,7 @@ export function useAgentChat(): AgentChat {
   const continueQueue = useCallback(() => {
     const q = queueRef.current
     if (typingRef.current || !q.length) return
-    send(q[0])
-    setQ(q.slice(1))
+    if (send(q[0])) setQ(q.slice(1))   // dequeue only if the send went out
   }, [send, setQ])
 
   const clearQueue = useCallback(() => setQ([]), [setQ])
