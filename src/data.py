@@ -208,6 +208,16 @@ def search_history(question: str, top_k: int = 5) -> list[dict]:
 _LEAKED_MARKUP_RE = re.compile(r"</answer>|<parameter\s+name=")
 
 
+# Labels that denote a secret. Belt-and-braces beside the scanner's
+# `sensitive` flag: a password must reach neither history nor the applications
+# log, whatever the field metadata says.
+_SECRET_LABEL_RE = re.compile(r"pass(word|code)", re.I)
+
+
+def _is_secret_label(label: str) -> bool:
+    return bool(_SECRET_LABEL_RE.search(label or ""))
+
+
 def _sanitize_answer(answer: str) -> str:
     """Strip leaked tool-call markup from an answer before it is persisted.
 
@@ -280,7 +290,11 @@ def save_answer(question: str, answer: str, scope: str = "evergreen",
                 company: str = "") -> dict:
     """Persist an approved answer so it can be reused. Matches existing entries
     on the normalized question (updates in place), otherwise appends. An
-    explicit save overwrites the entry's scope/company classification."""
+    explicit save overwrites the entry's scope/company classification.
+    Refuses password-labelled questions (secrets are never stored here)."""
+    if _is_secret_label(question):
+        return {"status": "error",
+                "error": "refusing to save a password/secret answer"}
     history = config.load_history()
     status = _upsert_answer(history, question, answer, scope, company,
                             keep_existing_scope=False)
@@ -335,6 +349,8 @@ def capture_submission(fields: list[dict], company: str = "",
         value = (f.get("current_value") or "").strip()
         if not label or kind == "file":
             continue
+        if f.get("sensitive") or kind == "password" or _is_secret_label(label):
+            continue  # secrets: never into history or the applications log
         if kind in ("radio", "checkbox"):
             if value != "checked":
                 continue

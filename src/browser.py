@@ -155,6 +155,19 @@ _SCAN_JS = r"""
     if (isListbox) value = listboxValue(el);
     else if (kind === 'checkbox' || kind === 'radio') value = el.checked ? 'checked' : '';
     else value = el.value || '';
+    // Passwords are NEVER echoed: the field stays fillable (fill_credential),
+    // but its value is masked here and flagged `sensitive` for every consumer.
+    // Sticky: a show-password toggle flips type to text, so also key off
+    // autocomplete, the label, and a marker set on first sight / on fill.
+    const acAttr = (el.getAttribute('autocomplete') || '').toLowerCase();
+    const sensitive = (tag === 'input' && (itype === 'password' ||
+      /(new|current)-password/.test(acAttr) ||
+      (el.dataset && el.dataset.jaSensitive === '1') ||
+      /pass(word|code)/i.test(labelFor(el)))) || undefined;
+    if (sensitive) {
+      el.dataset.jaSensitive = '1';
+      value = value ? '********' : '';
+    }
     if (kind === 'combobox' && !isListbox && !value) {
       // React-select renders the committed choice in a sibling "single-value"
       // element, not in the input itself — surface it so verification and
@@ -181,7 +194,7 @@ _SCAN_JS = r"""
       label: labelFor(el), multiline,
       group: (kind === 'radio' || kind === 'checkbox') ? clean(el.getAttribute('name')) : undefined,
       option_value: (kind === 'radio' || kind === 'checkbox') ? (el.value || '') : undefined,
-      options, required, current_value: value,
+      options, required, current_value: value, sensitive,
     });
     idx++;
   }
@@ -310,7 +323,9 @@ _EXPANDED_JS = r"""
 _LISTBOX_VALUE_JS = r"""
 (idx) => {
   __LISTBOX_VALUE_FN__
-  return listboxValue(document.querySelector('[data-jaidx="' + idx + '"]'));
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  if (el && (el.type === 'password' || (el.dataset && el.dataset.jaSensitive === '1'))) return el.value ? '********' : '';
+  return listboxValue(el);
 }
 """.replace("__LISTBOX_VALUE_FN__", _LISTBOX_VALUE_FN)
 
@@ -323,6 +338,7 @@ _COMBO_VALUE_JS = r"""
 (idx) => {
   const el = document.querySelector('[data-jaidx="' + idx + '"]');
   if (!el) return '';
+  if ((el.type === 'password' || (el.dataset && el.dataset.jaSensitive === '1'))) return el.value ? '********' : '';
   __LISTBOX_VALUE_FN__
   if (el.tagName.toLowerCase() === 'button') return listboxValue(el);
   const ctl = el.closest('[class*="control"]') ||
@@ -343,6 +359,7 @@ _FIELD_VALUE_JS = r"""
 (idx) => {
   const el = document.querySelector('[data-jaidx="' + idx + '"]');
   if (!el) return null;
+  if ((el.type === 'password' || (el.dataset && el.dataset.jaSensitive === '1'))) return el.value ? '********' : '';
   const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
   const tag = el.tagName.toLowerCase();
   const itype = (el.getAttribute('type') || '').toLowerCase();
@@ -362,6 +379,27 @@ _FIELD_VALUE_JS = r"""
   if (el.isContentEditable) return clean(el.innerText);
   if (typeof el.value === 'string') return clean(el.value);
   return null;
+}
+"""
+
+# JS: LIVE check of the element at data-jaidx=idx, run immediately before a
+# fill (cached scan metadata goes stale on a type flip or re-render). Returns
+# {password: a real <input type=password>, sensitive: password-like by type,
+# autocomplete, marker or label}. With mark=true it stamps the sticky marker.
+_SENSITIVE_PROBE_JS = r"""
+(args) => {
+  const el = document.querySelector('[data-jaidx="' + args[0] + '"]');
+  if (!el) return null;
+  const tag = el.tagName.toLowerCase();
+  const t = (el.getAttribute('type') || '').toLowerCase();
+  const ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+  const lab = (el.getAttribute('aria-label') || '') + ' ' +
+    (el.labels && el.labels[0] ? el.labels[0].innerText : '');
+  const password = tag === 'input' && el.type === 'password';
+  const sensitive = password || (el.dataset && el.dataset.jaSensitive === '1') ||
+    ac.indexOf('password') !== -1 || /pass(word|code)/i.test(lab);
+  if (args[1] && password) el.dataset.jaSensitive = '1';
+  return {password: password, sensitive: !!sensitive};
 }
 """
 
@@ -827,8 +865,12 @@ def _values_match(expected: str, observed: str) -> bool:
     return a in b or b in a
 
 
+SENSITIVE_MASK = "********"
+_SECRET_LABEL_RE = re.compile(r"pass(word|code)", re.I)
+
+
 def _fill_result(index: int, kind: str, value: str, observed,
-                 expected: str | None = None) -> dict:
+                 expected: str | None = None, sensitive: bool = False) -> dict:
     """Turn a post-fill read-back into an HONEST result.
 
     Why a proven failure returns status "uncommitted" and not just
@@ -842,6 +884,20 @@ def _fill_result(index: int, kind: str, value: str, observed,
     `observed_value` is REQUIRED on every non-verified result: a bare boolean
     cannot tell "empty, refill" from "wrong option, refill differently".
     """
+    if sensitive:
+        # Passwords: verify on PRESENCE (the read-back is already masked, so
+        # equality is meaningless) and never echo the sent or observed value.
+        res = {"index": index, "kind": kind, "status": "filled",
+               "value": SENSITIVE_MASK, "sensitive": True}
+        if observed is None:
+            res["verified"] = None
+            res["note"] = "fill was issued but could not be verified"
+        elif str(observed).strip():
+            res["verified"] = True
+        else:
+            res.update(verified=False, status="uncommitted",
+                       observed_value="")
+        return res
     res = {"index": index, "kind": kind, "status": "filled", "value": value}
     if observed is None:
         # The widget exposes no readable value in this DOM. That is not
@@ -1029,12 +1085,16 @@ class BrowserSession:
                 # site/ATS.
                 self.fields[d["index"]] = {"frame": frame, "kind": d["kind"],
                                            "native": d.get("native", True),
-                                           "widget": d.get("widget")}
+                                           "widget": d.get("widget"),
+                                           "sensitive": bool(d.get("sensitive")),
+                                           "label": d.get("label")}
                 counter = max(counter, d["index"] + 1)
                 if values_only:
                     lean = {"index": d["index"], "kind": d["kind"],
                             "label": d.get("label"),
                             "current_value": d.get("current_value", "")}
+                    if d.get("sensitive"):
+                        lean["sensitive"] = True
                     all_fields.append({k: v for k, v in lean.items() if v is not None})
                     continue
                 # Collapse long native <select> option lists — country/year/
@@ -1076,7 +1136,20 @@ class BrowserSession:
             return None
         js = _COMBO_VALUE_JS if meta.get("kind") == "combobox" else _FIELD_VALUE_JS
         try:
-            return await frame.evaluate(js, index)
+            obs = await frame.evaluate(js, index)
+        except Exception:
+            return None
+        if meta.get("sensitive") and obs:
+            return "********"       # belt-and-braces: never surface a secret
+        return obs
+
+    async def _probe(self, index: int, mark: bool = False):
+        """Live sensitivity probe of the element (None = unknown)."""
+        frame = (self.fields.get(index) or {}).get("frame")
+        if frame is None:
+            return None
+        try:
+            return await frame.evaluate(_SENSITIVE_PROBE_JS, [index, mark])
         except Exception:
             return None
 
@@ -1100,6 +1173,16 @@ class BrowserSession:
         """
         loc, kind = self._locator(index)
         meta = self.fields.get(index, {})
+        probe = await self._probe(index) if kind == "text" else None
+        if (meta.get("sensitive") or _SECRET_LABEL_RE.search(meta.get("label") or "")
+                or (probe or {}).get("sensitive")):
+            # The model must never pass a password literal through the generic
+            # fill path (it would sit in the transcript). Credentials are
+            # filled server-side by fill_credential.
+            return {"index": index, "status": "use_fill_credential",
+                    "sensitive": True,
+                    "error": "password field: use fill_credential, never a "
+                             "literal value"}
         if kind == "combobox":
             # Dispatch on the WIDGET, never on the site: aria-haspopup=listbox
             # is an ARIA contract honored by Workday, Oracle, SuccessFactors,
@@ -1120,6 +1203,34 @@ class BrowserSession:
             await loc.fill(value)
         observed = await self._read_back(index)
         return _fill_result(index, kind, value, observed)
+
+    async def fill_sensitive(self, index: int, value: str,
+                             require_password: bool = False) -> dict:
+        """Fill a field with a server-side secret; the value never leaves
+        here. Result is masked and verified on presence only. The target is
+        re-checked LIVE immediately before typing (a type flip or re-render
+        invalidates the scan): with `require_password` it must be a real
+        <input type=password>; without it (email), it must NOT be sensitive.
+        Every failure returns only the exception TYPE: Playwright messages
+        embed the typed value in their call log."""
+        meta = self.fields.get(index, {})
+        out = {"index": index, "sensitive": True}
+        try:
+            loc, kind = self._locator(index)
+            if kind != "text":
+                return {**out, "status": "unsupported_field"}
+            probe = await self._probe(index, mark=require_password)
+            if require_password:
+                if not (probe and probe.get("password")):
+                    return {**out, "status": "not_a_password_field"}
+            elif meta.get("sensitive") or probe is None or probe.get("sensitive"):
+                return {**out, "status": "sensitive_target"}
+            await loc.fill(value)
+            observed = await self._read_back(index)
+            return _fill_result(index, kind, value, observed,
+                                sensitive=require_password)
+        except Exception as e:
+            return {**out, "status": "error", "error": type(e).__name__}
 
     async def _click_toggle_proxy(self, index: int) -> bool:
         """Click the element a HUMAN would click for the toggle at `index`
