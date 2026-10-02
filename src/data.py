@@ -15,6 +15,14 @@ from . import config
 # company; "conditional" answers (role/location-dependent) are always gated.
 VALID_SCOPES = ("evergreen", "company", "conditional")
 
+# The line between a "short stable fact" and an essay-length answer. Used both
+# to classify an auto-captured answer's scope (below) and to gate the
+# alternates union (Phase 6): only short answers are unioned, so a re-crafted
+# essay never bloats a row with two multi-paragraph variants. Backed by the
+# actual data (2026-09-16, 192 records): 139 are <= 150 chars and the
+# shortest genuine essay is 185 -- 150 cleanly separates the two populations.
+SHORT_ANSWER_CHARS = 150
+
 # Maps a canonical profile key -> phrases that commonly appear in the matching
 # form question/label. Matching is substring-based on a normalized question.
 # Order matters: more specific keys should come before generic ones.
@@ -71,11 +79,41 @@ ALIAS_EXCLUDE: dict[str, list[str]] = {
 
 
 def _normalize(text: str) -> str:
+    # NOTE: this deliberately leaves runs of whitespace intact. It feeds
+    # `_similarity`'s SequenceMatcher and `_upsert_answer`'s question identity,
+    # so widening it would change which past answers auto-fill a form — a
+    # correctness change, not a cleanup. Use `role_key` for join identity.
     return re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower()).strip()
 
 
 def _tokens(text: str) -> set[str]:
     return set(_normalize(text).split())
+
+
+def role_key(company: str, title: str) -> tuple:
+    """The identity of a ROLE — the single key both sides of "have I already
+    applied to this posting?" must agree on.
+
+    A role's identity is (company, title). Not the URL: the submit URL and the
+    retry/success URL differ (Greenhouse embed vs. canonical, `?gh_src`
+    tracking params, a post-submit redirect), which is how one application
+    once split into duplicate records on a retry. And not the postings PK
+    `(ats, slug, job_id)`, which is BOARD identity — one role cross-posted to
+    five cities is five rows with five job_ids but one opportunity.
+
+    Whitespace runs are collapsed, which `_normalize` alone does not do. That
+    omission was a live bug: `_normalize` turns punctuation into a space
+    without joining the result, so "Senior Product Manager, Consumer" became
+    "senior product manager  consumer" (two spaces) while the same role logged
+    as "Senior Product Manager - Consumer" became "... manager   consumer"
+    (three). The keys compared unequal, and a Plaid role the user had already
+    applied to on 2026-07-09 kept resurfacing as never-applied — against a
+    board that hard-limits applications per candidate. 63 of 93 stored
+    applications had a double space in their key, so most of the log was one
+    punctuation edit away from the same failure.
+    """
+    return (" ".join(_normalize(company).split()),
+            " ".join(_normalize(title).split()))
 
 
 def _unwrap_profile_value(raw):
@@ -128,33 +166,103 @@ def _similarity(a: str, b: str) -> float:
     return round(0.5 * ratio + 0.5 * overlap, 3)
 
 
+def _history_row(entry: dict, question: str) -> dict:
+    """Build one search_history result row from a raw history entry.
+
+    Rebuilding a fresh dict per row (rather than reusing `entry`) means any
+    key added to the schema later is silently dropped here unless it is
+    listed explicitly -- exactly what happened to `alternates` (Phase 6)
+    before this carried it through. Keep this in mind before adding a new
+    persisted field without a matching line here.
+    """
+    row = {"question": entry.get("question", ""), "answer": entry.get("answer", ""),
+           "scope": entry.get("scope") or "conditional",
+           "company": entry.get("company", ""), "date": entry.get("date", ""),
+           "score": _similarity(question, entry.get("question", ""))}
+    alternates = entry.get("alternates")
+    if alternates:
+        row["alternates"] = alternates
+    return row
+
+
 def search_history(question: str, top_k: int = 5) -> list[dict]:
     """Return the closest past {question, answer} pairs, ranked by similarity.
     Rows carry the entry's reuse metadata (scope/company/date); an entry with
     no recorded scope is treated as "conditional" so it never auto-fills."""
     history = config.load_history()
-    scored = [
-        {"question": e.get("question", ""), "answer": e.get("answer", ""),
-         "scope": e.get("scope") or "conditional",
-         "company": e.get("company", ""), "date": e.get("date", ""),
-         "score": _similarity(question, e.get("question", ""))}
-        for e in history
-    ]
+    scored = [_history_row(e, question) for e in history]
     scored.sort(key=lambda x: x["score"], reverse=True)
     return scored[:top_k]
+
+
+# Markers left behind when a tool call's XML-ish envelope leaks into a saved
+# answer. Seen for real on 2026-09-16 (indices 187-189 of a 192-row history):
+# a genuine, complete answer immediately followed by the literal text
+#   </answer>\n<parameter name="scope">evergreen
+# i.e. the *next* tool-call parameter got appended to the answer text instead
+# of being parsed as markup. Truncating at the first such marker was verified
+# lossless against all three real records. Both shapes are matched by their
+# full tag, never by a bare "<" or the word "parameter" alone, so a legitimate
+# answer that happens to mention either (e.g. "the <parameter> tuning knob")
+# is left untouched.
+_LEAKED_MARKUP_RE = re.compile(r"</answer>|<parameter\s+name=")
+
+
+def _sanitize_answer(answer: str) -> str:
+    """Strip leaked tool-call markup from an answer before it is persisted.
+
+    Applied once, at the _upsert_answer write boundary, so both save_answer
+    and capture_submission are covered by a single call site -- sanitizing
+    only the historical records (scripts/repair_history_markup.py) without
+    also sanitizing new writes would let the corruption recur on the very
+    next save.
+    """
+    if not answer:
+        return answer
+    m = _LEAKED_MARKUP_RE.search(answer)
+    if m:
+        answer = answer[:m.start()]
+    return answer.rstrip()
 
 
 def _upsert_answer(history: list, question: str, answer: str, scope: str,
                    company: str, keep_existing_scope: bool) -> str:
     """Insert or update one entry, matching on the *normalized* question so
     label decoration ("Country*" vs "Country") can't fork duplicates. The raw
-    label is kept (refreshed on update) for display and similarity scoring."""
+    label is kept (refreshed on update) for display and similarity scoring.
+
+    On update, when both the outgoing and incoming answers are short
+    (<= SHORT_ANSWER_CHARS) and differ after normalization, the outgoing
+    answer is folded into an "alternates" list instead of being discarded
+    outright -- a later re-save often reflects a rephrasing, not a
+    correction, and the earlier wording can still be the better fit for a
+    similar-but-not-identical question. Long (essay-length) answers keep the
+    old overwrite-with-no-history behavior: unioning two multi-paragraph
+    essays would bloat every row for no real benefit. `alternates` is
+    deduped on _normalize, newest-displaced first, capped at 5.
+    """
     if scope not in VALID_SCOPES:
         scope = "conditional"
+    answer = _sanitize_answer(answer)
     key = _normalize(question)
     today = date.today().isoformat()
     for entry in history:
         if _normalize(entry.get("question", "")) == key:
+            old_answer = entry.get("answer", "")
+            if (old_answer and len(old_answer) <= SHORT_ANSWER_CHARS
+                    and len(answer) <= SHORT_ANSWER_CHARS
+                    and _normalize(old_answer) != _normalize(answer)):
+                seen = {_normalize(answer)}
+                alternates = []
+                for cand in [old_answer] + list(entry.get("alternates") or []):
+                    ck = _normalize(cand)
+                    if ck in seen:
+                        continue
+                    seen.add(ck)
+                    alternates.append(cand)
+                    if len(alternates) == 5:
+                        break
+                entry["alternates"] = alternates
             entry["question"] = question
             entry["answer"] = answer
             if not keep_existing_scope or not entry.get("scope"):
@@ -197,7 +305,7 @@ def _classify_scope(question: str, answer: str, kind: str, company: str) -> str:
     comp = _normalize(company)
     if comp and (comp in q or comp in a):
         return "company"
-    if kind == "textarea" or len(answer) > 150:
+    if kind == "textarea" or len(answer) > SHORT_ANSWER_CHARS:
         return "company"
     if any(m in q for m in _CONDITIONAL_MARKERS):
         return "conditional"
@@ -280,8 +388,13 @@ def _application_key(company: str, job_title: str, url: str) -> tuple:
     missing. The submit URL and the retry/success URL differ (embed vs.
     canonical, tracking params, a post-submit redirect), so including the raw
     URL in the key split one application into duplicate records on a retry
-    (JOB-24) — hence the URL is used only when (company, title) is incomplete."""
-    c, t = _normalize(company), _normalize(job_title)
+    (JOB-24) — hence the URL is used only when (company, title) is incomplete.
+
+    Built on `role_key` so the log's own dedupe identity and the store's
+    already-applied match are the SAME function. When they were two functions
+    they drifted, and a posting whose title differed from the logged one by a
+    single comma read as never-applied."""
+    c, t = role_key(company, job_title)
     if c and t:
         return (c, t, "")
     return (c, t, _normalize_url(url))
