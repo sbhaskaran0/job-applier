@@ -30,8 +30,15 @@ export const fetchPostings = () =>
     postings: Posting[]; last_refresh: string | null; note?: string
     hidden_by_criteria?: number
   }>('/api/postings')
+// `stats` stays optional so callers that only want the array keep typechecking.
 export const fetchApplications = () =>
   get<{ applications: ApplicationRecord[]; stats?: ApplicationStats }>('/api/applications')
+
+// Records the company's response on one application (JOB-107). `key` is the
+// opaque identity the GET stamps on each row — never construct one client-side.
+export const setApplicationOutcome = (key: string, outcome: string, outcome_date = '') =>
+  send<{ application: ApplicationRecord; stats: ApplicationStats }>(
+    '/api/applications/outcome', 'POST', { key, outcome, outcome_date })
 export const fetchProfile = () => get<Profile>('/api/profile')
 export const fetchWatchlist = () => get<{ companies: WatchlistCompany[] }>('/api/watchlist')
 export const fetchConnections = () => get<ConnectionsPayload>('/api/connections')
@@ -65,12 +72,6 @@ export const pasteContext = (text: string, kind: 'pasted' | 'story', title = '')
 export const deleteContext = (name: string) =>
   send<{ removed: string; context_files: ContextFile[] }>(
     `/api/context/${encodeURIComponent(name)}`, 'DELETE')
-
-// Records the company's response on one application (JOB-107). `key` is the
-// opaque identity the GET stamps on each row — never construct one client-side.
-export const setApplicationOutcome = (key: string, outcome: string, outcome_date = '') =>
-  send<{ application: ApplicationRecord; stats: ApplicationStats }>(
-    '/api/applications/outcome', 'POST', { key, outcome, outcome_date })
 
 export async function addWatchlistCompany(url: string) {
   const r = await fetch('/api/watchlist', {

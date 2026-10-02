@@ -448,7 +448,10 @@ def profiles_list():
     means the launch screen must interrupt (several profiles and none chosen,
     or none at all)."""
     try:
-        active_id = config.active_profile().profile_id
+        prof = config.active_profile()
+        # The bootstrapped placeholder profile is not a real selection: report
+        # it as no profile so a brand-new user still gets the launch screen.
+        active_id = None if prof.placeholder else prof.profile_id
     except profiles_mod.ProfileError:
         active_id = None
     dirs = [p for p in sorted(profiles_mod.PROFILES_DIR.iterdir())
