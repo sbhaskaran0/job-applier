@@ -58,3 +58,6 @@ frontend/*.tsbuildinfo
 
 # ad-hoc browser probes (may hold credentials) — never commit
 probe*.py
+
+# agent worktrees (multi-agent orchestration)
+.claude/worktrees/
