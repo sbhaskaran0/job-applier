@@ -219,18 +219,16 @@ stated explicitly.
 **Schedule it daily** so the digest is waiting for you:
 
 - **Windows** (already registered on this machine as *"JobApplier Watchlist
-  Refresh"*, daily 09:00):
-  `schtasks /Create /TN "JobApplier Watchlist Refresh" /TR "\"<repo>\scripts\refresh.cmd\"" /SC DAILY /ST 09:00`
-  — [scripts/refresh.cmd](scripts/refresh.cmd) is self-locating; remove with
-  `schtasks /Delete /TN "JobApplier Watchlist Refresh"`.
+  Refresh"*, daily 09:00 + at-logon catch-up):
+  Run `powershell -ExecutionPolicy Bypass -File scripts\setup_refresh_task.ps1`
+  to register/update the scheduled task.
+  - **Wake timers:** Requires Windows "Allow wake timers" to be enabled in the power plan (checked automatically).
+  - **Catch-up on logon:** The task also runs 10 minutes after logon to catch up if the machine was asleep at 09:00.
+  - **Log location:** Runs are logged to `data\refresh.log`.
 - **Linux (cron):** `0 9 * * * cd /path/to/job-applier && python3 -m src.refresh`
 - **macOS:** the same cron line, or a launchd agent.
 
-The machine must be on at the scheduled time; a missed day is harmless (the
-next run catches up). Deleting `postings.db` is always safe — it's a cache of
-public data and rebuilds on the next refresh (only `first_seen` history is
-lost). The apply flow never trusts the store for liveness: postings are
-re-verified via the ATS API before an application is prepped.
+The machine should stay on at 09:00, but if it sleeps, it will catch up on next logon. A missed day is harmless. Deleting `postings.db` is always safe — it's a cache of public data and rebuilds on the next refresh (only `first_seen` history is lost). The apply flow never trusts the store for liveness: postings are re-verified via the ATS API before an application is prepped.
 
 ---
 
