@@ -23,6 +23,7 @@ import httpx
 
 from .. import config
 from . import watchlist as wl
+from . import workday
 
 _UA = "Mozilla/5.0 (compatible; job-applier-discovery/1.0)"
 _TIMEOUT = httpx.Timeout(30.0)
@@ -48,6 +49,13 @@ def board_url(ats: str, slug: str) -> str:
         return f"https://jobs.ashbyhq.com/{slug}"
     if ats == "lever":
         return f"https://jobs.lever.co/{slug}"
+    if ats == "workday":
+        # slug is "tenant:shard:site"; a malformed one should degrade to the
+        # raw slug in the report rather than kill the whole discovery run.
+        try:
+            return workday.board_url(slug)
+        except ValueError:
+            return slug
     return slug
 
 

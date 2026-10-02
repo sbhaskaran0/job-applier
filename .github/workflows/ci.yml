@@ -37,10 +37,12 @@ jobs:
         run: python -m compileall -q src server scripts tests
 
       # Runtime deps are heavy (playwright, the agent SDK) and the standalone
-      # suites only need the pure-Python ones, so install just those.
+      # suites only need the light ones, so install just those. httpx is not
+      # optional: src.store imports src.providers.watchlist transitively, and
+      # the Workday sourcing suite builds fake clients against httpx's shapes.
       - name: Tests
         run: |
-          pip install pyyaml
+          pip install pyyaml httpx
           for t in tests/test_*.py; do echo "--- $t"; python "$t" || exit 1; done
 
   frontend:

@@ -152,6 +152,16 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _is_blank(value) -> bool:
+    """True for None / "" / whitespace, for values that are not always strings.
+
+    Providers disagree on the type of `posted`: Greenhouse and Ashby send ISO
+    strings, Lever sends an epoch integer. A bare `.strip()` raises on the int,
+    which is exactly how this helper came to exist.
+    """
+    return not str("" if value is None else value).strip()
+
+
 def _content_hash(p: dict) -> str:
     basis = "|".join(str(p.get(k) or "") for k in
                      ("title", "location", "salary_min", "salary_max", "description"))
@@ -220,10 +230,31 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
             if not key[1] or not key[2]:
                 continue  # can't key it — skip rather than corrupt the store
             seen_by_board.setdefault((key[0], key[1]), set()).add(key[2])
-            chash = _content_hash(p)
             row = conn.execute(
-                "SELECT content_hash, removed_at FROM postings "
+                "SELECT content_hash, removed_at, description, posted FROM postings "
                 "WHERE ats=? AND slug=? AND job_id=?", key).fetchone()
+            # A provider that fetches descriptions ONCE (Workday: the text is
+            # a second HTTP hit per posting and effectively never changes)
+            # re-reports a posting it already knows with an EMPTY description.
+            # That is a fetch artifact, never a real edit -- but description is
+            # part of the content hash, so taking it at face value would flip
+            # the hash and make the UPDATE below erase text we already have.
+            # Keep what is stored. The Workday fetcher also carries the stored
+            # description forward itself; this is the belt to that brace, and
+            # it protects every other provider from the same class of bug.
+            if row is not None and _is_blank(p.get("description"))                     and not _is_blank(row["description"]):
+                p = {**p, "description": row["description"]}
+            # Same reasoning for the date, which needs its own guard because it
+            # is NOT in the content hash: the unchanged-hash branch below
+            # rewrites `posted` every run, so a provider that omits it nulls a
+            # date we already knew. A posting never truly loses its date.
+            # (A DEGRADED location -- Workday's "3 Locations" standing in for
+            # "San Jose; San Francisco" -- is not fixable here: the incoming
+            # value is non-empty, so only the provider can tell it is lossy.
+            # The Workday fetcher carries location forward for that reason.)
+            if row is not None and _is_blank(p.get("posted"))                     and not _is_blank(row["posted"]):
+                p = {**p, "posted": row["posted"]}
+            chash = _content_hash(p)
             if row is None:
                 e = _enrich(p, excluded)
                 wm = _apply_locations(conn, key, p["location"], p["remote"])
@@ -273,11 +304,19 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                          p.get("posted"), locations.parse_posted(p.get("posted")),
                          *key))
 
-        # Removal pass — ONLY over boards that fetched successfully this run.
+        # Removal pass — ONLY over boards whose fetch was successful AND
+        # complete. A board that errored proves nothing about its postings, and
+        # neither does one that came back truncated (Workday's 2000-row offset
+        # wall): the rows it could not see are unknown, not gone. Treat both the
+        # same here, but keep them distinct in the run log — an incomplete fetch
+        # is not a failure and must not trip the dark-board alarm.
         failed_names = {e["company"] for e in errors}
+        incomplete_names = {e["company"]
+                            for e in fetch_result.get("incomplete", [])}
+        no_removals = failed_names | incomplete_names
         removed = 0
         for co in config.load_watchlist():
-            if co["name"] in failed_names:
+            if co["name"] in no_removals:
                 continue
             board = ((co.get("ats") or "").lower(), co.get("slug", ""))
             current = seen_by_board.get(board, set())
@@ -352,8 +391,15 @@ def _title_matches(title: str, keywords: list[str] | None) -> bool:
 def _role_key(row: dict) -> tuple:
     """Identity for a role independent of which city it's posted in — the
     same role cross-posted to several cities collapses to one key. Applies to
-    both DB rows and freshly-fetched dicts, hence the defensive .get."""
-    return (row["company"], (row.get("title") or "").strip().lower())
+    both DB rows and freshly-fetched dicts, hence the defensive .get.
+
+    Delegates to `data.role_key` so posting dedupe and the already-applied
+    match are literally the same function. They used to be two: this one
+    lower-cased the title and left the company raw, while the applied match
+    normalized both — so the set a row was deduped into and the set it was
+    matched against could disagree."""
+    from . import data  # local import: data.py pulls in fuzzy-match machinery
+    return data.role_key(row["company"], row.get("title"))
 
 
 def _location_ok(row: dict, baseline: dict) -> bool:
@@ -410,7 +456,7 @@ def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
 # --------------------------------------------------------------------------- #
 def _applied_keys() -> set:
     from . import data  # local import: data.py pulls in fuzzy-match machinery
-    return {(data._normalize(a.get("company", "")), data._normalize(a.get("job_title", "")))
+    return {data.role_key(a.get("company", ""), a.get("job_title", ""))
             for a in config.load_applications()}
 
 
@@ -478,8 +524,9 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
             "url": r["url"], "first_seen": r["first_seen"],
             "posted_at": r.get("posted_at"),
             "is_new": r["first_seen"] == run_at,
-            "already_applied": (_data._normalize(r["company"]),
-                                _data._normalize(r["title"])) in applied,
+            # Same function as _applied_keys built the set with — the join
+            # condition, stated once on both sides.
+            "already_applied": _data.role_key(r["company"], r["title"]) in applied,
             "snippet": _snippet(r["description"] or "", snippet_chars),
         }
         by_key[key] = entry
@@ -502,6 +549,43 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         "dropped_over_max_years": dropped_years,
         "companies_failed": json.loads(run["companies_failed"]) if run else [],
     }
+
+
+def stored_detail_fields(ats: str, slug: str) -> dict:
+    """`{job_id: {"description", "location", "posted"}}` for one board's active
+    postings that already carry description text.
+
+    Exists for fetch-once providers. Workday's LIST payload has no description,
+    no real date, and often only `"3 Locations"` where the posting is really
+    "San Jose; San Francisco" -- all three only arrive on the per-posting detail
+    request. Re-fetching those every refresh would add ~11 minutes to a daily
+    run to re-download data that effectively never changes, so the fetcher
+    fetches each posting's detail ONCE and thereafter carries these three
+    fields forward from here.
+
+    All three matter, not just the text. `description` and `location` are both
+    inside `_content_hash`, so re-emitting a degraded value flips the hash and
+    rewrites the row; `posted` is refreshed unconditionally on the unchanged
+    branch, so it is lost even when the hash matches. Worse than data loss, a
+    location degraded back to `"3 Locations"` no longer substring-matches
+    `locations_allowed`, so the row silently fails the baseline location gate
+    and drops out of the digest.
+
+    Presence of description text is the "we already fetched this posting's
+    detail" signal, which is why the query gates on it.
+    """
+    conn = connect()
+    try:
+        return {r["job_id"]: {"description": r["description"],
+                              "location": r["location"],
+                              "posted": r["posted"]}
+                for r in conn.execute(
+                    "SELECT job_id, description, location, posted FROM postings "
+                    "WHERE ats=? AND slug=? AND removed_at IS NULL "
+                    "AND description IS NOT NULL AND description != ''",
+                    (ats, slug))}
+    finally:
+        conn.close()
 
 
 def posting_description(url: str) -> str | None:
@@ -670,10 +754,10 @@ def company_spread() -> dict:
     and the application log — so posting/application spread is self-reporting
     instead of hand-counted every time someone asks (JOB-113).
 
-    The qualifying side counts DISTINCT ROLES on the same
-    (company, title.strip().lower()) key list_postings_from_store dedupes on:
-    one role posted across five cities is five rows but one opportunity, and
-    counting raw rows is exactly what inflates the per-company yield table.
+    The qualifying side counts DISTINCT ROLES on the same `_role_key`
+    list_postings_from_store dedupes on: one role posted across five cities is
+    five rows but one opportunity, and counting raw rows is exactly what
+    inflates the per-company yield table.
 
     The application side counts EVERY record in the log, not only
     status == "submitted": a manual submission is still an application spent on
@@ -693,8 +777,7 @@ def company_spread() -> dict:
     finally:
         conn.close()
 
-    roles = {(r["company"], (r["title"] or "").strip().lower())
-             for r in rows if passes_baseline(r, baseline)[0]}
+    roles = {_role_key(r) for r in rows if passes_baseline(r, baseline)[0]}
     qualifying: dict[str, int] = {}
     for company, _title in roles:
         qualifying[company] = qualifying.get(company, 0) + 1

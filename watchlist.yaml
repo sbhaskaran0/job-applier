@@ -2,8 +2,11 @@
 # company's PUBLIC ATS board API and searches across them semantically.
 #
 # Edit freely: add/remove entries, or use the add_company tool with a board URL.
-#   ats:  greenhouse | lever | ashby
-#   slug: the board token in the company's ATS URL
+#   ats:  greenhouse | lever | ashby | workday
+#   slug: the board token in the company's ATS URL. Workday boards need three
+#         parts (tenant, shard, site), packed as "tenant:shard:site" -- e.g.
+#         capitalone:wd12:Capital_One. Propose new ones with
+#         `python scripts/workday_bootstrap.py <company name>`.
 # All entries below were verified live at build time.
 
 companies:
@@ -260,3 +263,73 @@ companies:
   - name: Mistral AI       # frontier AI lab
     ats: ashby
     slug: mistral.ai
+  - name: Blueroseresearch
+    ats: greenhouse
+    slug: blueroseresearch
+
+  # --- Workday ---  slug is "tenant:shard:site" (quoted: colons are YAML
+  # syntax). Propose new ones with scripts/workday_bootstrap.py; all 20 below
+  # were validated live against the CXS API on 2026-09-09.
+  - name: Workday
+    ats: workday
+    slug: "workday:wd5:Workday"
+  - name: Adobe
+    ats: workday
+    slug: "adobe:wd5:external_experienced"
+  - name: NVIDIA
+    ats: workday
+    slug: "nvidia:wd5:NVIDIAExternalCareerSite"
+  - name: Salesforce
+    ats: workday
+    slug: "salesforce:wd12:External_Career_Site"
+  - name: Autodesk
+    ats: workday
+    slug: "autodesk:wd1:Ext"
+  - name: Zendesk
+    ats: workday
+    slug: "zendesk:wd1:zendesk"
+  - name: Etsy
+    ats: workday
+    slug: "etsy:wd5:Etsy_Careers"
+  - name: Zillow
+    ats: workday
+    slug: "zillow:wd5:Zillow_Group_External"
+  - name: Snap
+    ats: workday
+    slug: "snapchat:wd1:snap"
+  - name: Expedia
+    ats: workday
+    slug: "expedia:wd108:search"
+  - name: PayPal
+    ats: workday
+    slug: "paypal:wd1:jobs"
+  - name: Capital One
+    ats: workday
+    slug: "capitalone:wd12:Capital_One"
+  - name: Visa
+    ats: workday
+    slug: "visa:wd5:Visa"
+  - name: Mastercard
+    ats: workday
+    slug: "mastercard:wd1:CorporateCareers"
+  - name: BlackRock
+    ats: workday
+    slug: "blackrock:wd1:BlackRock_Professional"
+  - name: S&P Global
+    ats: workday
+    slug: "spgi:wd5:SPGI_Careers"
+  - name: Nasdaq
+    ats: workday
+    slug: "nasdaq:wd1:Global_External_Site"
+  - name: Gartner
+    ats: workday
+    slug: "gartner:wd5:EXT"
+  - name: Disney
+    ats: workday
+    slug: "disney:wd5:disneycareer"
+  - name: Warner Bros. Discovery
+    ats: workday
+    slug: "warnerbros:wd5:global"
+  - name: Doordashusa
+    ats: greenhouse
+    slug: doordashusa
