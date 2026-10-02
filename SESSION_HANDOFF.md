@@ -82,7 +82,15 @@ aliases, JS-only dropzones).
   applications.json, prep/}`, `resumes/<job-slug>/`, `runtime/` (screenshots +
   persistent browser profile). Resolution: `JOB_APPLIER_PROFILE` env →
   `applyer.local.json` (`{"profile": "id"}`, gitignored) → single `profiles/`
-  dir → legacy repo-root fallback. `src/config.py` serves the old constant
+  dir → legacy repo-root fallback → **(JOB-131, 2026-09-01) last-resort
+  bootstrap**: a profiles-less checkout (fresh clone, CI, a git worktree —
+  `profiles/*` is gitignored, only `profiles/_template/` ships) gets a
+  PLACEHOLDER profile materialised at `profiles/_scratch/`, `criteria.yaml`
+  only (never `profile.yaml`, so every fill/submit path still raises loudly),
+  `placeholder=True` on the returned `ActiveProfile`. `server/data_api.py`
+  reports `active_id = None` for a placeholder so the webapp still shows the
+  launch screen; this is exactly what CI's "Profiles-less checkout bootstraps"
+  step exercises. `src/config.py` serves the old constant
   names (`config.HISTORY_PATH` etc.) lazily via module `__getattr__`, so call
   sites didn't change; JSON saves are atomic (temp + `os.replace`);
   `resume.txt` regeneration is mtime-guarded. Shared at repo root:
@@ -98,6 +106,9 @@ aliases, JS-only dropzones).
   guessing paths). `snapshot_job`
   (JOB-52): opens+reads+writes a batch prep file server-side, returning only a
   compact receipt (incl. `freetext_count`) so form dumps + JD never enter the model.
+  **JOB-136:** `set_application_outcome` lets a live session record a reply
+  the user reports, over the same `src.data` function the Applications-page
+  control uses.
 - `src/browser.py` — ATS-agnostic Playwright layer (`_SCAN_JS` reads page +
   iframes into generic field descriptors incl. a `multiline` free-text flag;
   no per-site selectors; non-headless; **persistent Chromium profile** per
@@ -155,6 +166,26 @@ aliases, JS-only dropzones).
   `data.role_key()`** — it used to be (company raw + lowercased title), which
   did not match the key the already-applied set was built with; see the
   2026-09-16 entry.
+  **JOB-137:** `_DARK_RUNS` (3) now lives here, not `refresh.py` (which
+  re-exports it); `dark_boards()` reads the consecutive-failure counter
+  `refresh_from_fetch` already tracks in `refresh_runs.companies_failed`.
+  `yield_stats()` tags a dark board's row `stale: True` and sorts it last;
+  `company_spread()` excludes those rows from the qualifying corpus. Rows are
+  kept, never deleted — a board can go dark on transient failures and
+  recover. `refresh_from_fetch` also gained a second sweep, run after the
+  normal removal pass: any active row whose `(ats, slug)` is in no
+  `watchlist.yaml` entry is retired (`removed_count`), closing the gap where
+  a board dropped or repointed out of the watchlist kept its rows
+  `removed_at IS NULL` forever (undead, since the failed-fetch counter never
+  sees a board that isn't being fetched at all) — guarded on a non-empty
+  watchlist so a read failure can't retire everything.
+  **JOB-138:** `location_indeterminate(row, baseline)` is a separate seam
+  from `passes_baseline`'s `(passes, reason)` tuple — a country-only location
+  (e.g. bare "United States", no city) now passes the baseline as
+  INDETERMINATE rather than failing it, and the tag rides along into
+  `list_postings_from_store`'s payload and the digest. Matching is
+  whole-string via `locations.region_of` so `"us"` can't match inside a city
+  name.
 - `src/providers/locations.py` (JOB-55) — deterministic location normalization:
   raw ATS location strings → canonical city/remote tokens + work_mode
   (regex canonicalization + curated `location_aliases.yaml`; observations
@@ -165,7 +196,12 @@ aliases, JS-only dropzones).
   the RAW string (not the lossy `normalize()` output), fails open on anything
   ambiguous or unparseable. Allowed countries derive from the baseline's
   optional `allowed_countries` knob, else US + whatever `locations_allowed`/
-  `relocation_targets` already name — no profile edit needed.
+  `relocation_targets` already name — no profile edit needed. **JOB-138:**
+  `_region_of`/`_derive_allowed` promoted to public `region_of`/
+  `derive_allowed` — `locations.py` owns the location vocabulary, so
+  `store.location_indeterminate()` derives its allowed-country set from the
+  same function `foreign_scope()` already uses instead of growing a second
+  one.
 - `src/providers/watchlist.py` — fetch/normalize boards (incl. `job_id`+`slug`),
   live `list_postings`, `get_posting(s)`, `add_company`, `detect_ats_slug`,
   `_FETCHERS` (reused by discovery to probe candidate boards). `_FETCHERS` now
@@ -224,7 +260,14 @@ aliases, JS-only dropzones).
 - `src/refresh.py` — `python -m src.refresh`: headless LLM-free ingest → digest
   `data/digest-latest.md` (new baseline-passing roles, boards dark ≥3 runs,
   per-company yield). Scheduled daily 09:00 via Task Scheduler ("JobApplier
-  Watchlist Refresh" → self-locating `scripts/refresh.cmd`).
+  Watchlist Refresh" → self-locating `scripts/refresh.cmd`). **JOB-136:** new
+  "Awaiting outcome" section — submitted records 14+ days old with no
+  `outcome` recorded, oldest first, capped at 15 (`_AWAITING_DAYS`/
+  `_AWAITING_LIMIT`); the response rate now renders with its denominator
+  ("0.0% (0 replied of 89 submitted)") so an unmeasured rate can't read as a
+  failed one. `outcome == "none"` still counts as awaiting; `"ghosted"` is
+  the sentinel that clears a row. Records with a missing/unparseable `date`
+  are skipped, not listed.
 - `src/providers/extract.py` — ingest-time regex enrichment: salary-from-JD
   (`salary_source: 'api'|'jd'`; Greenhouse ~60%, Lever 0%), advisory `min_years`,
   word-bounded `seniority_flag`.
@@ -551,6 +594,56 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   (Left `watchlist.yaml`'s pending Blueroseresearch/Greenhouse addition
   uncommitted and untouched — unrelated change from a different task, not
   swept into this fix per the commit skill's rule.)
+- **2026-09-04 dev-loop run (JOB-135, JOB-136, JOB-137, JOB-138) — one lane,
+  four fixes to the ingest/digest/CI lifecycle, in dependency order.**
+  JOB-135: the CI pyflakes step wrote its report to `./flakes.txt` inside the
+  checkout, which matched no `.gitignore` rule and was tripping the
+  "Profiles-less checkout bootstraps" step's own `git status --porcelain`
+  clean-tree assertion — the only thing keeping PR #11's repair off `main`.
+  Now written to `$RUNNER_TEMP/flakes.txt`. JOB-136: 0 of 89 logged
+  applications carried an `outcome` because JOB-107 shipped the whole
+  vocabulary but nothing ever prompted for one — the digest gained an
+  "Awaiting outcome" section and `set_application_outcome` shipped as an MCP
+  tool so a live session can record a reply the user reports. JOB-137: a
+  board dark for 3+ runs is now flagged `STALE` in the digest instead of
+  counting as live supply, and a board removed from `watchlist.yaml` is
+  swept out of the store instead of leaving orphaned rows with dead apply
+  URLs forever — done in this order because repointing Temporal
+  (greenhouse/temporaltechnologies → ashby/temporal, the Greenhouse board now
+  404s) would otherwise have triggered the exact orphan bug the sweep fixes.
+  JOB-138: a posting reporting only a country ("United States", no city) was
+  being dropped as a location failure; it's now kept and flagged
+  `location_indeterminate` (digest, postings API, Postings page badge)
+  instead, since a board's silence about the city isn't evidence the role is
+  out of scope. Verified: `test_dark_boards.py` 10/10,
+  `test_awaiting_outcome.py` 11/11, `test_location_indeterminate.py` 11/11,
+  `test_location_scope.py` 8/8, `test_profiles_bootstrap.py` 13/13.
+- **2026-09-02 dev-loop run (JOB-127, JOB-131) — reconciled two stranded
+  branches, closing out the CI gate.** `loop/2026-08-31/run` and
+  `loop/2026-09-01/run` each carried half of what CI needed and neither
+  contained the other (09-01 branched straight off `origin/main`, so
+  `git merge-base --is-ancestor` was false between them): 08-31 had the
+  measured-import-closure fix below; 09-01 had JOB-131's profiles bootstrap.
+  They're interdependent — 09-01's `data_api.py` hunk calls
+  `profiles_mod.ProfileError`/`profiles_mod.PROFILES_DIR`, but 09-01 branched
+  before the 08-29 fix restored that import, so `GET /api/profiles` still
+  `NameError`'d on 09-01 alone. Merging them onto one branch (not picking
+  either side) is what makes the tree correct. `.github/workflows/ci.yml` was
+  the one add/add conflict, resolved by union — 08-31's `pip install pyyaml
+  httpx` plus 09-01's "Profiles-less checkout bootstraps" step, both kept.
+  **2026-09-01 (JOB-131):** `src/profiles.py` gained the profiles-less
+  bootstrap fallback described above — this was the actual root cause of
+  `runs/2026-08-29` and `runs/2026-08-31` both showing `refresh-e2e
+  ok=false` with the identical `src.refresh -> load_search_criteria ->
+  profiles.active()` trace: a fresh worktree has no `profiles/<id>/` at all
+  (it's gitignored) so every entry point raised before doing any work.
+  **2026-08-31 (JOB-127):** CI's Tests step had been installing only
+  `pyyaml`; `tests/test_location_scope.py` reaches `src.providers.watchlist`
+  via `src.store`, which needs `httpx`, so a bare runner went red on PRs that
+  passed locally (dev machines already had `httpx` installed). Fixed by
+  installing the measured import closure instead of a guess. Verified:
+  `python -m src.refresh` runs clean from a bare worktree as the placeholder
+  profile; CI green on the reconciled branch.
 - **2026-08-29 session — repaired PR #11 merge damage + added CI.** Pulling
   `main` (33 commits: profile system M1, JOB-59/107/113/115/123) landed code
   that git auto-merged **line-wise with no conflict**, mangling three things:
