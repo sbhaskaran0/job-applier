@@ -208,6 +208,40 @@ def last_run(conn: sqlite3.Connection | None = None) -> dict | None:
             conn.close()
 
 
+# Consecutive failed fetches before a board is called dark. Lives here rather
+# than in refresh.py (where it used to) because the store's own aggregates now
+# need it too, and two copies of a threshold drift (JOB-137).
+_DARK_RUNS = 3
+
+
+def dark_boards(threshold: int = _DARK_RUNS,
+                conn: sqlite3.Connection | None = None) -> set:
+    """Company names whose board has failed `threshold` consecutive fetches.
+
+    Read off the latest refresh_runs row, whose `companies_failed` JSON already
+    carries the `consecutive` counter refresh_from_fetch maintains. Keyed by
+    COMPANY NAME, matching both that counter's key and the postings.company
+    column, so the same set filters run summaries and stored rows alike.
+
+    Callers use this to stop a dark board's stale rows being counted as live
+    (JOB-137). Note it is a REPORTING filter only — nothing here deletes or
+    marks rows, because a board can go dark from a run of network failures and
+    come back, and the removal pass deliberately never acts on a failed fetch.
+    Fails closed to an empty set on a store that has never run or a malformed
+    log: over-counting stale rows is a smaller lie than hiding live ones.
+    """
+    run = last_run(conn)
+    if not run:
+        return set()
+    try:
+        failed = json.loads(run["companies_failed"] or "[]")
+    except (TypeError, ValueError):
+        return set()
+    return {f["company"] for f in failed
+            if isinstance(f, dict) and f.get("company")
+            and f.get("consecutive", 1) >= threshold}
+
+
 def store_age_hours() -> float | None:
     """Hours since the last refresh run, or None if the store has never run."""
     if not config.POSTINGS_DB_PATH.exists():
@@ -222,6 +256,9 @@ def store_age_hours() -> float | None:
 # --------------------------------------------------------------------------- #
 # refresh (called by `python -m src.refresh`)
 # --------------------------------------------------------------------------- #
+# missed_runs counts CONSECUTIVE COMPLETE fetches that lacked the row; it is
+# frozen (neither advanced nor reset) while the board fails or is incomplete,
+# and reset to 0 on any sighting.
 # Consecutive complete-fetch misses before a posting is marked removed.
 # Workday listings page unstably, so one miss is noise there; every other ATS
 # answers with the whole board in one request, so one miss is already proof.
@@ -230,8 +267,23 @@ REMOVAL_GRACE = {"workday": 2}
 
 def refresh_from_fetch(fetch_result: dict) -> dict:
     """Ingest one fetch_all_with_status() result. Returns a summary dict the
-    digest is built from. Removal safety: only boards whose fetch SUCCEEDED
-    this run can have postings marked removed."""
+    digest is built from.
+
+    Two removal passes, and the distinction between them is the whole safety
+    story (JOB-137). The FETCH-FAILURE pass keeps everything: only boards whose
+    fetch SUCCEEDED this run can have postings marked removed, because a network
+    hiccup must never cascade into mass false removals. The CONFIG-REMOVAL pass
+    retires everything: an active row whose (ats, slug) is in no watchlist entry
+    is orphaned and gets marked removed, because a board vanishing from
+    watchlist.yaml is a deliberate edit, never a transient blip.
+
+    Without the second pass, dropping or re-slugging a board strands its rows as
+    permanently active — invisible to the removal loop, which only iterates
+    boards still IN the watchlist, and invisible to the dark-board filter, which
+    only sees boards still failing. Repointing Temporal Technologies from
+    greenhouse/temporaltechnologies to ashby/temporal is the first edit that
+    would have hit it, with 53 undead rows carrying dead 404 apply URLs.
+    """
     criteria = config.load_search_criteria().get("baseline", {})
     excluded = criteria.get("excluded_seniority") or []
     postings, errors = fetch_result["postings"], fetch_result["errors"]
@@ -326,12 +378,13 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
         # wall): the rows it could not see are unknown, not gone. Treat both the
         # same here, but keep them distinct in the run log — an incomplete fetch
         # is not a failure and must not trip the dark-board alarm.
+        watchlist = config.load_watchlist()
         failed_names = {e["company"] for e in errors}
         incomplete_names = {e["company"]
                             for e in fetch_result.get("incomplete", [])}
         no_removals = failed_names | incomplete_names
         removed = pending_removal = 0
-        for co in config.load_watchlist():
+        for co in watchlist:
             if co["name"] in no_removals:
                 continue
             board = ((co.get("ats") or "").lower(), co.get("slug", ""))
@@ -358,6 +411,30 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                 removed += newly
                 pending_removal += len(gone) - newly
 
+        # Orphaned-board sweep (JOB-137) — the config-removal half of the
+        # contract in this function's docstring. The loop above can only ever
+        # reach boards still listed in watchlist.yaml, so a board that was
+        # dropped or re-slugged leaves its rows active forever. Keyed on
+        # (ats, slug) rather than company name because a repoint keeps the name
+        # and changes exactly this pair.
+        #
+        # Guarded on a non-empty watchlist: load_watchlist() returns [] for a
+        # missing or unreadable watchlist.yaml, and treating that as "every
+        # board was deliberately removed" would retire the entire store on a
+        # config read error. An empty watchlist is a failure to read config,
+        # not a decision.
+        watch_boards = {((co.get("ats") or "").lower(), co.get("slug", ""))
+                        for co in watchlist}
+        if watch_boards:
+            orphaned = [(r["ats"], r["slug"], r["job_id"]) for r in conn.execute(
+                "SELECT ats, slug, job_id FROM postings WHERE removed_at IS NULL")
+                if (r["ats"], r["slug"]) not in watch_boards]
+            conn.executemany(
+                "UPDATE postings SET removed_at=? "
+                "WHERE ats=? AND slug=? AND job_id=?",
+                [(now, *k) for k in orphaned])
+            removed += len(orphaned)
+
         # Run log, with consecutive-failure tracking for board health.
         prev = last_run(conn)
         prev_consec = {}
@@ -366,6 +443,15 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                            for f in json.loads(prev["companies_failed"])}
         failed = [{**e, "consecutive": prev_consec.get(e["company"], 0) + 1}
                   for e in errors]
+        # Hours since the previous run (read before this run is inserted);
+        # the digest uses it to flag missed scheduled runs.
+        prev_gap_hours = None
+        if prev and prev.get("run_at"):
+            try:
+                prev_gap_hours = (datetime.fromisoformat(now) - datetime.fromisoformat(
+                    prev["run_at"])).total_seconds() / 3600
+            except ValueError:
+                pass
         # Per-run sourcing yield (schema v3): of this run's NEW postings, how
         # many title-match / pass the full baseline under the criteria in
         # force right now. Previously computed for the digest and discarded.
@@ -390,7 +476,7 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
             "new_qualifying_roles, new_title_matched_roles) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (now, len(postings), len(new_rows), removed, relisted,
-             len(config.load_watchlist()) - len(failed), json.dumps(failed),
+             len(watchlist) - len(failed), json.dumps(failed),
              new_qualifying, new_title_matched,
              new_qualifying_roles, new_title_matched_roles))
         conn.commit()
@@ -398,7 +484,8 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                 "new_count": len(new_rows), "removed_count": removed,
                 "relisted_count": relisted, "new_rows": new_rows,
                 "pending_removal": pending_removal,
-                "companies_ok": len(config.load_watchlist()) - len(failed),
+                "companies_ok": len(watchlist) - len(failed),
+                "prev_gap_hours": prev_gap_hours,
                 "new_qualifying": new_qualifying,
                 "new_title_matched": new_title_matched,
                 "new_qualifying_roles": new_qualifying_roles,
@@ -457,7 +544,55 @@ def _location_reason(row: dict, baseline: dict) -> str:
             return "location:foreign_remote"
         return ""
     loc = (row.get("location") or "").lower()
-    return "" if any(a.lower() in loc for a in allowed) else "location"
+    if any(a.lower() in loc for a in allowed):
+        return ""
+    # JOB-138: a board that reports a COUNTRY scope and no city ("United
+    # States", "US", "USA") matches neither an allowed city nor the remote
+    # flag, and used to be dropped as a location failure. That is the wrong
+    # verdict twice over: the role may well be in an allowed city, and the
+    # only thing we actually know is that the board didn't say. Treat it as
+    # INDETERMINATE — pass the baseline, and flag the row everywhere it
+    # surfaces so it never reads as a clean match.
+    return "" if location_indeterminate(row, baseline) else "location"
+
+
+def location_indeterminate(row: dict, baseline: dict) -> bool:
+    """True when a row's location tells us only which COUNTRY it is in, and
+    that country is one the user can work in (JOB-138).
+
+    A separate seam rather than a third element on passes_baseline's tuple:
+    that tuple is `(passes, reason)` and callers pin it exactly, so smuggling
+    a tag into the reason string would break them and would conflate "why this
+    was rejected" with "how confident we are it was accepted".
+
+    Matching is WHOLE-STRING via locations.region_of, not substring, which is
+    what keeps the rule tight: "us" cannot match inside a city name, so the
+    set this widens is small and enumerable. A US STATE is deliberately NOT
+    enough — locations.derive_allowed yields countries, so a bare "New York"
+    stays a location failure rather than being waved through as
+    country-scope. Remote rows never reach here: a remote row is already
+    judged by foreign_scope, and "remote in the US" is a real match, not an
+    unknown one.
+    """
+    if row.get("remote") and baseline.get("remote_allowed", True):
+        return False
+    loc = (row.get("location") or "").strip()
+    if not loc:
+        return False
+    allowed = ((baseline.get("locations_allowed") or [])
+               + (baseline.get("relocation_targets") or []))
+    if any(str(a).lower() in loc.lower() for a in allowed):
+        return False  # a real allowed-place match: determinate, not unknown
+    region = locations.region_of(loc)
+    if not region:
+        return False
+    # Same knob and same fallback derivation foreign_scope uses, so the remote
+    # and non-remote halves of the location rule can never disagree about
+    # which countries are allowed.
+    countries = ({str(c) for c in baseline["allowed_countries"]}
+                 if baseline.get("allowed_countries")
+                 else locations.derive_allowed(allowed))
+    return region in countries
 
 
 def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
@@ -468,8 +603,10 @@ def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
     reflects whichever profile's criteria ran the last refresh."""
     if not _title_matches(row.get("title", ""), baseline.get("acceptable_titles")):
         return False, "title"
-    if row.get("seniority_flag"):
-        return False, f"seniority:{row['seniority_flag']}"
+    flag = extract.seniority_flag(row.get("title", ""),
+                                  baseline.get("excluded_seniority"))
+    if flag:
+        return False, f"seniority:{flag}"
     why = _location_reason(row, baseline)
     if why:
         return False, why
@@ -542,9 +679,17 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
             if _MODE_RANK[mode] < _MODE_RANK[prev["work_mode"]]:
                 prev["work_mode"] = mode
             prev["remote"] = prev["remote"] or bool(r["remote"])
+            # AND, not OR (JOB-138): the role stays flagged only while EVERY
+            # city variant is country-scope-only. One variant naming a real
+            # allowed city tells us where the role is, and the tag would be a
+            # false warning on a role we do know how to place.
+            prev["location_indeterminate"] = (
+                prev["location_indeterminate"]
+                and location_indeterminate(r, baseline))
             continue
         entry = {
             "company": r["company"], "title": r["title"], "location": r["location"],
+            "location_indeterminate": location_indeterminate(r, baseline),
             "locations": list(locs), "work_mode": mode,
             "remote": bool(r["remote"]), "salary_min": r["salary_min"],
             "salary_max": r["salary_max"], "salary_listed": r["salary_min"] is not None,
@@ -696,10 +841,19 @@ def yield_stats() -> list[dict]:
     passing the full baseline. The evidence base for watchlist rework (JOB-26).
     Counts are distinct roles (company+title) — a role cross-posted to several
     cities counts once, filtered first and collapsed to keys second so a role
-    that only qualifies in one city still counts."""
+    that only qualifies in one city still counts.
+
+    A DARK board's rows (JOB-137) keep their row here with `stale: True` rather
+    than being dropped: the board still has stored postings and hiding them
+    would make a board that quietly 404'd look identical to one that legitimately
+    posts nothing. What they must NOT do is count as live supply — so stale rows
+    are sorted last and every aggregate over this table (company_spread, the
+    digest's corpus counts) excludes them.
+    """
     baseline = config.load_search_criteria().get("baseline", {})
     conn = connect()
     try:
+        dark = dark_boards(conn=conn)
         rows = [dict(r) for r in conn.execute(
             "SELECT * FROM postings WHERE removed_at IS NULL")]
     finally:
@@ -715,10 +869,11 @@ def yield_stats() -> list[dict]:
                 qualifying_keys.setdefault(r["company"], set()).add(_role_key(r))
     stats = [{"company": c, "active": len(active_keys[c]),
               "title_matched": len(title_keys.get(c, ())),
-              "qualifying": len(qualifying_keys.get(c, ()))}
+              "qualifying": len(qualifying_keys.get(c, ())),
+              "stale": c in dark}
              for c in active_keys]
-    return sorted(stats, key=lambda s: (-s["qualifying"], -s["title_matched"],
-                                        s["company"]))
+    return sorted(stats, key=lambda s: (s["stale"], -s["qualifying"],
+                                        -s["title_matched"], s["company"]))
 
 
 def yield_history(days: int = 30) -> list[dict]:
@@ -792,6 +947,11 @@ def company_spread() -> dict:
     that company, and _applied_keys already treats the two identically. The
     per-status breakdown rides along so the distinction stays visible.
 
+    Rows belonging to a DARK board are excluded from the qualifying side
+    (JOB-137). A board that has 404'd for days is not supply — counting its
+    frozen rows would report a corpus that no longer exists and would let a
+    dead board keep inflating the top-5 concentration share.
+
     Pure aggregation over the current store — nothing is persisted, so this
     answers "how concentrated are we?" exactly, but not "how did that change
     since yesterday?". A day-over-day trend needs refresh_runs columns; see the
@@ -800,14 +960,21 @@ def company_spread() -> dict:
     baseline = config.load_search_criteria().get("baseline", {})
     conn = connect()
     try:
+        dark = dark_boards(conn=conn)
         rows = [dict(r) for r in conn.execute(
             "SELECT * FROM postings WHERE removed_at IS NULL")]
     finally:
         conn.close()
 
-    roles = {_role_key(r) for r in rows if passes_baseline(r, baseline)[0]}
+    # Dedupe on the normalized role identity, but count under the board's own
+    # company name: _role_key lower-cases the company, and this report is
+    # read by humans (and the dark-board tests assert display names).
+    roles: dict[tuple, str] = {}
+    for r in rows:
+        if r["company"] not in dark and passes_baseline(r, baseline)[0]:
+            roles.setdefault(_role_key(r), r["company"])
     qualifying: dict[str, int] = {}
-    for company, _title in roles:
+    for company in roles.values():
         qualifying[company] = qualifying.get(company, 0) + 1
 
     by_company: dict[str, int] = {}

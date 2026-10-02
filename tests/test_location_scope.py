@@ -12,13 +12,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import store                      # noqa: E402
+from src import config, store              # noqa: E402
 from src.providers import locations        # noqa: E402
 
 # the live profile, trimmed to what these tests exercise: only the location
 # branch is under test, so every row carries an acceptable title and no salary.
 BASELINE = {
     "acceptable_titles": ["Product Manager"],
+    "excluded_seniority": ["Director"],
     "locations_allowed": ["Los Angeles", "Remote"],
     "relocation_targets": [],
     "remote_allowed": True,
@@ -75,7 +76,9 @@ def test_non_remote_rows_keep_the_substring_rule():
 def test_other_baseline_reasons_still_win():
     assert store.passes_baseline(_row("Toronto", title="Data Scientist"),
                                  BASELINE) == (False, "title")
-    row = {**_row("Toronto"), "seniority_flag": "Director"}
+    # seniority comes from the title and THIS baseline, not the stored
+    # seniority_flag column, so the fixture carries it in the title.
+    row = _row("Toronto", title="Director of Product Manager")
     assert store.passes_baseline(row, BASELINE) == (False, "seniority:Director")
 
 
@@ -129,11 +132,20 @@ def test_hidden_by_reason_sums_to_hidden_by_criteria():
         ("Stark", "Product Manager", "Berlin", 0),           # onsite: location
     ])
     real_connect = store.connect
+    real_criteria = config.load_search_criteria
+    real_apps = config.load_applications
     store.connect = lambda: conn
+    # The profile system resolves criteria and the application log out of
+    # profiles/<active>/, which a bare checkout has none of — pin both to this
+    # file's fixtures so the assertions below stay hermetic.
+    config.load_search_criteria = lambda: {"baseline": BASELINE}
+    config.load_applications = lambda: []
     try:
         res = store.list_postings_from_store()
     finally:
         store.connect = real_connect
+        config.load_search_criteria = real_criteria
+        config.load_applications = real_apps
         conn.close()
     assert res["matched"] == 2, res["matched"]              # Acme + Umbrella
     assert sum(res["hidden_by_reason"].values()) == res["hidden_by_criteria"]
