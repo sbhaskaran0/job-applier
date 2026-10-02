@@ -170,6 +170,22 @@ async def run(headless=True):
         check("_read_back masks it",
               await s._read_back(masked[0]["index"]) == "********")
 
+        # show-password toggle: the eye button flips type to text
+        await page.evaluate("document.getElementById('pw').type = 'text'")
+        flipped = await s.read_form()
+        check("after a type=text flip read_form stays masked (sticky)",
+              "fake-pw-123" not in repr(flipped)
+              and [f for f in flipped if f.get("sensitive")], flipped)
+        check("values_only stays masked after the flip",
+              "fake-pw-123" not in repr(await s.read_form(values_only=True)))
+        res = await s.fill_sensitive(pw, "fake-pw-123", require_password=True)
+        check("live type check refuses a password into a type=text box",
+              res.get("status") == "not_a_password_field", res)
+        res = await s.fill_field(pw, "x")
+        check("generic fill still refuses the flipped field",
+              res.get("status") == "use_fill_credential", res)
+        await page.evaluate("document.getElementById('pw').type = 'password'")
+
         # --- Defect 3: the overlaid radio --------------------------------
         yes = None
         for f in fields:

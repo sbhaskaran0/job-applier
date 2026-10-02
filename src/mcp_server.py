@@ -123,15 +123,22 @@ async def fill_credential(index: int, field: str = "password",
     if field not in ("password", "email"):
         return {"index": index, "status": "bad_field",
                 "error": 'field must be "password" or "email"'}
-    entry = (config.load_credentials() or {}).get(service)
+    creds = config.load_credentials() or {}
+    if creds.get("_error"):
+        return {"status": "bad_credentials_file",
+                "hint": "credentials.yaml is not valid YAML; user must fix it"}
+    entry = creds.get(service)
     value = entry.get(field) if isinstance(entry, dict) else None
-    if not value:
+    if not value or str(value).strip() in ("", "change-me"):
         return {"status": "no_credentials",
                 "hint": "user must create profiles/<id>/secrets/credentials.yaml "
                         "(see profiles/_template/secrets/credentials.example.yaml)"}
-    res = await browser.session.fill_sensitive(
-        index, str(value), require_password=(field == "password"))
-    res = {k: res[k] for k in ("index", "status", "verified") if k in res}
+    try:
+        res = await browser.session.fill_sensitive(
+            index, str(value), require_password=(field == "password"))
+    except Exception as e:  # never str(e): it may embed the value
+        res = {"index": index, "status": "error", "error": type(e).__name__}
+    res = {k: res[k] for k in ("index", "status", "verified", "error") if k in res}
     res["sensitive"] = True
     return res
 

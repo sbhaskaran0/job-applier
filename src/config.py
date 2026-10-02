@@ -125,8 +125,12 @@ def load_credentials() -> dict:
     prof = profiles.active()
     if not prof.credentials_yaml.exists():
         return {}
-    with open(prof.credentials_yaml, "r", encoding="utf-8") as f:
-        creds = yaml.safe_load(f) or {}
+    try:
+        with open(prof.credentials_yaml, "r", encoding="utf-8") as f:
+            creds = yaml.safe_load(f) or {}
+    except (yaml.YAMLError, UnicodeDecodeError):
+        # YAML errors quote the offending line (the password): no message.
+        return {"_error": "bad_credentials_file"}
     if not isinstance(creds, dict):
         return {}
     wd = creds.get("workday")

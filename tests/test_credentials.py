@@ -57,6 +57,9 @@ class FakeLocator:
         self.el = el
 
     async def fill(self, value):
+        if self.el.get("fill_raises"):
+            # Playwright's call log embeds the typed value
+            raise RuntimeError('locator.fill("%s") timed out' % value)
         self.el["value"] = value
 
 
@@ -71,6 +74,10 @@ class FakeFrame:
             if self.el["password"]:
                 return "********" if self.el["value"] else ""
             return self.el["value"]
+        if js is browser._SENSITIVE_PROBE_JS:
+            live = self.el["password"]          # the LIVE type, not the scan
+            return {"password": live,
+                    "sensitive": live or bool(self.el.get("marker"))}
         return None
 
     def locator(self, selector):
@@ -106,6 +113,90 @@ def test_js_value_readers_mask_passwords():
                browser._LISTBOX_VALUE_JS):
         assert "type === 'password'" in js and "********" in js
     assert "sensitive" in browser._SCAN_JS and "********" in browser._SCAN_JS
+
+
+# --- error leaks / live check / sticky / yaml -----------------------------
+def test_fill_failure_never_leaks_password():
+    s, el = make_session(password=True)
+    el["fill_raises"] = True
+    res = asyncio.run(s.fill_sensitive(0, FAKE_PW, require_password=True))
+    assert res["status"] == "error" and res["error"] == "RuntimeError", res
+    assert FAKE_PW not in repr(res), res
+
+
+def test_fill_credential_failure_never_leaks_password():
+    s, el = make_session(password=True)
+    el["fill_raises"] = True
+    res, _ = _run_fill_credential(True, session=(s, el))
+    assert res["status"] == "error" and FAKE_PW not in repr(res), res
+
+
+def test_type_flip_between_scan_and_fill_is_refused():
+    # scanned as password, but the live element is now type=text
+    s, el = make_session(password=True)
+    el["password"] = False
+    res = asyncio.run(s.fill_sensitive(0, FAKE_PW, require_password=True))
+    assert res["status"] == "not_a_password_field", res
+    assert el["value"] == "", "secret must not be typed into a text box"
+
+
+def test_generic_fill_refuses_label_and_live_password():
+    s, el = make_session(password=False)
+    s.fields[0]["label"] = "Create Password"
+    assert asyncio.run(s.fill_field(0, "x"))["status"] == "use_fill_credential"
+    s, el = make_session(password=True)
+    s.fields[0]["sensitive"] = False        # stale scan, live password
+    assert asyncio.run(s.fill_field(0, "x"))["status"] == "use_fill_credential"
+    assert el["value"] == ""
+
+
+def test_email_refused_on_sensitive_target():
+    res, el = _run_fill_credential(True, field="email")
+    assert res["status"] == "sensitive_target" and el["value"] == "", res
+
+
+def test_scanner_sticky_markers_present():
+    for needle in ("jaSensitive", "(new|current)-password", "pass(word|code)"):
+        assert needle in browser._SCAN_JS, needle
+    for js in (browser._FIELD_VALUE_JS, browser._COMBO_VALUE_JS,
+               browser._LISTBOX_VALUE_JS):
+        assert "jaSensitive" in js
+
+
+def test_malformed_yaml_gives_bad_credentials_file_without_leak():
+    s, el = make_session(password=True)
+    real = browser.session
+    browser.session = s
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            sec = Path(d) / "secrets"
+            sec.mkdir()
+            (sec / "credentials.yaml").write_text(
+                'workday:\n  password: "%s\n  : [bad\n' % FAKE_PW,
+                encoding="utf-8")
+            res = _with_profile(Path(d), lambda: asyncio.run(
+                mcp_server.fill_credential(0, "password")))
+    finally:
+        browser.session = real
+    assert res["status"] == "bad_credentials_file", res
+    assert FAKE_PW not in repr(res), res
+
+
+def test_placeholder_password_is_no_credentials():
+    s, el = make_session(password=True)
+    real = browser.session
+    browser.session = s
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            sec = Path(d) / "secrets"
+            sec.mkdir()
+            (sec / "credentials.yaml").write_text(
+                'workday:\n  password: "change-me"\n', encoding="utf-8")
+            res = _with_profile(Path(d), lambda: asyncio.run(
+                mcp_server.fill_credential(0, "password")))
+    finally:
+        browser.session = real
+    assert res["status"] == "no_credentials" and el["value"] == "", res
 
 
 # --- generic fill refuses ---------------------------------------------------
@@ -210,8 +301,8 @@ def test_fill_credential_no_credentials():
     assert el["value"] == ""
 
 
-def _run_fill_credential(password_field, field="password"):
-    s, el = make_session(password=password_field)
+def _run_fill_credential(password_field, field="password", session=None):
+    s, el = session or make_session(password=password_field)
     real = browser.session
     browser.session = s
     try:
