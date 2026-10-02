@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Synthetic Workday auth fixture</title>
+<!--
+  Synthetic Create Account / Sign In step, shaped on a live probe of
+  .../apply/applyManually (Salesforce wd12, Zillow wd5; 2026-10-01):
+
+    h2 "Create Account" (default mode)
+    input type=text     autocomplete=email         label "Email Address*"
+    input type=password autocomplete=new-password  label "Password*"
+    input type=password autocomplete=new-password  label "Verify New Password*"
+    input type=checkbox label "I acknowledge and agree to ...'s Privacy Notice"
+    div role=button aria-label="Create Account"  (empty text; overlays the
+                                                   submit -- "click_filter")
+    button type=submit "Create Account"
+    button "Sign In"              (in-form toggle, no type attribute)
+    button "Forgot your password?"
+  plus a header <button>Sign In</button> BEFORE the form.
+
+  Sign-in mode is modeled (not probed: the probe never clicked the toggle) as
+  h2 "Sign In", email + one current-password input, the same overlay pattern
+  over button type=submit "Sign In", and a "Create Account" toggle.
+
+  Scenario flags come from the URL hash, comma separated:
+    signin   start in sign-in mode
+    exists   the account already exists
+    badpw    the stored password is wrong (sign-in fails)
+    verify   create-account requires email verification
+  Errors are shown in a [role=alert] banner. window.__submits records each
+  credential submit ("create" / "sign_in"); window.__hdr counts header clicks.
+-->
+<style>
+  body { font-family: sans-serif; margin: 20px; }
+  .hide { display: none; }
+  .btnwrap { position: relative; display: inline-block; }
+  .click-filter { position: absolute; inset: 0; background: transparent;
+                  cursor: pointer; z-index: 2; }
+  [role=alert] { color: #a00; }
+</style>
+</head>
+<body>
+<header>
+  <button aria-haspopup="listbox" name="languageSelectorButton">English</button>
+  <button id="hdr">Sign In</button>
+</header>
+<p>current step 1 of 6 Create Account/Sign In</p>
+
+<div id="auth">
+  <h2 id="title">Create Account</h2>
+  <div id="banner" role="alert" class="hide"></div>
+  <div><label for="email">Email Address*</label>
+    <input id="email" type="text" autocomplete="email" aria-required="true"></div>
+  <div><label for="pw">Password*</label>
+    <input id="pw" type="password" autocomplete="new-password" aria-required="true"></div>
+  <div id="vrow"><label for="pw2">Verify New Password*</label>
+    <input id="pw2" type="password" autocomplete="new-password" aria-required="true"></div>
+  <div id="crow"><input id="agree" type="checkbox">
+    <label for="agree">I acknowledge and agree to Acme's Candidate Privacy Notice</label></div>
+  <p class="fine">By activating your account in Workday, you acknowledge the terms.</p>
+  <div class="btnwrap">
+    <div class="click-filter" role="button" aria-label="Create Account" id="cf"></div>
+    <button type="submit" id="submit">Create Account</button>
+  </div>
+  <button id="toggle">Sign In</button>
+  <button id="forgot">Forgot your password?</button>
+</div>
+
+<div id="form" class="hide">
+  <h2>My Information</h2>
+  <label for="fn">First Name*</label><input id="fn" type="text">
+  <button type="submit">Save and Continue</button>
+</div>
+
+<script>
+  var flags = (location.hash || '').replace('#', '').split(',');
+  var has = function (f) { return flags.indexOf(f) !== -1; };
+  var mode = has('signin') ? 'sign_in' : 'create_account';
+  var created = false;
+  window.__submits = [];
+  window.__hdr = 0;
+  function $(id) { return document.getElementById(id); }
+  function render() {
+    var c = mode === 'create_account';
+    var label = c ? 'Create Account' : 'Sign In';
+    $('title').innerText = label;
+    $('submit').innerText = label;
+    $('cf').setAttribute('aria-label', label);
+    $('toggle').innerText = c ? 'Sign In' : 'Create Account';
+    $('vrow').classList.toggle('hide', !c);
+    $('crow').classList.toggle('hide', !c);
+    $('pw').setAttribute('autocomplete', c ? 'new-password' : 'current-password');
+  }
+  function banner(t) {
+    $('banner').innerText = t;
+    $('banner').classList.toggle('hide', !t);
+  }
+  function done() {
+    $('auth').classList.add('hide');
+    $('form').classList.remove('hide');
+  }
+  function submit() {
+    var email = $('email').value, pw = $('pw').value;
+    if (mode === 'create_account') {
+      window.__submits.push('create');
+      if (!email || !pw || pw !== $('pw2').value) { banner('Passwords must match.'); return; }
+      if (!$('agree').checked) { banner('You must acknowledge the Privacy Notice.'); return; }
+      setTimeout(function () {
+        if (has('exists') || has('badpw') || created) {
+          banner('An account with this email address already exists.');
+        } else if (has('verify')) {
+          created = true;
+          banner('We sent a verification email to ' + email +
+                 '. Verify your account before signing in.');
+        } else { done(); }
+      }, 300);
+    } else {
+      window.__submits.push('sign_in');
+      setTimeout(function () {
+        var exists = has('exists') || has('badpw');
+        if (!exists || has('badpw')) banner('Wrong email address or password.');
+        else done();
+      }, 300);
+    }
+  }
+  $('cf').addEventListener('click', submit);
+  $('submit').addEventListener('click', submit);
+  $('toggle').addEventListener('click', function () {
+    mode = mode === 'create_account' ? 'sign_in' : 'create_account';
+    banner('');
+    render();
+  });
+  $('hdr').addEventListener('click', function () { window.__hdr += 1; });
+  render();
+</script>
+</body>
+</html>

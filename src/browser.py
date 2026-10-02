@@ -825,7 +825,7 @@ _ERRORS_JS = r"""
 # submit and must NOT be excluded by the word "continue".
 _NOT_SUBMIT_RE = re.compile(
     r"^(save\s*(and|&)\s*continue|save\s*(and|&)\s*next|save\s+for\s+later"
-    r"|next(\s+step)?|continue|back|previous|save)"
+    r"|next(\s+step)?|continue|back|previous|save|review)"
     r"\s*(→|›|»|>)?$", re.I)
 
 # Labels a wizard's NEXT control may carry (whole label; same anchoring logic).
@@ -835,6 +835,286 @@ _ADVANCE_RE = re.compile(
 
 # Anything that reads like an actual submit — never clicked by advance_step.
 _SUBMITTY_RE = re.compile(r"submit|apply|finish|send\s+application", re.I)
+
+# --- Entry and auth controls (Workday "Apply" -> chooser -> sign-in) -------
+# Classified by VISIBLE TEXT only, anchored to the whole label like the step
+# regexes above. Neither class is ever a submit: "Apply Manually" used to be
+# picked by has-text('Apply') and "Create Account" (type=submit) by the
+# generic selector, so submit_application could click them.
+_ARROW = r"\s*(→|›|»|>)?$"
+_ENTRY_RE = re.compile(
+    r"^(apply|apply now|apply manually|start( your)? application)" + _ARROW, re.I)
+_AUTH_RE = re.compile(
+    r"^(sign in|log in|create account|create an account|verify|verify account"
+    r"|resend( verification)?( email| code)?)" + _ARROW, re.I)
+# Reveals an email sign-in form behind an SSO chooser (Snap's tenant shows
+# Google / LinkedIn / email). Not a credential submit.
+_EMAIL_SIGNIN_RE = re.compile(
+    r"^(sign in|log in|continue|apply) with (email|e-mail)( address)?" + _ARROW,
+    re.I)
+# Never clicked by ANY tool: resume autofill and last-application reuse
+# overwrite answers the agent cannot audit, and SSO buttons sign in as a
+# third-party identity the user never configured.
+_NEVER_CLICK_RE = re.compile(
+    r"^(autofill with resume|use my last application)"
+    r"|^(sign in|log in|sign up|continue|apply) with (google|linkedin|apple"
+    r"|facebook|microsoft|indeed|github|seek|x|twitter)\b"
+    r"|quick apply", re.I)
+_SIGN_IN_LABEL_RE = re.compile(r"^(sign in|log in)" + _ARROW, re.I)
+_CREATE_LABEL_RE = re.compile(r"^(create account|create an account)" + _ARROW, re.I)
+_ENTRY_PRIORITY = ("apply manually", "start your application",
+                   "start application", "apply now", "apply")
+
+
+def _norm_label(label: str) -> str:
+    return " ".join((label or "").split()).lower()
+
+
+def _entry_rank(label: str) -> int:
+    """"Apply Manually" beats a plain "Apply" when both are visible."""
+    low = re.sub(_ARROW, "", _norm_label(label)).strip()
+    return (_ENTRY_PRIORITY.index(low) if low in _ENTRY_PRIORITY
+            else len(_ENTRY_PRIORITY))
+
+
+def classify_control(label: str) -> str:
+    """Class of a button-ish control from its visible text: "never",
+    "auth_reveal", "entry", "auth", "advance", "submit" or "other". Pure; the
+    single source both the finders and start_application use."""
+    low = _norm_label(label)
+    if not low:
+        return "other"
+    if _NEVER_CLICK_RE.search(low):
+        return "never"
+    if _EMAIL_SIGNIN_RE.match(low):
+        return "auth_reveal"
+    if _ENTRY_RE.match(low):
+        return "entry"
+    if _AUTH_RE.match(low):
+        return "auth"
+    if _ADVANCE_RE.match(low):
+        return "advance"
+    if _NOT_SUBMIT_RE.match(low):
+        return "other"
+    if _SUBMITTY_RE.search(low):
+        return "submit"
+    return "other"
+
+
+_NOT_A_SUBMIT_CLASSES = ("never", "auth_reveal", "entry", "auth")
+
+# JS: every visible button-ish control in the frame, tagged data-jactl=n, with
+# its visible label (innerText, else value, else aria-label: Workday's
+# click_filter overlay carries only an aria-label), and whether it follows the
+# first visible password input in DOM order (separates the in-form "Sign In"
+# toggle from the page header's "Sign In"). Also returns visible headings and
+# short notice/error texts for auth classification. Text only; never values.
+_CONTROLS_JS = r"""
+() => {
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  const vis = (el) => {
+    const s = window.getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden') return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1;
+  };
+  document.querySelectorAll('[data-jactl]').forEach(e => e.removeAttribute('data-jactl'));
+  const pw = Array.from(document.querySelectorAll('input[type=password]')).find(vis) || null;
+  const sel = 'button, [role=button], [role=link], a, input[type=submit], input[type=button]';
+  const controls = [];
+  let n = 0;
+  for (const el of Array.from(document.querySelectorAll(sel))) {
+    if (n >= 300) break;
+    if (el.disabled || !vis(el)) continue;
+    let label = clean(el.innerText || el.value || '');
+    if (!label) label = clean(el.getAttribute('aria-label'));
+    if (!label || label.length > 60) continue;
+    el.setAttribute('data-jactl', String(n));
+    controls.push({i: n, label: label, tag: el.tagName.toLowerCase(),
+      type: (el.getAttribute('type') || '').toLowerCase(),
+      role: el.getAttribute('role') || '',
+      after_password: !!(pw && (pw.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING))});
+    n++;
+  }
+  const headings = Array.from(document.querySelectorAll('h1, h2, h3, [role=heading]'))
+    .filter(vis).map(e => clean(e.innerText)).filter(t => t && t.length <= 80);
+  const nsel = '[role=alert], [aria-live], [class*="error"], [class*="Error"], [class*="notice"], [class*="message"]';
+  const notices = [];
+  for (const el of Array.from(document.querySelectorAll(nsel))) {
+    if (!vis(el) || el.querySelector(nsel)) continue;
+    const t = clean(el.innerText);
+    if (t && t.length <= 300 && notices.indexOf(t) === -1) notices.push(t);
+  }
+  return {controls: controls, headings: headings, notices: notices.slice(0, 10)};
+}
+"""
+
+_EMAIL_LABEL_RE = re.compile(r"e-?mail", re.I)
+_CONFIRM_LABEL_RE = re.compile(r"verify|confirm|re-?enter|repeat|again", re.I)
+_CONSENT_LABEL_RE = re.compile(r"terms|privacy|consent|agree|acknowledg", re.I)
+# Page chrome the scanner legitimately sees but that does not make a page a
+# form: a header job-search box, and the header language picker (a live
+# Salesforce/Snap Workday job page exposes a listbox button whose only label
+# is its name, "languageSelectorButton").
+_CHROME_LABEL_RE = re.compile(r"search|^language|languageselector", re.I)
+
+# Auth outcome texts, checked against notices + body text after an auth
+# submit. Specific on purpose: Workday's create-account page itself reads
+# "Verify New Password" and "By activating your account", which must not
+# count as a verification notice.
+_VERIFY_TEXT_RE = re.compile(
+    r"verification (email|link|code)|verify your (email|account|e-?mail address)"
+    r"|check your (email|inbox)|(we('ve| have)?|has been) sent (you )?(an? )?"
+    r"(email|verification|link|code)|confirm your (email|account)"
+    r"|activation (email|link)", re.I)
+_EXISTS_TEXT_RE = re.compile(
+    r"already (exists|in use|registered|been registered|associated)"
+    r"|account (with|for) this e-?mail( address)? (already )?exists", re.I)
+_NO_ACCOUNT_TEXT_RE = re.compile(
+    r"\bno (existing )?account|account (does not|doesn't) exist"
+    r"|(user|e-?mail|account) (was )?not found|(isn't|is not|not) registered"
+    r"|could(n't| not) find (an|your|that) account|unknown (user|e-?mail)", re.I)
+# "Wrong email address or password": cannot tell a missing account from a bad
+# password, so in auto mode it earns one create-account attempt.
+_COMBINED_TEXT_RE = re.compile(
+    r"(wrong|invalid|incorrect) (e-?mail( address)?|user ?name|login"
+    r"|credentials)( (and|or) password)?", re.I)
+_BAD_PW_TEXT_RE = re.compile(
+    r"(wrong|invalid|incorrect) password|password (is |was )?(wrong|invalid"
+    r"|incorrect)|account (is |has been )?locked|too many (failed |unsuccessful )?"
+    r"(attempts|sign[- ]in)", re.I)
+
+
+def form_fields(fields: list[dict]) -> list[dict]:
+    """Fields that make a page a form (header search / language picker don't)."""
+    return [f for f in fields or []
+            if not _CHROME_LABEL_RE.search(f.get("label") or "")]
+
+
+def _auth_layout(fields: list[dict], controls: list[dict],
+                 headings: list[str]) -> dict:
+    """Pure: where the auth form's parts are, and which mode it is in.
+    mode is "create_account", "sign_in" or "unknown"; `available` lists the
+    modes whose buttons are visible (Workday shows Sign In alongside Create
+    Account and toggles between them)."""
+    pws = [f for f in fields or [] if f.get("sensitive")]
+    password_index = confirm_index = None
+    if pws:
+        conf = [f for f in pws[1:] if _CONFIRM_LABEL_RE.search(f.get("label") or "")]
+        confirm = conf[0] if conf else (pws[1] if len(pws) > 1 else None)
+        main = [f for f in pws if f is not confirm]
+        password_index = main[0]["index"] if main else None
+        confirm_index = confirm["index"] if confirm else None
+    email_index = next(
+        (f["index"] for f in fields or []
+         if f.get("kind") == "text" and not f.get("sensitive")
+         and _EMAIL_LABEL_RE.search(f.get("label") or "")), None)
+    consent = [f["index"] for f in fields or []
+               if f.get("kind") == "checkbox"
+               and _CONSENT_LABEL_RE.search(f.get("label") or "")]
+    heads = [_norm_label(h) for h in headings or []]
+    labels = [_norm_label(c.get("label")) for c in controls or []]
+    available = []
+    if any(_SIGN_IN_LABEL_RE.match(lab) for lab in labels):
+        available.append("sign_in")
+    if any(_CREATE_LABEL_RE.match(lab) for lab in labels):
+        available.append("create_account")
+    if confirm_index is not None or any(_CREATE_LABEL_RE.match(h) for h in heads):
+        mode = "create_account"
+    elif password_index is not None and (
+            any(_SIGN_IN_LABEL_RE.match(h) for h in heads)
+            or any(_SIGN_IN_LABEL_RE.match(_norm_label(c.get("label")))
+                   and c.get("type") == "submit" for c in controls or [])):
+        mode = "sign_in"
+    else:
+        mode = "unknown"
+    return {"mode": mode, "available": available, "email_index": email_index,
+            "password_index": password_index, "confirm_index": confirm_index,
+            "consent_indexes": consent}
+
+
+def _is_auth_page(fields: list[dict], controls: list[dict]) -> bool:
+    if any(f.get("sensitive") for f in fields or []):
+        return True
+    has_auth = any(classify_control(c.get("label")) == "auth" for c in controls or [])
+    has_email = any(f.get("kind") == "text" and _EMAIL_LABEL_RE.search(f.get("label") or "")
+                    for f in fields or [])
+    return has_auth and has_email
+
+
+def _pick_auth_controls(controls: list[dict], mode: str, submit: bool) -> list[dict]:
+    """Ranked candidates for the `mode` button. submit=True: the button that
+    sends the credentials (type=submit first, then DOM order), restricted to
+    controls after the password field when one exists. submit=False: the
+    in-form toggle (never type=submit; in-form before page header)."""
+    rx = _SIGN_IN_LABEL_RE if mode == "sign_in" else _CREATE_LABEL_RE
+    cands = [c for c in controls or [] if rx.match(_norm_label(c.get("label")))]
+    if submit:
+        if any(c.get("after_password") for c in controls or []):
+            # a password field is on the page: the header's "Sign In" (before
+            # it) is navigation, not the form's submit
+            cands = [c for c in cands if c.get("after_password")]
+        return sorted(cands, key=lambda c: 0 if c.get("type") == "submit" else 1)
+    cands = [c for c in cands if c.get("type") != "submit"]
+    return sorted(cands, key=lambda c: 0 if c.get("after_password") else 1)
+
+
+def _classify_auth_outcome(state: dict) -> str:
+    """Pure: what an auth submit led to. One of blocked, verification,
+    exists, no_account, combined, bad_password, authenticated, still_auth,
+    unknown."""
+    if state.get("blocked"):
+        return "blocked"
+    text = " ".join(state.get("notices") or []) + " " + (state.get("body") or "")
+    if _VERIFY_TEXT_RE.search(text):
+        return "verification"
+    if _EXISTS_TEXT_RE.search(text):
+        return "exists"
+    if _NO_ACCOUNT_TEXT_RE.search(text):
+        return "no_account"
+    if _COMBINED_TEXT_RE.search(text):
+        return "combined"
+    if _BAD_PW_TEXT_RE.search(text):
+        return "bad_password"
+    fields = state.get("fields") or []
+    if any(f.get("sensitive") for f in fields):
+        return "still_auth"
+    if form_fields(fields):
+        return "authenticated"
+    return "unknown"
+
+
+def _redact(text: str, secrets) -> str:
+    for s in secrets:
+        if s:
+            text = re.sub(re.escape(s), "<redacted>", text, flags=re.I)
+    return text
+
+
+def _message_excerpt(state: dict, secrets=()) -> str:
+    """Visible notice/error text near the form (page text, never input
+    values), up to 200 chars; falls back to the verification sentence in the
+    body. Credential strings are redacted in case the page echoes them."""
+    text = " | ".join(state.get("notices") or [])
+    if not text:
+        m = _VERIFY_TEXT_RE.search(state.get("body") or "")
+        if m:
+            body = state["body"]
+            text = body[max(0, m.start() - 80):m.end() + 100]
+    return _redact(text, secrets)[:200]
+
+
+def verification_link_allowed(url: str) -> bool:
+    """Only https Workday hosts may be opened by open_verification_link."""
+    try:
+        p = urlparse(url or "")
+    except Exception:
+        return False
+    host = (p.hostname or "").lower()
+    if p.scheme != "https" or not host:
+        return False
+    return (host.endswith("myworkdayjobs.com") or host.endswith("myworkday.com")
+            or "workday" in host)
 
 
 # Words that carry no initial in an abbreviation: "University of California,
@@ -1859,6 +2139,12 @@ class BrowserSession:
                         continue
                     if _NOT_SUBMIT_RE.search(label):
                         continue
+                    # Entry ("Apply", "Apply Manually"), auth ("Sign In",
+                    # "Create Account", type=submit on Workday) and
+                    # never-click ("Autofill with Resume") controls are not
+                    # submits, whatever selector matched them.
+                    if classify_control(label) in _NOT_A_SUBMIT_CLASSES:
+                        continue
                     return cand
         return None
 
@@ -1931,7 +2217,8 @@ class BrowserSession:
         why it is ungated while submit_application is not. See the MCP tool
         docstring for the caller-facing contract. Statuses: "advanced",
         "blocked_validation", "no_change", "is_submit_page" (nothing clicked),
-        "no_advance_button".
+        "entry_page" / "auth_page" (only Apply-like or sign-in controls;
+        nothing clicked), "no_advance_button".
         """
         if self.page is None:
             raise RuntimeError("No page open.")
@@ -1954,6 +2241,20 @@ class BrowserSession:
                         "note": "this is the submit page — nothing was "
                                 "clicked; review, confirm with the user, then "
                                 "call submit_application"}
+            # Entry / auth pages: report them distinctly, click nothing.
+            controls = await self._scan_controls()
+            classes = {classify_control(c.get("label")) for c in controls}
+            base = {"url_changed": False, "current_url": before_url,
+                    "errors": [], "error_count": 0, "unmapped_error_count": 0,
+                    "fields": before, "button_label": ""}
+            if "entry" in classes and not form_fields(before):
+                return {**base, "status": "entry_page",
+                        "note": "a job page or apply chooser — nothing was "
+                                "clicked; call start_application"}
+            if _is_auth_page(before, controls):
+                return {**base, "status": "auth_page",
+                        "note": "a sign-in / create-account page — nothing "
+                                "was clicked; call authenticate"}
             return {"status": "no_advance_button", "url_changed": False,
                     "current_url": before_url, "errors": [], "error_count": 0,
                     "unmapped_error_count": 0, "fields": before,
@@ -1991,6 +2292,313 @@ class BrowserSession:
                 "current_url": after_url, "errors": errors,
                 "error_count": len(errors), "unmapped_error_count": unmapped,
                 "fields": after, "button_label": label, "note": note}
+
+    # ------------------------------------------------------------------ #
+    # Entry + auth (Workday: job page -> "Start Your Application" chooser
+    # -> Create Account / Sign In). Classified by visible text and ARIA only.
+    # ------------------------------------------------------------------ #
+    _WAIT_S = 10.0
+
+    async def _scan_controls(self) -> list[dict]:
+        """Visible button-ish controls across frames (see _CONTROLS_JS), each
+        with its frame and `cls` from classify_control."""
+        return (await self._scan_page_bits())[0]
+
+    async def _scan_page_bits(self):
+        controls, headings, notices = [], [], []
+        for frame in self.page.frames:
+            try:
+                res = await frame.evaluate(_CONTROLS_JS)
+            except Exception:
+                continue
+            if not res:
+                continue
+            for c in res.get("controls") or []:
+                c["frame"] = frame
+                c["cls"] = classify_control(c.get("label"))
+                controls.append(c)
+            headings.extend(res.get("headings") or [])
+            notices.extend(res.get("notices") or [])
+        return controls, headings, notices
+
+    async def _page_state(self) -> dict:
+        """One read of everything entry/auth classification needs."""
+        fields = await self.read_form()
+        controls, headings, notices = await self._scan_page_bits()
+        try:
+            body = " ".join((await self.page.inner_text("body")).split())[:4000]
+        except Exception:
+            body = ""
+        try:
+            blk = await self.detect_blockers()
+        except Exception:
+            blk = {}
+        return {"url": self.page.url, "fields": fields, "controls": controls,
+                "headings": headings, "notices": notices, "body": body,
+                "blocked": bool(blk.get("blocked")),
+                "signals": blk.get("signals") or []}
+
+    @staticmethod
+    def _state_sig(state: dict) -> str:
+        return "|".join([state.get("url") or "",
+                         ";".join(c.get("label", "") for c in state.get("controls") or []),
+                         ";".join(f.get("label") or "" for f in state.get("fields") or []),
+                         ";".join(state.get("headings") or []),
+                         ";".join(state.get("notices") or [])])
+
+    async def _settle(self, before_sig: str, timeout: float | None = None) -> dict:
+        """Poll (bounded, ~10s) until the page differs from `before_sig` and
+        has held still for one poll. Returns the last state read. Fixed polls,
+        never networkidle (Workday polls forever)."""
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + (self._WAIT_S if timeout is None else timeout)
+        prev = None
+        state = None
+        while True:
+            await self.page.wait_for_timeout(500)
+            state = await self._page_state()
+            sig = self._state_sig(state)
+            if sig != before_sig and sig == prev:
+                return state
+            prev = sig
+            if loop.time() >= deadline:
+                return state
+
+    async def _click_control(self, ctl: dict, timeout: int = 3000) -> bool:
+        frame = ctl.get("frame")
+        if frame is None:
+            return False
+        try:
+            await frame.locator('[data-jactl="%s"]' % ctl["i"]).first.click(
+                timeout=timeout)
+            return True
+        except Exception:
+            return False
+
+    async def _click_first(self, ctls: list[dict]) -> dict | None:
+        """Click the first candidate that accepts a click (Workday overlays
+        its submit with a click_filter element, so the button itself can be
+        intercepted). Returns the clicked control or None."""
+        for c in ctls:
+            if c.get("cls") == "never" or classify_control(c.get("label")) == "never":
+                continue
+            if await self._click_control(c):
+                return c
+        return None
+
+    async def has_entry_control(self) -> bool:
+        if self.page is None:
+            return False
+        return any(c["cls"] == "entry" for c in await self._scan_controls())
+
+    def _entry_result(self, status: str, state: dict) -> dict:
+        res = {"status": status, "url": state.get("url", ""),
+               "fields": state.get("fields") or [], "auth": None}
+        if status == "auth_required":
+            lay = _auth_layout(state.get("fields"), state.get("controls"),
+                               state.get("headings"))
+            want = lay["mode"] if lay["mode"] != "unknown" else "sign_in"
+            sub = _pick_auth_controls(state.get("controls"), want, submit=True)
+            lay["submit_label"] = sub[0]["label"] if sub else ""
+            res["auth"] = lay
+        if status == "blocked":
+            res["signals"] = state.get("signals") or []
+        return res
+
+    async def start_application(self) -> dict:
+        """From the current tab, get from a job page to the application form
+        or its sign-in gate WITHOUT submitting anything: click an entry
+        control ("Apply", then "Apply Manually" on the chooser; never
+        "Autofill with Resume" / "Use My Last Application"), reveal an email
+        sign-in behind an SSO chooser, then classify. Idempotent: on a form or
+        auth page it only classifies. Statuses: form, auth_required, blocked,
+        no_entry. Bounded: at most 4 clicks, ~10s wait each."""
+        if self.page is None:
+            raise RuntimeError("No page open. Call open_job(url) first.")
+        state = await self._page_state()
+        for _ in range(4):
+            if state["blocked"]:
+                return self._entry_result("blocked", state)
+            fields, controls = state["fields"], state["controls"]
+            if _is_auth_page(fields, controls):
+                return self._entry_result("auth_required", state)
+            if form_fields(fields):
+                return self._entry_result("form", state)
+            entries = sorted((c for c in controls if c["cls"] == "entry"),
+                             key=lambda c: _entry_rank(c["label"]))
+            reveal = [c for c in controls if c["cls"] == "auth_reveal"]
+            target = entries or reveal
+            if not target:
+                break
+            sig = self._state_sig(state)
+            if await self._click_first(target) is None:
+                break
+            state = await self._settle(sig)
+        if state["blocked"]:
+            return self._entry_result("blocked", state)
+        if _is_auth_page(state["fields"], state["controls"]):
+            return self._entry_result("auth_required", state)
+        if form_fields(state["fields"]):
+            return self._entry_result("form", state)
+        return self._entry_result("no_entry", state)
+
+    async def authenticate(self, mode: str = "auto") -> dict:
+        """Sign in to / create the tenant account with the user's local
+        credentials (config.credential; never generated, never returned).
+        At most 2 auth submits per call. See the MCP tool for statuses."""
+        def out(status, state=None, secrets=(), **extra):
+            url = (state or {}).get("url")
+            if url is None:
+                try:
+                    url = self.page.url if self.page is not None else ""
+                except Exception:
+                    url = ""
+            return {"status": status, "url": url,
+                    "message_excerpt": _message_excerpt(state or {}, secrets),
+                    **extra}
+
+        if mode not in ("auto", "sign_in", "create_account"):
+            return out("bad_mode")
+        email, err = config.credential("workday", "email")
+        if not err:
+            password, err = config.credential("workday", "password")
+        if err:
+            return out(err["status"], hint=err.get("hint", ""))
+        if self.page is None:
+            return out("error", error="NoPage")
+        try:
+            return await self._authenticate(mode, email, password, out)
+        except Exception as e:  # never str(e): Playwright logs embed values
+            return out("error", error=type(e).__name__)
+
+    async def _authenticate(self, mode, email, password, out) -> dict:
+        secrets = (email, password)
+        state = await self._page_state()
+        if not any(f.get("sensitive") for f in state["fields"]):
+            entry = await self.start_application()
+            if entry["status"] == "form":
+                return out("authenticated", await self._page_state(), secrets,
+                           note="no sign-in was needed")
+            if entry["status"] != "auth_required":
+                return out(entry["status"], await self._page_state(), secrets)
+            state = await self._page_state()
+        if state["blocked"]:
+            return out("blocked", state, secrets)
+        lay = _auth_layout(state["fields"], state["controls"], state["headings"])
+        if mode != "auto":
+            want = mode
+        elif lay["mode"] != "unknown":
+            want = lay["mode"]
+        else:
+            want = ("create_account" if _pick_auth_controls(
+                state["controls"], "create_account", submit=True)
+                and not _pick_auth_controls(state["controls"], "sign_in", True)
+                else "sign_in")
+        submits, switched, ambiguous = 0, False, False
+        while submits < 2:
+            if lay["mode"] != want:
+                toggles = _pick_auth_controls(state["controls"], want, submit=False)
+                sig = self._state_sig(state)
+                if await self._click_first(toggles) is None:
+                    return out("toggle_failed", state, secrets, wanted=want)
+                state = await self._settle(sig)
+                lay = _auth_layout(state["fields"], state["controls"],
+                                   state["headings"])
+                if lay["mode"] != want and not (
+                        lay["mode"] == "unknown" and lay["password_index"] is not None):
+                    return out("toggle_failed", state, secrets, wanted=want)
+            if lay["password_index"] is None:
+                return out("unsupported_auth_flow", state, secrets)
+            if lay["email_index"] is not None:
+                r = await self.fill_sensitive(lay["email_index"], email)
+                if r.get("status") != "filled":
+                    return out("error", state, secrets,
+                               error="email_fill:" + str(r.get("status")))
+            for idx in (lay["password_index"],
+                        lay["confirm_index"] if want == "create_account" else None):
+                if idx is None:
+                    continue
+                r = await self.fill_sensitive(idx, password, require_password=True)
+                if r.get("status") != "filled":
+                    return out("error", state, secrets,
+                               error="password_fill:" + str(r.get("status")))
+            if want == "create_account":
+                for idx in lay["consent_indexes"]:
+                    try:
+                        await self.fill_field(idx, "true")
+                    except Exception:
+                        pass
+            subs = _pick_auth_controls(state["controls"], want, submit=True)
+            sig = self._state_sig(state)
+            if await self._click_first(subs) is None:
+                return out("no_auth_submit", state, secrets)
+            submits += 1
+            state = await self._settle(sig)
+            outcome = _classify_auth_outcome(state)
+            if outcome == "blocked":
+                return out("blocked", state, secrets)
+            if outcome == "verification":
+                return out("email_verification_required", state, secrets)
+            if outcome == "authenticated":
+                return out("authenticated", state, secrets)
+            if outcome == "exists":
+                if want == "create_account" and not switched and submits < 2:
+                    want, switched = "sign_in", True
+                    lay = _auth_layout(state["fields"], state["controls"],
+                                       state["headings"])
+                    continue
+                return out("bad_credentials" if ambiguous else "account_exists",
+                           state, secrets)
+            if outcome in ("no_account", "combined"):
+                if (want == "sign_in" and mode == "auto" and not switched
+                        and submits < 2):
+                    want, switched = "create_account", True
+                    ambiguous = outcome == "combined"
+                    lay = _auth_layout(state["fields"], state["controls"],
+                                       state["headings"])
+                    continue
+                return out("no_account" if outcome == "no_account"
+                           else "bad_credentials", state, secrets)
+            if outcome == "bad_password":
+                return out("bad_credentials", state, secrets)
+            return out("unconfirmed", state, secrets)
+        return out("unconfirmed", state, secrets)
+
+    async def open_verification_link(self, url: str) -> dict:
+        """Open an emailed Workday verification link in a NEW tab of this
+        session, read its text, close it, and reload the original tab. Only
+        https Workday hosts are allowed."""
+        if not verification_link_allowed(url):
+            return {"status": "not_allowed",
+                    "note": "only https Workday links (myworkdayjobs.com, "
+                            "myworkday.com) may be opened"}
+        if self.context is None or self.page is None:
+            raise RuntimeError("No page open. Call open_job(url) first.")
+        orig = self.page
+        tab = await self.context.new_page()
+        text = ""
+        try:
+            await tab.goto(url, timeout=30000, wait_until="domcontentloaded")
+            await tab.wait_for_timeout(3000)
+            try:
+                text = " ".join((await tab.inner_text("body")).split())[:300]
+            except Exception:
+                text = ""
+        finally:
+            try:
+                await tab.close()
+            except Exception:
+                pass
+            try:
+                await orig.bring_to_front()
+            except Exception:
+                pass
+        await orig.reload(timeout=30000, wait_until="domcontentloaded")
+        await orig.wait_for_timeout(2500)
+        self.fields.clear()
+        return {"status": "opened", "text_excerpt": text,
+                "note": "the original tab was reloaded — call start_application "
+                        "or authenticate to continue"}
 
     # Explicit post-submit signals. Success is only ever concluded from
     # positive success text — a spam rejection (Ashby, invisible reCAPTCHA v3)

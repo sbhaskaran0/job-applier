@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Senior Product Manager - Synthetic Workday entry fixture</title>
+<!--
+  Synthetic page reproducing the DOM shapes a live probe of public Workday
+  postings (Salesforce wd12, Zillow wd5, Snap wd1; 2026-10-01) observed:
+
+  job page   header <button>Sign In</button> (no type), an <a role="button">
+             "Apply" (href .../apply)
+  chooser    h2 "Start Your Application" + three <a role="button">:
+             "Autofill with Resume", "Apply Manually", "Use My Last Application"
+  form       here the application form directly (the auth step is covered by
+             workday_auth_fixture.html)
+
+  window.__clicked records every control label clicked, so the harness can
+  prove the autofill / last-application buttons were never touched.
+-->
+<style>
+  body { font-family: sans-serif; margin: 20px; }
+  .view { display: none; }
+  .view.on { display: block; }
+  a[role=button] { display: inline-block; padding: 6px 12px; margin: 4px;
+                   border: 1px solid #333; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <!-- live header chrome: the scanner sees this listbox button as a field -->
+  <button aria-haspopup="listbox" name="languageSelectorButton">English</button>
+  <button id="hdr-signin">Sign In</button>
+  <button>Search for Jobs</button>
+</header>
+
+<section id="job" class="view on">
+  <h2>Senior Product Manager</h2>
+  <a role="button" id="apply" href="#apply">Apply</a>
+  <p>About the role. Lorem ipsum product strategy text.</p>
+</section>
+
+<section id="chooser" class="view">
+  <h2>Start Your Application</h2>
+  <a role="button" href="#autofill" id="autofill">Autofill with Resume</a>
+  <a role="button" href="#manual" id="manual">Apply Manually</a>
+  <a role="button" href="#last" id="last">Use My Last Application</a>
+</section>
+
+<section id="form" class="view">
+  <h2>My Information</h2>
+  <label for="fn">First Name*</label>
+  <input id="fn" type="text" aria-required="true">
+  <label for="ln">Last Name*</label>
+  <input id="ln" type="text" aria-required="true">
+  <button type="submit" id="next">Save and Continue</button>
+</section>
+
+<script>
+  window.__clicked = [];
+  function show(id) {
+    document.querySelectorAll('.view').forEach(function (v) {
+      v.classList.toggle('on', v.id === id);
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('a, button');
+    if (!t) return;
+    window.__clicked.push((t.innerText || '').trim());
+    if (t.tagName === 'A') e.preventDefault();
+    // SPA-style: render after a short delay, like Workday's router
+    if (t.id === 'apply') setTimeout(function () { show('chooser'); }, 300);
+    if (t.id === 'manual') setTimeout(function () { show('form'); }, 300);
+  });
+</script>
+</body>
+</html>

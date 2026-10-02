@@ -41,6 +41,11 @@ FIXTURE = (Path(__file__).resolve().parent / "workday_fixture.html").as_uri()
 UPLOAD_FIXTURE = (Path(__file__).resolve().parent
                   / "greenhouse_upload_fixture.html").as_uri()
 
+ENTRY_FIXTURE = (Path(__file__).resolve().parent
+                 / "workday_entry_fixture.html").as_uri()
+AUTH_FIXTURE = (Path(__file__).resolve().parent
+                / "workday_auth_fixture.html").as_uri()
+
 REVIEW_HTML = """
 <!doctype html><meta charset="utf-8"><h1>Review</h1>
 <p>Please review your application.</p>
@@ -302,12 +307,144 @@ async def run(headless=True):
         check("re-rendered dropzone: cover upload still verifies via box text",
               res.get("status") == "uploaded" and res.get("verified") is True
               and res.get("observed_filename") == "", res)
+
+        await run_entry_auth(s)
     finally:
         try:
             await s.close()
         except Exception:
             pass
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+FAKE_EMAIL = "harness@example.test"
+FAKE_PW = "fake-pw-123"
+
+
+async def _goto(page, url):
+    # A hash-only change does not reload the document, so go via about:blank.
+    await page.goto("about:blank")
+    await page.goto(url, wait_until="domcontentloaded")
+    await page.wait_for_timeout(300)
+
+
+async def run_entry_auth(s):
+    """Entry (Apply -> chooser -> form) and auth (create / sign-in toggle)
+    against the synthetic Workday fixtures. Credentials are fakes injected
+    by replacing config.credential; nothing real is read."""
+    page = s.page
+    real_cred = browser_mod.config.credential
+    browser_mod.config.credential = (
+        lambda service, field: (FAKE_EMAIL if field == "email" else FAKE_PW, None))
+    try:
+        # --- entry: advance_step clicks nothing, start_application walks ---
+        await _goto(page, ENTRY_FIXTURE)
+        await s.read_form()
+        res = await s.advance_step()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("job page: advance_step reports entry_page",
+              res.get("status") == "entry_page", res.get("status"))
+        check("job page: advance_step clicked nothing", clicked == [], clicked)
+        res = await s.submit_application()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("job page: submit_application finds no submit (Apply is not one)",
+              res.get("status") == "no_submit_button" and clicked == [],
+              (res.get("status"), clicked))
+        res = await s.start_application()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("start_application walks job -> chooser -> form",
+              res.get("status") == "form"
+              and idx_by_label(res.get("fields") or [], "First Name") is not None,
+              res.get("status"))
+        check("start_application clicked exactly Apply, Apply Manually",
+              clicked == ["Apply", "Apply Manually"], clicked)
+        res = await s.start_application()
+        clicked2 = await page.evaluate("() => window.__clicked")
+        check("start_application is idempotent on the form",
+              res.get("status") == "form" and clicked2 == clicked, clicked2)
+
+        # --- auth page: classification, no clicks from advance/submit -----
+        await _goto(page, AUTH_FIXTURE + "#ok")
+        res = await s.start_application()
+        auth = res.get("auth") or {}
+        check("auth page: start_application reports auth_required",
+              res.get("status") == "auth_required", res.get("status"))
+        check("auth layout: create_account with email/pw/confirm/consent",
+              auth.get("mode") == "create_account"
+              and None not in (auth.get("email_index"), auth.get("password_index"),
+                               auth.get("confirm_index"))
+              and len(auth.get("consent_indexes") or []) == 1, auth)
+        check("auth layout: submit_label is the auth button text",
+              auth.get("submit_label") == "Create Account", auth)
+        check("auth layout: both modes visible (toggle)",
+              set(auth.get("available") or []) == {"sign_in", "create_account"},
+              auth.get("available"))
+        res = await s.advance_step()
+        subs = await page.evaluate("() => window.__submits")
+        check("auth page: advance_step reports auth_page and submits nothing",
+              res.get("status") == "auth_page" and subs == [],
+              (res.get("status"), subs))
+        res = await s.submit_application()
+        subs = await page.evaluate("() => window.__submits")
+        check("auth page: submit_application never clicks Create Account",
+              res.get("status") == "no_submit_button" and subs == [],
+              (res.get("status"), subs))
+
+        # --- authenticate scenarios --------------------------------------
+        scenarios = [
+            ("ok", "authenticated", ["create"]),
+            ("exists", "authenticated", ["create", "sign_in"]),
+            ("badpw", "bad_credentials", ["create", "sign_in"]),
+            ("verify", "email_verification_required", ["create"]),
+            ("signin", "authenticated", ["sign_in", "create"]),
+            ("signin,exists", "authenticated", ["sign_in"]),
+        ]
+        for flags, want, want_subs in scenarios:
+            await _goto(page, AUTH_FIXTURE + "#" + flags)
+            res = await s.authenticate()
+            subs = await page.evaluate("() => window.__submits")
+            hdr = await page.evaluate("() => window.__hdr")
+            check("authenticate #%s -> %s" % (flags, want),
+                  res.get("status") == want, res)
+            check("authenticate #%s submits %s (<= 2)" % (flags, want_subs),
+                  subs == want_subs, subs)
+            check("authenticate #%s never clicks the header Sign In" % flags,
+                  hdr == 0, hdr)
+            check("authenticate #%s result carries no credential" % flags,
+                  FAKE_PW not in repr(res) and FAKE_EMAIL not in repr(res), res)
+            if flags == "ok":
+                agreed = await page.evaluate(
+                    "() => document.getElementById('agree').checked")
+                check("create-account ticked the privacy consent", agreed)
+            if flags == "verify":
+                check("verification excerpt is page text, email redacted",
+                      "verification email" in res.get("message_excerpt", "")
+                      and "<redacted>" in res.get("message_excerpt", ""),
+                      res.get("message_excerpt"))
+
+        # --- the password is masked in every read ------------------------
+        await _goto(page, AUTH_FIXTURE + "#badpw")
+        await s.authenticate()
+        rf = await s.read_form()
+        check("after auth, read_form never shows the password",
+              FAKE_PW not in repr(rf), [f for f in rf if f.get("sensitive")])
+
+        # --- no credentials: the page is not touched ---------------------
+        browser_mod.config.credential = (
+            lambda service, field: (None, {"status": "no_credentials", "hint": ""}))
+        await _goto(page, AUTH_FIXTURE + "#ok")
+        res = await s.authenticate()
+        subs = await page.evaluate("() => window.__submits")
+        val = await page.evaluate("() => document.getElementById('email').value")
+        check("no credentials -> no_credentials, nothing typed or clicked",
+              res.get("status") == "no_credentials" and subs == [] and val == "",
+              (res, subs, val))
+
+        res = await s.open_verification_link("https://evil.example.com/verify")
+        check("open_verification_link refuses a non-Workday host",
+              res.get("status") == "not_allowed", res)
+    finally:
+        browser_mod.config.credential = real_cred
 
 
 def main():
