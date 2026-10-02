@@ -73,6 +73,10 @@ class ActiveProfile:
     def resume_docx(self) -> Path:
         return self.root / "resume.docx"
 
+    @property
+    def cover_letter_template_docx(self) -> Path:
+        return self.root / "cover_letter_template.docx"
+
     # --- per-user data ----------------------------------------------------
     @property
     def data_dir(self) -> Path:
