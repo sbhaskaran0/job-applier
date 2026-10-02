@@ -47,6 +47,16 @@ def _ats_from_url(url: str) -> str:
 # --------------------------------------------------------------------------- #
 # status / postings / applications
 # --------------------------------------------------------------------------- #
+def _refresh_health() -> dict | None:
+    """Parsed data/refresh-health.json written by `python -m src.refresh`, or
+    None when it is missing or unreadable."""
+    try:
+        return json.loads((config.DIGEST_PATH.parent / "refresh-health.json")
+                          .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 @router.get("/status")
 def status():
     run = store.last_run() if config.POSTINGS_DB_PATH.exists() else None
@@ -59,6 +69,7 @@ def status():
         "store_age_hours": store.store_age_hours(),
         "new_qualifying": new_count,
         "watchlist_count": len(config.load_watchlist()),
+        "health": _refresh_health(),
     }
 
 

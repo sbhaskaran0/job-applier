@@ -359,7 +359,15 @@ def _pages_for(count: int) -> int:
 # --------------------------------------------------------------------------- #
 async def _list_page(client, url: str, applied_facets: dict | None,
                      offset: int) -> tuple[list[dict], dict]:
-    """One page of the list endpoint: (postings, full response body)."""
+    """One page of the list endpoint: (postings, full response body).
+
+    No sort key is sent. Probed live 2026-10-01 (Capital One, wd12; 8 POSTs):
+    pages 0/20/40 requested twice back to back returned identical job_id
+    sequences (total 1891 both times), and adding "sortBy"/"sort":"postedOn"
+    was accepted with HTTP 200 but returned the exact same order as the
+    default, i.e. the key is ignored. So unstable paging is NOT reproduced
+    within one run; the store's REMOVAL_GRACE absorbs cross-run misses.
+    """
     payload = {"appliedFacets": applied_facets or {},
                "limit": _PAGE_LIMIT, "offset": offset, "searchText": ""}
     r = await client.post(url, json=payload, headers=_JSON_HEADERS)

@@ -221,7 +221,7 @@ export default function App() {
         )}
         {page === 'postings' && (
           <PostingsPage
-            postings={postings} note={postingsNote}
+            postings={postings} note={postingsNote} status={status}
             selected={selected} setSelected={setSelected}
             autonomous={autonomous} setAutonomous={setAutonomous}
             openApply={() => setModalOpen(true)}

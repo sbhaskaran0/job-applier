@@ -1,4 +1,4 @@
-"""Removal-pass safety (Workday's offset wall).
+"""Removal-pass safety (Workday's offset wall + flaky listings).
 
 The store marks a posting removed when it is absent from a board's fetch.
 That inference is only sound when the fetch saw the WHOLE board -- true for
@@ -7,9 +7,15 @@ and false for a walled Workday board, whose API replays page 0 past offset
 2000 so the fetch is a window rather than the board. Absent-from-a-window
 means unknown, not gone.
 
-These tests pin both halves of that rule: a complete fetch still removes, an
-incomplete one never does, and an incomplete fetch is not logged as a
-failure (which would trip the dark-board alarm on a healthy board).
+Even a complete Workday fetch is noisy (100-340 false removals per board per
+run were observed), so Workday rows need REMOVAL_GRACE consecutive misses
+(store schema v5 `missed_runs`) before removed_at is set; other ATSes keep the
+one-miss rule.
+
+These tests pin: a complete fetch still removes (after the grace), an
+incomplete one never does, an incomplete fetch is not logged as a failure
+(which would trip the dark-board alarm on a healthy board), a row missed once
+and seen again is not "relisted", and the v4 -> v5 migration.
 
 Standalone, like the rest of tests/ -- `python tests/test_refresh_removals.py`.
 """
@@ -24,27 +30,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src import config, store          # noqa: E402
 
 BOARD = {"name": "Acme", "ats": "workday", "slug": "acme:wd5:External"}
+GH = {"name": "Acme", "ats": "greenhouse", "slug": "acme"}
 STAMP = "2026-09-01T00:00:00+00:00"
 
 
-def _row(job_id, title="Product Manager"):
-    return {"company": "Acme", "ats": "workday", "slug": "acme:wd5:External",
+def _row(job_id, title="Product Manager", ats="workday",
+         slug="acme:wd5:External"):
+    return {"company": "Acme", "ats": ats, "slug": slug,
             "job_id": job_id, "title": title, "location": "Remote - USA",
             "remote": True, "salary_min": None, "salary_max": None,
             "posted": "2026-09-01", "url": "https://x.test/" + job_id,
             "description": ""}
 
 
-def _fixture(monkey_conn):
-    """Seed two live postings on one Workday board."""
+def _fixture(conn, ats, slug):
+    """Seed two live postings on one board."""
     for jid in ("JR1", "JR2"):
-        monkey_conn.execute(
+        conn.execute(
             "INSERT INTO postings (ats, slug, job_id, company, title, location,"
             " remote, url, first_seen, last_seen) VALUES"
-            " ('workday','acme:wd5:External',?,?,?,?,?,?,?,?)",
-            (jid, "Acme", "Product Manager", "Remote - USA", 1,
+            " (?,?,?,?,?,?,?,?,?,?)",
+            (ats, slug, jid, "Acme", "Product Manager", "Remote - USA", 1,
              "https://x.test/" + jid, STAMP, STAMP))
-    monkey_conn.commit()
+    conn.commit()
 
 
 class _KeepOpen:
@@ -61,33 +69,115 @@ class _KeepOpen:
         pass
 
 
-def _run(fetch_result):
-    """Run refresh_from_fetch against an in-memory store + a one-board watchlist."""
+def _session(fetches, board=BOARD):
+    """Run refresh_from_fetch once per fetch result against one in-memory
+    store + a one-board watchlist. Returns (summaries, still_live, conn); the
+    caller closes conn."""
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript(store._SCHEMA)
-    # _SCHEMA is the v1 shape; the v2-v4 columns refresh_from_fetch writes are
-    # added by connect()'s migration step, so run it here too.
     store._migrate(conn)
-    _fixture(conn)
+    _fixture(conn, board["ats"], board["slug"])
     real_connect, real_watchlist = store.connect, config.load_watchlist
+    real_criteria = config.load_search_criteria
+    config.load_search_criteria = lambda: {"baseline": {}}
     store.connect = lambda: _KeepOpen(conn)
-    config.load_watchlist = lambda: [BOARD]
+    config.load_watchlist = lambda: [board]
     try:
-        summary = store.refresh_from_fetch(fetch_result)
-        still_live = {r["job_id"] for r in conn.execute(
-            "SELECT job_id FROM postings WHERE removed_at IS NULL")}
-        return summary, still_live
+        summaries = [store.refresh_from_fetch(f) for f in fetches]
     finally:
         store.connect, config.load_watchlist = real_connect, real_watchlist
-        conn.close()
+        config.load_search_criteria = real_criteria
+    live = {r["job_id"] for r in conn.execute(
+        "SELECT job_id FROM postings WHERE removed_at IS NULL")}
+    return summaries, live, conn
 
 
-def test_complete_fetch_still_removes_a_vanished_posting():
-    # JR2 is genuinely gone and the fetch saw the whole board.
-    summary, live = _run({"postings": [_row("JR1")], "errors": []})
+def _run(fetch_result, board=BOARD):
+    summaries, live, conn = _session([fetch_result], board)
+    conn.close()
+    return summaries[0], live
+
+
+def _missed(conn, job_id):
+    return conn.execute("SELECT missed_runs FROM postings WHERE job_id=?",
+                        (job_id,)).fetchone()[0]
+
+
+def _wd(*ids):
+    return {"postings": [_row(i) for i in ids], "errors": []}
+
+
+def test_workday_row_missed_once_stays_active():
+    (summary,), live, conn = _session([_wd("JR1")])
+    assert live == {"JR1", "JR2"}, live
+    assert summary["removed_count"] == 0, summary["removed_count"]
+    assert summary["pending_removal"] == 1, summary["pending_removal"]
+    assert _missed(conn, "JR2") == 1
+    conn.close()
+
+
+def test_workday_row_missed_twice_is_removed():
+    summaries, live, conn = _session([_wd("JR1"), _wd("JR1")])
+    assert live == {"JR1"}, live
+    assert summaries[0]["removed_count"] == 0
+    assert summaries[1]["removed_count"] == 1, summaries[1]["removed_count"]
+    conn.close()
+
+
+def test_seen_again_resets_count_and_is_not_relisted():
+    summaries, live, conn = _session([_wd("JR1"), _wd("JR1", "JR2")])
+    assert live == {"JR1", "JR2"}, live
+    assert summaries[1]["relisted_count"] == 0, summaries[1]["relisted_count"]
+    assert _missed(conn, "JR2") == 0
+    conn.close()
+
+
+def test_genuinely_removed_then_seen_is_relisted():
+    summaries, live, conn = _session(
+        [_wd("JR1"), _wd("JR1"), _wd("JR1", "JR2")])
+    assert summaries[2]["relisted_count"] == 1, summaries[2]["relisted_count"]
+    assert live == {"JR1", "JR2"}, live
+    conn.close()
+
+
+def test_greenhouse_row_removed_on_first_miss():
+    fetch = {"postings": [_row("JR1", ats="greenhouse", slug="acme")],
+             "errors": []}
+    summary, live = _run(fetch, GH)
     assert summary["removed_count"] == 1, summary["removed_count"]
     assert live == {"JR1"}, live
+
+
+def test_incomplete_board_does_not_advance_miss_count():
+    (_,), live, conn = _session([{
+        "postings": [_row("JR1")], "errors": [],
+        "incomplete": [{"company": "Acme", "reason": "wall"}]}])
+    assert live == {"JR1", "JR2"}, live
+    assert _missed(conn, "JR2") == 0
+    conn.close()
+
+
+def test_migration_v4_to_v5_adds_missed_runs():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(store._SCHEMA)
+    store._migrate(conn)
+    # Rewind to a v4 database: no missed_runs column.
+    conn.execute("ALTER TABLE postings DROP COLUMN missed_runs")
+    conn.execute("PRAGMA user_version=4")
+    conn.execute(
+        "INSERT INTO postings (ats, slug, job_id, first_seen, last_seen) "
+        "VALUES ('workday','s','J1',?,?)", (STAMP, STAMP))
+    conn.commit()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(postings)")}
+    assert "missed_runs" not in cols
+    store._migrate(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(postings)")}
+    assert "missed_runs" in cols
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+    assert conn.execute("SELECT missed_runs FROM postings").fetchone()[0] == 0
+    conn.close()
 
 
 def test_incomplete_fetch_removes_nothing():

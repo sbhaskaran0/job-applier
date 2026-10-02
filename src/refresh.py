@@ -8,8 +8,10 @@ per-company yield).
 """
 
 import asyncio
+import json
 import sys
-from datetime import date, timedelta
+import time
+from datetime import date, datetime, timedelta, timezone
 
 # `data` is imported at module level rather than locally the way
 # store._applied_keys does it: store defers the import because it pulls in
@@ -19,6 +21,9 @@ from datetime import date, timedelta
 # `pyyaml httpx` and would break on anything heavier.
 from . import config, data, store
 from .providers import watchlist as wl
+
+_GAP_HOURS = 30  # previous refresh older than this -> flag missed scheduled runs
+HEALTH_PATH = config.DIGEST_PATH.parent / "refresh-health.json"
 
 # Consecutive failed fetches before a board is called out. Defined in store.py
 # (JOB-137) because the store's own aggregates filter on the same threshold —
@@ -90,6 +95,12 @@ def build_digest(summary: dict) -> str:
         f"scanned, {summary['new_count']} new, {summary['removed_count']} removed, "
         f"{summary['relisted_count']} relisted.",
         "",
+    ]
+    gap = summary.get("prev_gap_hours")
+    if gap is not None and gap > _GAP_HOURS:
+        lines += [f"Note: previous refresh was {gap:.0f}h before this one "
+                  "(missed scheduled runs?)", ""]
+    lines += [
         f"## New postings passing the baseline ({len(new_passing)})",
         "",
     ]
@@ -199,6 +210,32 @@ def build_digest(summary: dict) -> str:
     return "\n".join(lines)
 
 
+def _write_health(started: float, summary: dict | None,
+                  error: str | None = None) -> bool:
+    """Write data/refresh-health.json; returns the run's ok flag. A run is not
+    ok when it raised or when zero boards fetched cleanly."""
+    ok = error is None and bool(summary and summary["companies_ok"] > 0)
+    health = {
+        "run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "ok": ok,
+        "duration_s": round(time.monotonic() - started, 1),
+        "total_scanned": summary["total_scanned"] if summary else 0,
+        "companies_ok": summary["companies_ok"] if summary else 0,
+        "companies_failed": ([f["company"] for f in summary["companies_failed"]]
+                             if summary else []),
+        "new_count": summary["new_count"] if summary else 0,
+        "removed_count": summary["removed_count"] if summary else 0,
+    }
+    if error:
+        health["error"] = error
+    try:
+        HEALTH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        HEALTH_PATH.write_text(json.dumps(health, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"warning: could not write {HEALTH_PATH}: {exc}")
+    return ok
+
+
 async def run() -> dict:
     fetch = await wl.fetch_all_with_status()
     summary = store.refresh_from_fetch(fetch)
@@ -220,7 +257,13 @@ def main() -> int:
         spec.loader.exec_module(near_misses)
         return near_misses.main()
 
-    summary = asyncio.run(run())
+    started = time.monotonic()
+    try:
+        summary = asyncio.run(run())
+    except Exception as exc:  # health file must exist even on a crash
+        _write_health(started, None, error=f"{type(exc).__name__}: {exc}")
+        print("refresh FAILED: " + ascii(f"{type(exc).__name__}: {exc}"))
+        return 1
     # ASCII only: scheduled runs print to a cp1252 Windows console, which
     # cannot encode unicode punctuation.
     print(f"refresh ok: {summary['total_scanned']:,} scanned | "
@@ -230,7 +273,10 @@ def main() -> int:
           f"-> {config.DIGEST_PATH}")
     for f in summary["companies_failed"]:
         print(f"  failed: {f['company']} ({f.get('consecutive', 1)}x) - {f['reason']}")
-    return 0
+    ok = _write_health(started, summary)
+    if not ok:
+        print("refresh FAILED: no board fetched successfully")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

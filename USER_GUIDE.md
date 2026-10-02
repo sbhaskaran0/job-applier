@@ -219,18 +219,23 @@ stated explicitly.
 **Schedule it daily** so the digest is waiting for you:
 
 - **Windows** (already registered on this machine as *"JobApplier Watchlist
-  Refresh"*, daily 09:00):
-  `schtasks /Create /TN "JobApplier Watchlist Refresh" /TR "\"<repo>\scripts\refresh.cmd\"" /SC DAILY /ST 09:00`
-  — [scripts/refresh.cmd](scripts/refresh.cmd) is self-locating; remove with
-  `schtasks /Delete /TN "JobApplier Watchlist Refresh"`.
+  Refresh"*, daily 09:00 + at-logon catch-up):
+  Run `powershell -ExecutionPolicy Bypass -File scripts\setup_refresh_task.ps1`
+  to register/update the scheduled task.
+  - **Wake timers:** `WakeToRun` only works when the power plan's "Allow wake
+    timers" is Enable (some machines show "Important Wake Timers Only", which
+    is not enough). Check with `powercfg /q SCHEME_CURRENT SUB_SLEEP RTCWAKE`;
+    enable with `powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKE 1`
+    then `powercfg /setactive SCHEME_CURRENT`. The setup script never changes it.
+  - **Logged-on only:** the task uses an Interactive principal, so it runs only
+    while you are logged on (it can wake a sleeping machine, but not a
+    logged-off one).
+  - **Catch-up on logon:** The task also runs 10 minutes after logon, which catches up a missed 09:00 run (a run is skipped if one succeeded in the last 12h; `--force` overrides).
+  - **Log location:** Runs are logged to `data\refresh.log`.
 - **Linux (cron):** `0 9 * * * cd /path/to/job-applier && python3 -m src.refresh`
 - **macOS:** the same cron line, or a launchd agent.
 
-The machine must be on at the scheduled time; a missed day is harmless (the
-next run catches up). Deleting `postings.db` is always safe — it's a cache of
-public data and rebuilds on the next refresh (only `first_seen` history is
-lost). The apply flow never trusts the store for liveness: postings are
-re-verified via the ATS API before an application is prepped.
+The machine should stay on at 09:00, but if it sleeps, it will catch up on next logon. A missed day is harmless. Deleting `postings.db` is always safe — it's a cache of public data and rebuilds on the next refresh (only `first_seen` history is lost). The apply flow never trusts the store for liveness: postings are re-verified via the ATS API before an application is prepped.
 
 ---
 
