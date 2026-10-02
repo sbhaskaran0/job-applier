@@ -31,9 +31,9 @@ from src import browser                 # noqa: E402
 choose = browser._choose_file_input
 
 
-def cand(i, text="", name="", id="", aria="", label="", file=""):
+def cand(i, text="", name="", id="", aria="", label="", file="", single=True):
     return {"i": i, "text": text, "name": name, "id": id, "aria": aria,
-            "label": label, "file": file}
+            "label": label, "file": file, "single": single}
 
 
 RESUME = dict(text="Resume/CV Attach Enter manually", id="resume")
@@ -99,6 +99,25 @@ def test_cover_via_aria_or_name_or_label():
     assert choose([cand(0, label="Cover letter")], "cover") == 0
 
 
+def test_container_text_alone_needs_two_inputs_and_a_single_box():
+    # Fix 2: container-only cover detection is the guarded exception.
+    box = dict(text="Cover Letter Attach")
+    assert choose([cand(0, **box), cand(1, text="Resume Attach")], "cover") == 0
+    # lone input near a cover-letter label: never a cover slot
+    assert choose([cand(0, **box)], "cover") is None
+    # box spans more than one file input: not trustworthy
+    assert choose([cand(0, single=False, **box), cand(1, text="Resume")],
+                  "cover") is None
+    # container mentions resume too: not trustworthy
+    assert choose([cand(0, text="Resume Cover Letter"), cand(1)], "cover") is None
+
+
+def test_own_attribute_match_beats_container_only_match():
+    cs = [cand(0, text="Cover Letter Attach"), cand(1, id="cover_letter"),
+          cand(2, text="Resume")]
+    assert choose(cs, "cover") == 1
+
+
 def test_no_inputs_at_all():
     assert choose([], "cover") is None
     assert choose([], "resume") is None
@@ -115,38 +134,51 @@ class FakeInput:
 
     def descriptor(self):
         return {"i": self.i, "text": self.text, "file": self.file,
+                "single": True,
                 "name": self.kw.get("name", ""), "id": self.kw.get("id", ""),
                 "aria": "", "label": self.kw.get("label", "")}
 
 
 class FakeLoc:
-    def __init__(self, frame):
+    def __init__(self, frame, inp=None):
         self.frame = frame
+        self.inp = inp
         self.first = self
 
     def _target(self):
-        return next(x for x in self.frame.inputs if x.tagged)
+        return self.inp or next(x for x in self.frame.inputs if x.tagged)
 
     async def set_input_files(self, p):
         inp = self._target()
-        # Misbehaving widget: redirect the file into another slot.
-        if self.frame.redirect_to is not None:
+        self.frame.uploads.append(inp.i)
+        if self.frame.redirect_to is not None:       # swallowing widget
             inp = self.frame.inputs[self.frame.redirect_to]
-        inp.file = p.replace("\\", "/").rsplit("/", 1)[-1]
-        inp.text = inp.text + " " + inp.file
+        name = p.replace("\\", "/").rsplit("/", 1)[-1]
+        if self.frame.rerender:
+            # React dropzone: node replaced -> the new input holds no file,
+            # the filename is rendered in the box text instead.
+            inp.file = ""
+        else:
+            inp.file = name
+        inp.text = inp.text + " " + name
 
     async def evaluate(self, js):
-        assert js is browser._FILE_READBACK_JS
-        inp = self._target()
-        return {"name": inp.file, "text": inp.text}
+        assert js is browser._FILE_DESCRIBE_JS
+        d = self._target().descriptor()
+        d["total"] = len(self.frame.inputs)
+        return d
 
 
 class FakeFrame:
-    def __init__(self, inputs, redirect_to=None):
+    def __init__(self, inputs, redirect_to=None, rerender=False):
         self.inputs = inputs
         self.redirect_to = redirect_to
+        self.rerender = rerender
+        self.uploads = []
 
     def locator(self, selector):
+        if selector.startswith("[data-jaidx="):
+            return FakeLoc(self, self.inputs[int(selector.split('"')[1])])
         return FakeLoc(self)
 
     async def evaluate(self, js, arg=None):
@@ -166,12 +198,15 @@ class FakePage:
         self.frames = [frame]
 
 
-def session(inputs, redirect_to=None):
-    frame = FakeFrame(inputs, redirect_to)
+def session(inputs, redirect_to=None, rerender=False):
+    frame = FakeFrame(inputs, redirect_to, rerender)
     s = browser.BrowserSession()
     s.tabs[0] = {"page": FakePage(frame), "fields": {}, "company": "",
                  "title": "", "url": ""}
     s.active_id = 0
+    # read_form indexes: map field index N -> file input N (test shorthand).
+    s.tabs[0]["fields"].update({n: {"frame": frame, "kind": "file"}
+                                for n in range(len(inputs))})
     return s, frame
 
 
@@ -180,10 +215,14 @@ def gh_inputs():
             FakeInput(1, "Cover Letter Attach", id="cover_letter")]
 
 
+def up(s, path, target="resume", index=None):
+    return asyncio.run(s.upload_resume(index, path, target))
+
+
 # --------------------------------------------------------------------------
 def test_cover_upload_goes_to_cover_and_resume_untouched():
     s, frame = session(gh_inputs())
-    res = asyncio.run(s.upload_resume(None, "/x/cover_letter.pdf", "cover"))
+    res = up(s, "/x/cover_letter.pdf", "cover")
     assert res["status"] == "uploaded", res
     assert res["verified"] is True and res["observed_filename"] == "cover_letter.pdf", res
     assert frame.inputs[1].file == "cover_letter.pdf"
@@ -193,61 +232,120 @@ def test_cover_upload_goes_to_cover_and_resume_untouched():
 
 def test_cover_upload_on_resume_only_page_is_no_cover_slot_and_uploads_nothing():
     s, frame = session([FakeInput(0, "Resume/CV Attach", id="resume")])
-    res = asyncio.run(s.upload_resume(None, "/x/cover_letter.pdf", "cover"))
+    res = up(s, "/x/cover_letter.pdf", "cover")
     assert res["status"] == "no_cover_slot", res
-    assert frame.inputs[0].file == "", "must NEVER fall back to the resume slot"
-
-
-def test_cover_upload_with_no_path_is_refused():
-    s, _ = session(gh_inputs())
-    try:
-        asyncio.run(s.upload_resume(None, None, "cover"))
-    except ValueError:
-        return
-    raise AssertionError("target=cover without a path must raise")
+    assert frame.uploads == [], "must NEVER fall back to the resume slot"
 
 
 def test_resume_upload_default_target_hits_resume_slot():
     s, frame = session(gh_inputs())
-    res = asyncio.run(s.upload_resume(None, "/x/resume.pdf"))
+    res = up(s, "/x/resume.pdf")
     assert res["status"] == "uploaded" and res["verified"] is True, res
-    assert frame.inputs[0].file == "resume.pdf"
-    assert frame.inputs[1].file == ""
+    assert frame.inputs[0].file == "resume.pdf" and frame.inputs[1].file == ""
 
 
 def test_cover_landing_in_resume_slot_is_flagged_as_error():
-    # The widget swallows the file into slot 0 (the resume) regardless.
     s, frame = session(gh_inputs(), redirect_to=0)
-    res = asyncio.run(s.upload_resume(None, "/x/cover_letter.pdf", "cover"))
+    res = up(s, "/x/cover_letter.pdf", "cover")
     assert res["status"] == "error", res
     assert res["error"] == "cover upload landed in resume slot", res
     assert res["verified"] is False
 
 
-def test_unverified_when_filename_not_observed():
+# Fix 1: explicit index + cover ---------------------------------------------
+def test_index_cover_on_resume_input_is_refused_and_uploads_nothing():
+    s, frame = session(gh_inputs())
+    res = up(s, "/x/cover_letter.pdf", "cover", index=0)
+    assert res == {"index": 0, "status": "error", "target": "cover",
+                   "error": "index is not a cover slot"}, res
+    assert frame.uploads == []
+
+
+def test_index_cover_on_cover_input_uploads_and_verifies():
+    s, frame = session(gh_inputs())
+    res = up(s, "/x/cover_letter.pdf", "cover", index=1)
+    assert res["status"] == "uploaded" and res["verified"] is True, res
+    assert frame.inputs[0].file == ""
+
+
+def test_index_cover_on_lone_unlabelled_input_is_refused():
+    s, frame = session([FakeInput(0, "Attach")])
+    res = up(s, "/x/cover_letter.pdf", "cover", index=0)
+    assert res["error"] == "index is not a cover slot", res
+    assert frame.uploads == []
+
+
+# Fix 4: verified needs files[0].name ---------------------------------------
+def test_rerendered_dropzone_verifies_via_box_text_when_files_empty():
+    s, frame = session(gh_inputs(), rerender=True)
+    res = up(s, "/x/cover_letter.pdf", "cover")
+    assert res["status"] == "uploaded", res
+    assert res["verified"] is True and res["observed_filename"] == "", res
+
+
+def test_files_empty_and_filename_already_in_box_is_not_verified():
+    inputs = gh_inputs()
+    inputs[1].text += " cover_letter.pdf"     # stale text from an earlier attach
+    s, _ = session(inputs, rerender=True)
+    res = up(s, "/x/cover_letter.pdf", "cover")
+    assert res["verified"] is False, res
+
+
+def test_wrong_files_name_is_not_verified_even_if_text_matches():
+    v = browser._verify_upload("a.pdf", {"text": ""},
+                               {"file": "other.pdf", "text": "a.pdf"})
+    assert v["verified"] is False, v
+
+
+def test_nothing_observed_is_not_verified():
     class Silent(FakeLoc):
         async def set_input_files(self, p):
             return None
-    inputs = gh_inputs()
-    s, frame = session(inputs)
+    s, frame = session(gh_inputs())
     frame.locator = lambda sel: Silent(frame)
-    res = asyncio.run(s.upload_resume(None, "/x/cover_letter.pdf", "cover"))
+    res = up(s, "/x/cover_letter.pdf", "cover")
     assert res["verified"] is False and res["observed_filename"] == "", res
 
 
-def test_bad_target_rejected():
-    s, _ = session(gh_inputs())
-    try:
-        asyncio.run(s.upload_resume(None, "/x/a.pdf", "other"))
-    except ValueError:
-        return
-    raise AssertionError("unknown target must raise")
+# Fix 5: slot identity ------------------------------------------------------
+def test_cover_landed_keys_by_id_not_position():
+    before = [{"frame": 0, "i": 0, "id": "resume", "text": "Resume", "file": ""},
+              {"frame": 0, "i": 1, "id": "cover", "text": "Cover", "file": ""}]
+    # An input was inserted ahead: positions shift. The RESUME slot (id) is
+    # now i=1 and shows nothing new; the cover slot holds the file. Position
+    # keying would blame the resume slot.
+    after = [{"frame": 0, "i": 0, "id": "cover", "text": "Cover c.pdf",
+              "file": "c.pdf"},
+             {"frame": 0, "i": 1, "id": "resume", "text": "Resume", "file": ""}]
+    assert not browser._cover_landed_in_resume(before, after, "c.pdf")
+    after[1]["file"] = "c.pdf"
+    assert browser._cover_landed_in_resume(before, after, "c.pdf")
+
+
+def test_slot_key_falls_back_to_position_only_without_id_or_name():
+    assert browser._slot_key({"id": "a", "name": "b", "i": 3}) == ("id", "a")
+    assert browser._slot_key({"name": "b", "i": 3}) == ("name", "b")
+    assert browser._slot_key({"i": 3, "frame": 1}) == ("pos", 1, 3)
 
 
 def test_cover_landed_helper_ignores_preexisting_filename():
     before = [{"frame": 0, "i": 0, "text": "Resume/CV cover_letter.pdf",
                "file": "", "id": "resume"}]
     assert not browser._cover_landed_in_resume(before, before, "cover_letter.pdf")
+
+
+# Fix 6: errors are dicts ---------------------------------------------------
+def test_errors_come_back_as_dicts_never_raise():
+    s, _ = session(gh_inputs())
+    r = up(s, "/x/a.pdf", "other")
+    assert r["status"] == "error" and "target" in r["error"], r
+    r = up(s, None, "cover")
+    assert r["status"] == "error" and "path" in r["error"], r
+    r = up(s, "/x/a.pdf", "cover", index=99)
+    assert r["status"] == "error" and "Unknown field index" in r["error"], r
+    s2, _ = session([])
+    r = up(s2, "/x/a.pdf", "resume")
+    assert r["status"] == "error" and "No file input" in r["error"], r
 
 
 if __name__ == "__main__":

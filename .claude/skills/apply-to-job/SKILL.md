@@ -150,8 +150,9 @@ issue any genuinely independent calls together in a single message.
      flag it for the user (on Greenhouse an "Enter manually" button may reveal
      one; it can't be clicked via the tools, so it is a manual step). Never
      retry a cover upload without `target="cover"` — that overwrites the
-     resume. Status `error` ("landed in resume slot") means re-upload the
-     resume. If no tailored cover letter exists, only fill a cover-letter
+     resume. Status `error` is returned (not raised): "landed in resume slot"
+     means re-upload the resume; any other error (e.g. "index is not a cover
+     slot") means flag it and do not retry. If no tailored cover letter exists, only fill a cover-letter
      field if the user asks.
 5. **Craft + gate the rest** — for `context` rows, `review`-confidence history
    rows, and anything uncertain:

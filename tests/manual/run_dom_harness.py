@@ -256,6 +256,14 @@ async def run(headless=True):
             " (document.getElementById(i).files[0] || {}).name || '')")
         check("resume slot still holds the resume, cover slot the cover",
               names == ["resume_x.pdf", "cover_letter_x.pdf"], names)
+
+        # --- dropzone re-render: the input node is replaced after upload ---
+        await page.goto(UPLOAD_FIXTURE + "#rerender", wait_until="domcontentloaded")
+        await page.reload(wait_until="domcontentloaded")
+        res = await s.upload_resume(None, str(tmp / "cover_letter_x.pdf"), "cover")
+        check("re-rendered dropzone: cover upload still verifies via box text",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and res.get("observed_filename") == "", res)
     finally:
         try:
             await s.close()

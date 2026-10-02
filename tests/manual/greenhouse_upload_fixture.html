@@ -26,6 +26,14 @@
       var f = e.target.files[0];
       var span = e.target.parentElement.querySelector('.filename');
       span.textContent = f ? f.name : '';
+      if (location.hash === '#rerender') {
+        // React-style dropzone: swap the input for a fresh, empty node
+        // (same id/name) so any previously-held locator goes stale.
+        var fresh = document.createElement('input');
+        fresh.type = 'file'; fresh.id = e.target.id; fresh.name = e.target.name;
+        fresh.style.display = 'none';
+        e.target.replaceWith(fresh);
+      }
     });
   });
 </script>

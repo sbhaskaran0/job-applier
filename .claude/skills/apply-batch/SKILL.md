@@ -296,8 +296,8 @@ For each approved job, in order:
    and check `verified`. On `no_cover_slot` paste `cover_letter_text` into a
    cover-letter textarea if listed, else flag it as a manual step (Greenhouse
    "Enter manually" can't be clicked via the tools). Never retry a cover upload
-   without `target="cover"` (it overwrites the resume); on `error` re-upload
-   the resume.
+   without `target="cover"` (it overwrites the resume); on `error` ("landed in
+   resume slot") re-upload the resume; any other `error` parks the job.
 5. Verify via `read_form(values_only=True)` — the lean payload
    (`{index, kind, label, current_value}`, no option lists) is all a
    verification pass needs; confirm every intended `current_value` is set.
