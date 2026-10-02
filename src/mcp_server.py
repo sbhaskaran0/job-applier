@@ -169,6 +169,36 @@ async def fill_verification_code(code: str) -> dict:
 
 
 @mcp.tool()
+async def advance_step() -> dict:
+    """Move a MULTI-STEP application (Workday's "Save and Continue", any
+    wizard's "Next"/"Continue") to the next step. Advancing is NOT submitting
+    and is NOT gated — you do not need the user's confirmation to call this.
+    It never clicks a submit control.
+
+    Returns {status, url_changed, current_url, errors, error_count,
+    unmapped_error_count, fields, button_label, note}:
+      - "advanced" — the step moved. **Every field index from before this call
+        is dead**; use the `fields` in this result (a fresh read_form) for all
+        subsequent fill_field / fill_many / upload_resume calls.
+      - "blocked_validation" — the page refused to advance. `errors` is
+        [{index, field_label, message}]; fix those fields and call again. An
+        error whose `index` is null could not be tied to a scanned field
+        (usually a visually-hidden input) — match it by `field_label`;
+        `unmapped_error_count` says how many are like that. Errors are never
+        silently dropped.
+      - "no_change" — clicked, but nothing moved (swallowed click, or a modal
+        is open). Screenshot before retrying.
+      - "is_submit_page" — the only control here is Submit, so NOTHING was
+        clicked. Review, confirm with the user, then call submit_application.
+        Never use advance_step as a way to "check" the review page.
+      - "no_advance_button" — single-page form; just submit it.
+
+    `fields` is always a fresh read of the page as it now stands, so you never
+    need a separate read_form after this call."""
+    return await browser.session.advance_step()
+
+
+@mcp.tool()
 async def get_job_text() -> str:
     """Return the visible page text (use it to read the job description for a
     fit assessment)."""
@@ -346,6 +376,12 @@ def _clip_hist(rows: list) -> list:
     for h in rows:
         r = dict(h)
         r["answer"] = _clip(r.get("answer", ""), _HIST_ANSWER_CHARS)
+        # `alternates` (optional, added by the history store) are full answers
+        # too — clipping only `answer` would let them walk straight past the
+        # token cap this whole helper exists to enforce.
+        if isinstance(r.get("alternates"), list):
+            r["alternates"] = [_clip(a, _HIST_ANSWER_CHARS) if isinstance(a, str)
+                               else a for a in r["alternates"]]
         out.append(r)
     return out
 
@@ -656,8 +692,13 @@ def list_companies() -> list:
 @mcp.tool()
 def add_company(url: str, name: str = "") -> dict:
     """Add a company to the watchlist from a board/careers URL (Greenhouse/Lever/
-    Ashby). Detects the ATS + slug and appends to watchlist.yaml. Optionally pass
-    a display `name`."""
+    Ashby/Workday). Detects the ATS + slug and appends to watchlist.yaml.
+    Optionally pass a display `name`.
+
+    A Workday board needs tenant + shard + site, so pass the FULL board URL
+    (https://acme.wd5.myworkdayjobs.com/External), not the bare tenant host --
+    the site cannot be resolved without a network call this tool does not make.
+    `python scripts/workday_bootstrap.py <company name>` finds it for you."""
     return wl.add_company(url, name or None)
 
 

@@ -24,6 +24,49 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 # pickers) are the dominant source of read_form token bloat.
 _INLINE_OPTS_MAX = 25
 
+# Shared JS: read the value a *listbox button* (a <button aria-haspopup=
+# "listbox">, the Workday / Oracle / SuccessFactors / Radix / MUI dropdown
+# shape) has actually COMMITTED. Defined once and embedded verbatim into both
+# _SCAN_JS (read_form's current_value) and _LISTBOX_VALUE_JS (the fill-time
+# verifier) so the two can never disagree about what a listbox "contains" —
+# one source of truth beats two tidy copies.
+#
+# The blacklist is the load-bearing part. An UNSET Workday listbox renders the
+# literal text "Select One", so a naive read reports a committed value for a
+# field nobody answered: verification would return verified=true against
+# nothing, and capture_submission would persist "Select One" into the user's
+# answer history as if it were a real answer. A filtered value reads back as
+# "" — indistinguishable from an untouched field, which is exactly right.
+_LISTBOX_VALUE_FN = r"""
+  const listboxValue = (el) => {
+    if (!el) return '';
+    const lbClean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+    const aria = lbClean(el.getAttribute && el.getAttribute('aria-label'));
+    // Cascade, most explicit first: Workday's own selected-item node, then the
+    // button's direct <span> child, then the button text, then the aria-label
+    // suffix ("Country, United States" / "Country: United States").
+    let v = '';
+    const si = el.querySelector && el.querySelector('[data-automation-id="selectedItem"]');
+    if (si) v = lbClean(si.innerText || si.textContent);
+    if (!v && el.querySelector) {
+      const sp = el.querySelector(':scope > span');
+      if (sp) v = lbClean(sp.innerText || sp.textContent);
+    }
+    if (!v) v = lbClean(el.innerText || el.textContent);
+    if (!v && aria) {
+      const m = aria.split(/\s*(?:,|:|\bselected\b)\s*/i).filter(Boolean);
+      v = lbClean(m.length ? m[m.length - 1] : aria);
+    }
+    const low = v.toLowerCase();
+    const PLACEHOLDERS = ['select one', 'choose one', '--', 'none selected', 'search'];
+    if (!v) return '';
+    if (PLACEHOLDERS.indexOf(low) !== -1) return '';
+    if (aria && low === aria.toLowerCase()) return '';   // echoes its own label
+    return v;
+  };
+"""
+
+
 # JS run inside each frame: tags every fillable element with data-jaidx and
 # returns a descriptor for each. Label resolution walks the standard
 # accessibility fallbacks. Radios/checkboxes are reported individually with
@@ -56,19 +99,45 @@ _SCAN_JS = r"""
     if (cont) { const lab = cont.querySelector('label'); if (lab) return clean(lab.innerText); }
     return clean((el.getAttribute('name') || el.id || '').replace(/[_\-]+/g, ' '));
   };
-  const sel = 'input, textarea, select, [role=textbox], [role=combobox], [contenteditable=true]';
+  // Clear tags from any PREVIOUS scan of this document. read_form must be
+  // idempotent: the button-group pass below skips elements that already carry
+  // data-jaidx, so without this sweep a second read of the same page silently
+  // drops every button-group option (and Claude then "sees" an answered
+  // question as missing). Within a single pass the hasAttribute guard still
+  // prevents double-capture, because everything tagged during this pass was
+  // tagged by this pass.
+  document.querySelectorAll('[data-jaidx]').forEach(e => e.removeAttribute('data-jaidx'));
+
+  __LISTBOX_VALUE_FN__
+
+  // button[aria-haspopup=listbox] is the Workday dropdown (step 2 of a Snap
+  // Workday application is nothing but these) and also Oracle/SuccessFactors/
+  // Radix/MUI menus. Without it the scanner reported those pages as having no
+  // dropdowns at all. It is an ARIA contract, not a per-site selector, so the
+  // module's no-per-site-selectors invariant holds.
+  const sel = 'input, textarea, select, [role=textbox], [role=combobox], [contenteditable=true], button[aria-haspopup="listbox"]';
   const els = Array.from(document.querySelectorAll(sel));
   const out = [];
   let idx = startIndex;
   for (const el of els) {
     const tag = el.tagName.toLowerCase();
     const itype = (el.getAttribute('type') || '').toLowerCase();
+    // NOTE: this type-skip is gated on tag === 'input', so a <button> (whose
+    // type attribute is usually the literal "button") is NOT eaten by it.
     if (tag === 'input' && ['hidden', 'submit', 'button', 'reset', 'image'].includes(itype)) continue;
     if (el.disabled || el.readOnly) continue;
     if (!isVisible(el)) continue;
 
+    // A listbox button is reported as kind 'combobox' ON PURPOSE: every
+    // closed-choice code path downstream (mcp_server's _CLOSED_KINDS routing,
+    // get_field_options, the skills' "pick an option" branch) keys off that
+    // kind, so the whole pipeline works with no edit anywhere else. `widget`
+    // carries the physical shape so fill_field can dispatch on the WIDGET.
+    const isListbox = (tag === 'button' && el.getAttribute('aria-haspopup') === 'listbox');
+
     let kind;
-    if (tag === 'select') kind = 'select';
+    if (isListbox) kind = 'combobox';
+    else if (tag === 'select') kind = 'select';
     else if (tag === 'textarea') kind = 'text';
     else if (itype === 'file') kind = 'file';
     else if (itype === 'radio') kind = 'radio';
@@ -82,9 +151,10 @@ _SCAN_JS = r"""
     }
     const required = el.required || el.getAttribute('aria-required') === 'true' || undefined;
     let value = '';
-    if (kind === 'checkbox' || kind === 'radio') value = el.checked ? 'checked' : '';
+    if (isListbox) value = listboxValue(el);
+    else if (kind === 'checkbox' || kind === 'radio') value = el.checked ? 'checked' : '';
     else value = el.value || '';
-    if (kind === 'combobox' && !value) {
+    if (kind === 'combobox' && !isListbox && !value) {
       // React-select renders the committed choice in a sibling "single-value"
       // element, not in the input itself — surface it so verification and
       // submit-time capture can see combobox answers.
@@ -106,7 +176,8 @@ _SCAN_JS = r"""
 
     el.setAttribute('data-jaidx', String(idx));
     out.push({
-      index: idx, kind, label: labelFor(el), multiline,
+      index: idx, kind, widget: isListbox ? 'listbox' : undefined,
+      label: labelFor(el), multiline,
       group: (kind === 'radio' || kind === 'checkbox') ? clean(el.getAttribute('name')) : undefined,
       option_value: (kind === 'radio' || kind === 'checkbox') ? (el.value || '') : undefined,
       options, required, current_value: value,
@@ -125,14 +196,23 @@ _SCAN_JS = r"""
   const GBAD = new Set(['submit', 'submit application', 'apply', 'upload file',
     'upload', 'replace', 'browse', 'remove', 'delete', 'next', 'back',
     'previous', 'continue', 'save', 'cancel', 'add', 'edit', '+', '×', 'x']);
+  // Listbox buttons are safe from this pass: the first pass above already ran
+  // and tagged them with data-jaidx, and the `b.hasAttribute('data-jaidx')`
+  // guard on the next line skips anything tagged. The ordering is what makes
+  // that true, so it must stay: first pass tags, second pass skips tagged.
+  // The hasAttribute guard only protects the element being *considered*, not
+  // the siblings collected around it, so the sibling filter below excludes
+  // listbox buttons explicitly too.
   const optSel = 'button, [role=radio]';
   const seenParents = new Set();
   for (const b of Array.from(document.querySelectorAll(optSel))) {
     if (b.hasAttribute('data-jaidx')) continue;
+    if (b.getAttribute('aria-haspopup') === 'listbox') continue;
     const parent = b.parentElement;
     if (!parent || seenParents.has(parent)) continue;
     const sibs = Array.from(parent.children).filter(c =>
       (c.tagName === 'BUTTON' || c.getAttribute('role') === 'radio') &&
+      c.getAttribute('aria-haspopup') !== 'listbox' &&
       clean(c.innerText).length > 0 && clean(c.innerText).length <= 40 &&
       (c.getAttribute('type') || '').toLowerCase() !== 'submit');
     if (sibs.length < 2 || sibs.length > 6) continue;
@@ -171,7 +251,7 @@ _SCAN_JS = r"""
   }
   return out;
 }
-"""
+""".replace("__LISTBOX_VALUE_FN__", _LISTBOX_VALUE_FN)
 
 
 # JS: enumerate the options of the listbox controlled by the combobox at
@@ -198,18 +278,112 @@ _COMBO_OPTIONS_JS = r"""
 }
 """
 
+# JS: did aria-controls/aria-owns resolve to a REAL popup element for the
+# combobox at data-jaidx=idx? _COMBO_OPTIONS_JS silently falls back to a loose
+# on-screen [role=option] sweep, which can scrape a completely different
+# widget's menu (the phone country-code list is the classic one). The listbox
+# fill path needs to know which of the two happened: enumerate-and-click is
+# only trustworthy when the list was ARIA-scoped; otherwise it types instead.
+_COMBO_SCOPED_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  const lbId = el && (el.getAttribute('aria-controls') || el.getAttribute('aria-owns'));
+  return !!(lbId && document.getElementById(lbId));
+}
+"""
+
+# JS: is the listbox at data-jaidx=idx currently OPEN? true/false from
+# aria-expanded, or null when the widget doesn't publish the state. A listbox
+# button is a TOGGLE, so "click it to open" is only correct when it is closed.
+_EXPANDED_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  if (!el) return null;
+  const v = el.getAttribute('aria-expanded');
+  return v === null ? null : v === 'true';
+}
+"""
+
+# JS: the committed value of a listbox BUTTON at data-jaidx=idx (same cascade,
+# same placeholder blacklist as read_form uses — see _LISTBOX_VALUE_FN).
+_LISTBOX_VALUE_JS = r"""
+(idx) => {
+  __LISTBOX_VALUE_FN__
+  return listboxValue(document.querySelector('[data-jaidx="' + idx + '"]'));
+}
+""".replace("__LISTBOX_VALUE_FN__", _LISTBOX_VALUE_FN)
+
 # JS: the value the combobox at data-jaidx=idx has actually COMMITTED (the
 # react-select "single-value" element), as opposed to transient typed text.
+# A <button> combobox is a listbox widget, so it branches to the shared
+# listbox cascade — that keeps read_form and the fill-time verifier on ONE
+# code path, which is why they can never disagree about a Workday dropdown.
 _COMBO_VALUE_JS = r"""
 (idx) => {
   const el = document.querySelector('[data-jaidx="' + idx + '"]');
   if (!el) return '';
+  __LISTBOX_VALUE_FN__
+  if (el.tagName.toLowerCase() === 'button') return listboxValue(el);
   const ctl = el.closest('[class*="control"]') ||
               (el.parentElement && el.parentElement.parentElement);
   const sv = ctl && ctl.querySelector('[class*="single-value"], [class*="singleValue"]');
   if (sv) return (sv.innerText || '').replace(/\s+/g, ' ').trim();
   // plain comboboxes (no react-select shell) keep the value in the input
   return (el.value || '').replace(/\s+/g, ' ').trim();
+}
+""".replace("__LISTBOX_VALUE_FN__", _LISTBOX_VALUE_FN)
+
+
+# JS: read back whatever value the NON-combobox field at data-jaidx=idx is
+# actually holding, so a fill can be verified instead of assumed. Returns null
+# (not "") when this DOM exposes no readable value for the element — the caller
+# must report that as verified=null, never as a failure.
+_FIELD_VALUE_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  if (!el) return null;
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  const tag = el.tagName.toLowerCase();
+  const itype = (el.getAttribute('type') || '').toLowerCase();
+  if (tag === 'select') {
+    const o = el.selectedOptions && el.selectedOptions[0];
+    return o ? clean(o.textContent) : clean(el.value);
+  }
+  if (itype === 'radio' || itype === 'checkbox') return el.checked ? 'checked' : '';
+  if (tag === 'button' || el.getAttribute('role') === 'radio') {
+    // Non-native segmented option (Ashby Yes/No): "checked" lives in ARIA or
+    // a class, never in a .value.
+    const on = el.getAttribute('aria-checked') === 'true' ||
+               el.getAttribute('aria-pressed') === 'true' ||
+               /(selected|active|checked)/i.test(el.className || '');
+    return on ? 'checked' : '';
+  }
+  if (el.isContentEditable) return clean(el.innerText);
+  if (typeof el.value === 'string') return clean(el.value);
+  return null;
+}
+"""
+
+# JS: tag a clickable PROXY for the toggle at data-jaidx=idx with data-japroxy.
+# Workday (and any React control that paints its own radio) overlays the real
+# <input> so Playwright's .check() raises "element intercepts pointer events"
+# — or clicks through without firing the framework's handler. The proxy chain
+# is label[for=id] -> closest('label') -> the parent wrapper: the first one
+# that exists is the element a human actually clicks.
+_PROXY_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  document.querySelectorAll('[data-japroxy]').forEach(e => e.removeAttribute('data-japroxy'));
+  if (!el) return false;
+  let p = null;
+  if (el.id) {
+    try { p = document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); } catch (e) {}
+  }
+  if (!p) p = el.closest('label');
+  if (!p) p = el.parentElement;
+  if (!p || p === el) return false;
+  p.setAttribute('data-japroxy', '1');
+  return true;
 }
 """
 
@@ -321,6 +495,181 @@ _CODE_INPUTS_JS = r"""
   return { count: picked.length, mode };
 }
 """
+
+
+# JS: the validation errors a page is currently showing, mapped back to the
+# fields that caused them. Generic on purpose: an error node with an `id` is
+# linked to its input by `aria-describedby` — an ARIA contract, not a Workday
+# detail — and the fallback walks up at most 4 ancestors looking for a scanned
+# field. Containers that merely WRAP another error node are skipped so one
+# error isn't reported three times.
+#
+# An error that cannot be mapped is still RETURNED, with index null: a
+# visually-hidden (sr-only) input is skipped by _SCAN_JS's visibility test, so
+# the field most likely to fail validation may carry no data-jaidx at all.
+# Dropping it is how a run parks with no explanation.
+_ERRORS_JS = r"""
+() => {
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  const isVisible = (el) => {
+    const s = window.getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden') return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1;
+  };
+  const labelOf = (el) => {
+    if (!el) return '';
+    if (el.getAttribute && el.getAttribute('aria-label')) return clean(el.getAttribute('aria-label'));
+    if (el.id) {
+      try { const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+            if (l) return clean(l.innerText); } catch (e) {}
+    }
+    const w = el.closest && el.closest('label');
+    if (w) return clean(w.innerText);
+    const c = el.closest && el.closest('div,section,fieldset,li,td');
+    const lab = c && c.querySelector('label');
+    return lab ? clean(lab.innerText) : '';
+  };
+  const ownerOf = (node) => {
+    if (node.id) {
+      try {
+        const o = document.querySelector(
+          '[aria-describedby~="' + node.id.replace(/"/g, '\\"') + '"]');
+        if (o) return o;
+      } catch (e) {}
+    }
+    // Fallback: climb, but accept an ancestor ONLY when it contains exactly
+    // ONE scanned field. `querySelector` here searches the ancestor's whole
+    // subtree in document order, so "first tagged descendant" is not an
+    // association — on a flat form the walk reaches <body> in two hops and
+    // would hand back field 0 for an error that belongs to nothing. A real
+    // DOM run did exactly that: an orphan "Section could not be validated"
+    // came back as index 0 / "Legal Name". A confidently WRONG index is worse
+    // than none: the caller refills a field that was never the problem and
+    // unmapped_error_count reads 0, so nothing flags the guess. The moment a
+    // level holds more than one field the association is ambiguous — stop and
+    // report the error unmapped instead of guessing.
+    let p = node.parentElement, hops = 0;
+    while (p && hops < 4) {
+      const tag = p.tagName;
+      if (tag === 'BODY' || tag === 'FORM' || tag === 'MAIN' || tag === 'HTML') return null;
+      const fs = p.querySelectorAll('[data-jaidx]');
+      if (fs.length === 1) return fs[0];
+      if (fs.length > 1) return null;              // ambiguous — never guess
+      p = p.parentElement; hops++;
+    }
+    return null;
+  };
+  const sel = '[role=alert], [aria-live=assertive], [data-automation-id*="rror"],'
+            + ' [class*="error"], [class*="Error"], [id*="error"]';
+  const out = [], seen = new Set();
+  for (const node of Array.from(document.querySelectorAll(sel))) {
+    if (!isVisible(node)) continue;
+    if (node.querySelector(sel)) continue;           // a wrapper, not the error
+    const msg = clean(node.innerText || node.textContent);
+    if (!msg || msg.length > 300) continue;
+    const owner = ownerOf(node);
+    let idx = null;
+    if (owner) {
+      const tagged = owner.hasAttribute('data-jaidx')
+        ? owner : (owner.closest ? owner.closest('[data-jaidx]') : null);
+      if (tagged) {
+        const n = parseInt(tagged.getAttribute('data-jaidx'), 10);
+        if (!isNaN(n)) idx = n;
+      }
+    }
+    const key = (idx === null ? 'x' : idx) + '|' + msg;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ index: idx,
+               field_label: labelOf(owner) || labelOf(node.parentElement),
+               message: msg });
+  }
+  return out;
+}
+"""
+
+
+# Labels that are NOT a submit control even when the element is type=submit.
+# Workday's "Save and Continue" is a type=submit button, so without this the
+# submit path could click NEXT and advance the wizard. The bare step words are
+# ANCHORED (whole label only) on purpose: "Submit and Continue" is a real
+# submit and must NOT be excluded by the word "continue".
+_NOT_SUBMIT_RE = re.compile(
+    r"^(save\s*(and|&)\s*continue|save\s*(and|&)\s*next|save\s+for\s+later"
+    r"|next(\s+step)?|continue|back|previous|save)"
+    r"\s*(→|›|»|>)?$", re.I)
+
+# Labels a wizard's NEXT control may carry (whole label; same anchoring logic).
+_ADVANCE_RE = re.compile(
+    r"^(save\s*(and|&)\s*continue|save\s*(and|&)\s*next|next(\s+step)?"
+    r"|continue|proceed)\s*(→|›|»|>)?$", re.I)
+
+# Anything that reads like an actual submit — never clicked by advance_step.
+_SUBMITTY_RE = re.compile(r"submit|apply|finish|send\s+application", re.I)
+
+
+# Words that carry no initial in an abbreviation: "University of California,
+# Santa Barbara" abbreviates to UCSB, not UOCSB. Without this the live Snap
+# run could not match "UCSB" to its own school list.
+_INITIALS_STOPWORDS = {"of", "the", "and", "at", "in", "for", "a", "an", "de", "la"}
+
+# Pick-from-a-list kinds. A mismatch here is a PROVEN failure (the widget
+# either holds the option or it doesn't), so it is reported as "uncommitted"
+# rather than as a filled-but-unverified value.
+_CLOSED_FILL_KINDS = {"select", "radio", "checkbox", "combobox"}
+
+
+def _values_match(expected: str, observed: str) -> bool:
+    """Did the field end up holding `expected`, allowing for site formatting?
+
+    Sites normalize as they commit: a phone typed as 4155551212 reads back as
+    "(415) 555-1212", a currency field gains "$", a select shows the option
+    label with trailing whitespace. A strict comparison turns every one of
+    those into a bogus retry. So: casefold, drop non-alphanumerics, and accept
+    when either string contains the other. Two empty strings never match — an
+    empty read-back is the signal that the fill did not land.
+    """
+    a = re.sub(r"[^a-z0-9]+", "", (expected or "").casefold())
+    b = re.sub(r"[^a-z0-9]+", "", (observed or "").casefold())
+    if not a or not b:
+        return False
+    return a in b or b in a
+
+
+def _fill_result(index: int, kind: str, value: str, observed,
+                 expected: str | None = None) -> dict:
+    """Turn a post-fill read-back into an HONEST result.
+
+    Why a proven failure returns status "uncommitted" and not just
+    verified=false: the skills act on `status`. Returning
+    {"status": "filled", "verified": false} would mean an un-updated skill
+    reads a known failure as a success — we would build the detector and then
+    throw the detection away. "uncommitted" is already in both skills'
+    vocabulary with correct handling (one corrective re-fill, then flag), so
+    proven failures are safe with no SKILL.md edit. Keep that property.
+
+    `observed_value` is REQUIRED on every non-verified result: a bare boolean
+    cannot tell "empty, refill" from "wrong option, refill differently".
+    """
+    res = {"index": index, "kind": kind, "status": "filled", "value": value}
+    if observed is None:
+        # The widget exposes no readable value in this DOM. That is not
+        # evidence of failure, so don't claim one — say we can't tell.
+        res["verified"] = None
+        res["note"] = ("fill was issued but this widget exposes no readable "
+                       "value — could not verify; screenshot-audit if the "
+                       "field matters")
+        return res
+    exp = value if expected is None else expected
+    if _values_match(exp, observed):
+        res["verified"] = True
+        return res
+    res["verified"] = False
+    res["observed_value"] = observed
+    if kind in _CLOSED_FILL_KINDS or not str(observed).strip():
+        res["status"] = "uncommitted"
+    return res
 
 
 class BrowserSession:
@@ -485,8 +834,12 @@ class BrowserSession:
             except Exception:
                 continue
             for d in descriptors:
+                # `widget` is the physical shape ("listbox" for a Workday-style
+                # button dropdown); fill_field dispatches on it, never on the
+                # site/ATS.
                 self.fields[d["index"]] = {"frame": frame, "kind": d["kind"],
-                                           "native": d.get("native", True)}
+                                           "native": d.get("native", True),
+                                           "widget": d.get("widget")}
                 counter = max(counter, d["index"] + 1)
                 if values_only:
                     lean = {"index": d["index"], "kind": d["kind"],
@@ -516,59 +869,188 @@ class BrowserSession:
             raise ValueError(f"Unknown field index {index}. Call read_form() first.")
         return meta["frame"].locator(f'[data-jaidx="{index}"]'), meta["kind"]
 
+    async def _read_back(self, index: int):
+        """Read the value the field at `index` is ACTUALLY holding right now.
+
+        Returns "" for "holds nothing", a string for what it holds, and None
+        for "this DOM exposes no readable value" (element gone, or a widget
+        with no value-bearing surface) — a distinction fill_field turns into
+        verified=false vs verified=null. Comboboxes go through _COMBO_VALUE_JS,
+        which itself branches to the shared listbox cascade for <button>
+        widgets, so fill-time verification and read_form's current_value are
+        computed by the same code.
+        """
+        meta = self.fields.get(index) or {}
+        frame = meta.get("frame")
+        if frame is None:
+            return None
+        js = _COMBO_VALUE_JS if meta.get("kind") == "combobox" else _FIELD_VALUE_JS
+        try:
+            return await frame.evaluate(js, index)
+        except Exception:
+            return None
+
     async def fill_field(self, index: int, value: str) -> dict:
-        """Fill any field by index. Dispatches on the field kind:
-        text/combobox -> type; select -> choose option; radio/checkbox -> check.
-        For radio/checkbox, pass "true"/"yes" to check or "false"/"no" to uncheck.
+        """Fill any field by index, then READ THE VALUE BACK and report what
+        actually happened. Dispatches on the field kind and — for dropdowns —
+        on the `widget` shape: text -> type; select -> choose option;
+        radio/checkbox -> check (with a label/wrapper proxy click when the
+        native check is intercepted); combobox -> react-select typeahead, or
+        the listbox open/pick flow when `widget` is "listbox".
+
+        For radio/checkbox, pass "true"/"yes" to check or "false"/"no" to
+        uncheck.
+
+        Every result carries `verified`: true (read back and matches), false
+        (read back and does NOT match — `observed_value` says what is there
+        instead), or null (nothing readable to verify against). A verified=false
+        result on a pick-from-a-list field comes back with status "uncommitted"
+        rather than "filled" — see _fill_result for why that distinction is
+        load-bearing.
         """
         loc, kind = self._locator(index)
+        meta = self.fields.get(index, {})
+        if kind == "combobox":
+            # Dispatch on the WIDGET, never on the site: aria-haspopup=listbox
+            # is an ARIA contract honored by Workday, Oracle, SuccessFactors,
+            # Radix and MUI alike, so one widget branch fixes all of them at
+            # once — and it is strictly less code than an ATS gate, which would
+            # also break this module's no-per-site-selectors invariant.
+            if meta.get("widget") == "listbox":
+                return await self._fill_listbox(index, loc, value)
+            return await self._fill_combobox(index, loc, value)
+        if kind in ("radio", "checkbox"):
+            return await self._fill_toggle(index, loc, kind, value)
         if kind == "select":
             try:
                 await loc.select_option(label=value)
             except Exception:
                 await loc.select_option(value=value)
-        elif kind in ("radio", "checkbox"):
-            # Non-native option (a <button>/[role=radio] in a segmented control,
-            # e.g. Ashby Yes/No): the index already points at the specific option,
-            # so selecting it is just a click — .check() would fail on a <button>.
-            if not self.fields[index].get("native", True):
-                await loc.click()
-            else:
-                check = str(value).strip().lower() in ("true", "yes", "1", "checked", "on")
+        else:  # text / textarea / contenteditable
+            await loc.fill(value)
+        observed = await self._read_back(index)
+        return _fill_result(index, kind, value, observed)
+
+    async def _click_toggle_proxy(self, index: int) -> bool:
+        """Click the element a HUMAN would click for the toggle at `index`
+        (label[for] -> enclosing label -> parent wrapper). Returns whether a
+        proxy was found and clicked. Exactly ONE click: on a toggle control a
+        second click un-sets what the first one set, so never blind-double-
+        click — verify instead."""
+        frame = (self.fields.get(index) or {}).get("frame")
+        if frame is None:
+            return False
+        try:
+            if not await frame.evaluate(_PROXY_JS, index):
+                return False
+            await frame.locator('[data-japroxy="1"]').first.click(timeout=2000)
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                await frame.evaluate(
+                    "() => document.querySelectorAll('[data-japroxy]')"
+                    ".forEach(e => e.removeAttribute('data-japroxy'))")
+            except Exception:
+                pass
+
+    async def _fill_toggle(self, index: int, loc, kind: str, value: str) -> dict:
+        """Check/uncheck a radio or checkbox and verify it stuck.
+
+        Workday paints its own radio over the real <input>, so Playwright's
+        .check() either RAISES ("element intercepts pointer events") or clicks
+        through without firing the React handler — which is how a live run
+        reported every radio on step 2 as "filled" while none of them were.
+        Hence: try the native action, tolerate the raise, then fall back to a
+        single proxy click, then read the state back."""
+        native = self.fields[index].get("native", True)
+        check = str(value).strip().lower() in ("true", "yes", "1", "checked", "on")
+        if not native:
+            # Segmented button option (Ashby Yes/No): the index already points
+            # at the specific option, so selecting it is just a click —
+            # .check() would fail on a <button>. This branch used to return
+            # "filled" unconditionally; it verifies now too.
+            await loc.click()
+            check = True
+        else:
+            try:
                 if check:
                     await loc.check()
                 else:
                     await loc.uncheck()
-        elif kind == "combobox":
-            return await self._fill_combobox(index, loc, value)
-        else:  # text / textarea / contenteditable
-            await loc.fill(value)
-        return {"index": index, "kind": kind, "status": "filled", "value": value}
+            except Exception:
+                pass  # overlaid control — the proxy click below is the real fix
+            try:
+                state = await loc.is_checked()
+            except Exception:
+                state = None
+            if state is None or state != check:
+                await self._click_toggle_proxy(index)
+        observed = await self._read_back(index)
+        if observed is None:
+            return _fill_result(index, kind, value, None)
+        ok = (observed == "checked") if check else (observed != "checked")
+        if ok:
+            return {"index": index, "kind": kind, "status": "filled",
+                    "value": value, "verified": True}
+        return {"index": index, "kind": kind, "status": "uncommitted",
+                "value": value, "verified": False, "observed_value": observed,
+                "note": ("the control did not change state — neither the native "
+                         "check nor a label/wrapper proxy click committed it; "
+                         "re-fill once, then flag for the user")}
 
     @staticmethod
-    def _match_option(value: str, options: list[str]) -> str | None:
+    def _match_option(value: "str | list[str]", options: list[str]) -> str | None:
         """Pick the option that actually MEANS `value`: exact (case-insensitive)
         first, then prefix, then abbreviation (initials — 'US' ↔ 'United
-        States'). Returns None when nothing matches; never falls back to 'first
-        option in the filtered list' (that is how 'US' once selected
-        'AUStralia')."""
-        v = (value or "").strip().lower()
-        if not v:
+        States', 'UCSB' ↔ 'University of California, Santa Barbara'). Returns
+        None when nothing matches; never falls back to 'first option in the
+        filtered list' (that is how 'US' once selected 'AUStralia').
+
+        `value` may be a LIST of candidate spellings. Tiers are tried
+        OUTER, candidates INNER: every candidate gets an exact match attempt
+        before any candidate is allowed a prefix match, and so on. Candidate-
+        outer ordering would let an earlier candidate's prefix hit beat a later
+        candidate's exact hit, which destroys exactly the tiering that stopped
+        'US' from selecting 'AUStralia'.
+
+        The initials tier tries two spellings of each option's initials: the
+        plain one and one with linking stopwords dropped ('of', 'the', ...),
+        because 'University of California, Santa Barbara' initials to UOCSB
+        plainly but UCSB the way humans actually abbreviate it. An initials
+        string shorter than 2 chars is ignored so one-letter noise can't match.
+        """
+        cands = [value] if isinstance(value, str) else list(value or [])
+        pairs = [(c, (c or "").strip().lower()) for c in cands]
+        pairs = [(raw, low) for raw, low in pairs if low]
+        if not pairs:
             return None
 
-        def initials(s: str) -> str:
-            return "".join(w[0] for w in re.findall(r"[A-Za-z]+", s)).lower()
+        def initials(s: str, drop_stopwords: bool = False) -> str:
+            words = re.findall(r"[A-Za-z]+", s or "")
+            if drop_stopwords:
+                words = [w for w in words if w.lower() not in _INITIALS_STOPWORDS]
+            return "".join(w[0] for w in words).lower()
 
-        for o in options:
-            if o.strip().lower() == v:
-                return o
-        for o in options:
-            if o.strip().lower().startswith(v):
-                return o
-        for o in options:
-            if initials(o) == v or initials(value) == o.strip().lower():
-                return o
-        if len(options) == 1 and v in options[0].lower():
+        for _, low in pairs:                                   # tier 1: exact
+            for o in options:
+                if o.strip().lower() == low:
+                    return o
+        for _, low in pairs:                                   # tier 2: prefix
+            for o in options:
+                if o.strip().lower().startswith(low):
+                    return o
+        for raw, low in pairs:                                 # tier 3: initials
+            cand_initials = {s for s in (initials(raw), initials(raw, True))
+                             if len(s) >= 2}
+            for o in options:
+                ol = o.strip().lower()
+                opt_initials = {s for s in (initials(o), initials(o, True))
+                                if len(s) >= 2}
+                if low in opt_initials or ol in cand_initials:
+                    return o
+        if len(options) == 1 and any(low in options[0].lower() for _, low in pairs):
             return options[0]
         return None
 
@@ -592,8 +1074,10 @@ class BrowserSession:
             await self.page.wait_for_timeout(400)
             full = await frame.evaluate(_COMBO_OPTIONS_JS, index)
             await self.page.keyboard.press("Escape")
+            observed = await self._read_back(index)
             return {"index": index, "kind": "combobox", "status": "unmatched",
-                    "value": value, "options": full[:80],
+                    "value": value, "options": full[:80], "verified": False,
+                    "observed_value": "" if observed is None else observed,
                     "note": "no option matched the value; call fill_field "
                             "again with one of `options` verbatim"}
         try:
@@ -606,14 +1090,136 @@ class BrowserSession:
             except Exception:
                 await self.page.keyboard.press("Enter")
         await self.page.wait_for_timeout(200)
-        committed = await frame.evaluate(_COMBO_VALUE_JS, index)
-        if committed:
-            return {"index": index, "kind": "combobox", "status": "filled",
-                    "value": committed}
-        return {"index": index, "kind": "combobox", "status": "uncommitted",
-                "value": value, "matched_option": target,
-                "note": "clicked an option but the widget shows no committed "
-                        "value — verify visually or retry"}
+        committed = await self._read_back(index)
+        res = _fill_result(index, "combobox", value, committed, expected=target)
+        if res.get("verified") is True:
+            res["value"] = committed
+            return res
+        res["matched_option"] = target
+        if res.get("verified") is False:
+            res["note"] = ("clicked an option but the widget did not commit it "
+                           "(observed_value shows what it holds) — re-fill once, "
+                           "then flag for the user")
+        return res
+
+    async def _fill_listbox(self, index: int, loc, value: str) -> dict:
+        """Fill a listbox-button dropdown (`widget` == "listbox": Workday,
+        Oracle, SuccessFactors, Radix, MUI — anything honoring
+        aria-haspopup=listbox).
+
+        Enumerate FIRST: open the widget, and if aria-controls/aria-owns
+        resolved a real popup (so the option list is genuinely this widget's,
+        not a stray on-screen [role=option] sweep), match an option by meaning
+        and click it. Only if the list could not be scoped, or nothing matched,
+        fall back to typing. The typeahead uses delay=100 deliberately — this
+        widget family drops characters typed faster, and a dropped character
+        silently filters to the wrong option; do not lower it.
+        """
+        frame = self.fields[index]["frame"]
+        opened = await self._open_listbox(index, loc)
+        options: list[str] = []
+        try:
+            scoped = bool(await frame.evaluate(_COMBO_SCOPED_JS, index))
+        except Exception:
+            scoped = False
+        if scoped and opened is not False:
+            try:
+                options = await frame.evaluate(_COMBO_OPTIONS_JS, index) or []
+            except Exception:
+                options = []
+            target = self._match_option(value, options)
+            if target is not None:
+                clicked = False
+                for exact in (True, False):
+                    try:
+                        await frame.get_by_role("option", name=target,
+                                                exact=exact).first \
+                            .click(timeout=2000 if exact else 1500)
+                        clicked = True
+                        break
+                    except Exception:
+                        continue
+                if clicked:
+                    await self.page.wait_for_timeout(300)
+                    observed = await self._read_back(index)
+                    res = _fill_result(index, "combobox", value, observed,
+                                       expected=target)
+                    if res.get("verified") is not False:
+                        res["widget"] = "listbox"
+                        if res.get("verified") is True:
+                            res["value"] = observed or value
+                        return res
+        # Fallback: type into the open widget and commit with Enter. This is
+        # also the ONLY path when ARIA scoping failed — an unscoped option list
+        # can belong to a different widget entirely, so clicking from it would
+        # answer the wrong question.
+        await self.page.keyboard.type(value, delay=100)
+        await self.page.wait_for_timeout(600)
+        await self.page.keyboard.press("Enter")
+        await self.page.wait_for_timeout(300)
+        observed = await self._read_back(index)
+        res = _fill_result(index, "combobox", value, observed)
+        res["widget"] = "listbox"
+        if res.get("verified") is True:
+            res["value"] = observed or value
+            return res
+        if res.get("verified") is False:
+            # Leave the widget closed so the next field isn't typed into this
+            # one's open popup.
+            try:
+                await self.page.keyboard.press("Escape")
+            except Exception:
+                pass
+            if scoped and options:
+                res["options"] = options[:80]
+            # "didn't open" and "didn't commit" need different corrective
+            # actions, so never report one as the other.
+            res["note"] = (
+                "the dropdown did not OPEN (aria-expanded stayed false), so no "
+                "option could be picked — something is covering the control or "
+                "another popup is in the way; screenshot before retrying"
+                if opened is False else
+                "the dropdown did not commit a value — re-fill once with one of "
+                "`options` verbatim when they are listed, then flag for the user")
+        return res
+
+    async def _open_listbox(self, index: int, loc):
+        """Make sure a listbox popup is OPEN, and report whether it is:
+        True (open), False (still closed), None (the widget doesn't publish
+        aria-expanded, so proceed blind).
+
+        A listbox button is a TOGGLE. Clicking it unconditionally CLOSES a
+        popup that is already open — and the path that leaves one open is our
+        own failure path (a widget that ignores the Escape we press on
+        failure). That made a perfectly valid fill of the NEXT field fail for
+        reasons that had nothing to do with its value: a cross-field failure
+        that is near-impossible to diagnose from a live run. aria-expanded is
+        the same ARIA contract this widget branch already dispatches on, so
+        reading it first costs nothing and stays site-agnostic.
+        """
+        frame = self.fields[index]["frame"]
+
+        async def state():
+            try:
+                return await frame.evaluate(_EXPANDED_JS, index)
+            except Exception:
+                return None
+
+        if await state() is True:
+            return True                      # already open — clicking closes it
+        await loc.click()
+        await self.page.wait_for_timeout(400)
+        after = await state()
+        if after is None:
+            return None
+        if after is False:
+            # The click may have closed a popup whose open state we couldn't
+            # see. One bounded retry: a menu toggle holds no answer, so
+            # re-clicking it is safe in a way re-clicking a radio is not.
+            await loc.click()
+            await self.page.wait_for_timeout(400)
+            after = await state()
+        return bool(after)
 
     async def fill_many(self, items: list[dict]) -> list[dict]:
         """Fill several fields in one call. `items` is [{index, value}, ...],
@@ -682,9 +1288,11 @@ class BrowserSession:
 
     async def get_field_options(self, index: int) -> dict:
         """Return the selectable options for a dropdown. For a native `select`
-        the options are read directly; for a react-select `combobox` the widget
-        is opened, its `[role=option]` items are read, then it is closed. Use
-        this to see the real choices for a custom combobox before fill_field."""
+        the options are read directly; for a `combobox` — react-select or a
+        listbox button (Workday and friends; both are reported as kind
+        "combobox") — the widget is opened, its `[role=option]` items are read,
+        then it is closed. Use this to see the real choices for a custom
+        dropdown before fill_field."""
         loc, kind = self._locator(index)
         if kind == "select":
             opts = await loc.evaluate(
@@ -693,8 +1301,14 @@ class BrowserSession:
             return {"index": index, "kind": kind, "options": opts}
         if kind == "combobox":
             frame = self.fields[index]["frame"]
-            await loc.click()
-            await self.page.wait_for_timeout(500)
+            # Same toggle hazard as _fill_listbox: only click to open when the
+            # widget isn't already open, or this call closes it and reads an
+            # empty list.
+            if self.fields[index].get("widget") == "listbox":
+                await self._open_listbox(index, loc)
+            else:
+                await loc.click()
+                await self.page.wait_for_timeout(500)
             opts = await frame.evaluate(_COMBO_OPTIONS_JS, index)
             try:
                 await self.page.keyboard.press("Escape")
@@ -821,15 +1435,33 @@ class BrowserSession:
         text = await self.page.inner_text("body")
         return " ".join(text.split())[:8000]
 
+    @staticmethod
+    async def _label_of(cand) -> str:
+        """The visible text of a button-ish locator, whitespace-collapsed and
+        lowercased. Returns "" when it can't be read."""
+        try:
+            raw = await cand.evaluate("el => (el.innerText || el.value || '')")
+        except Exception:
+            return ""
+        return " ".join((raw or "").split()).lower()
+
     async def _find_submit_button(self):
         """Locate the real submit control across all frames. Candidate
-        selectors are tried in priority order, and anything reading like
-        'Quick Apply' is skipped — the naive DOM-first `button:has-text
-        ('Apply')` once clicked Greenhouse's 'Quick Apply with MyGreenhouse'
-        button instead of 'Submit application'."""
-        for sel in ("button[type=submit], input[type=submit]",
-                    "button:has-text('Submit application')",
+        selectors are tried in priority order — EXPLICIT TEXT FIRST, the
+        generic [type=submit] only after — and anything whose label reads like
+        a wizard step control or a 'Quick Apply' shortcut is skipped.
+
+        Both rules are paid for in incidents. The naive DOM-first
+        `button:has-text('Apply')` once clicked Greenhouse's 'Quick Apply with
+        MyGreenhouse' instead of 'Submit application'. Worse, Workday's
+        "Save and Continue" is a `type=submit` button, so with the generic
+        selector first, submit_application on a wizard page clicked NEXT,
+        advanced the wizard, and then reported on the wrong page. Use
+        advance_step() for that; this method must only ever find a real
+        submit."""
+        for sel in ("button:has-text('Submit application')",
                     "button:has-text('Submit')",
+                    "button[type=submit], input[type=submit]",
                     "button:has-text('Apply')"):
             for frame in self.page.frames:
                 try:
@@ -842,14 +1474,147 @@ class BrowserSession:
                     try:
                         if not await cand.is_visible():
                             continue
-                        label = (await cand.evaluate(
-                            "el => (el.innerText || el.value || '')")).lower()
                     except Exception:
+                        continue
+                    label = await self._label_of(cand)
+                    if not label:
                         continue
                     if "quick apply" in label:
                         continue
+                    if _NOT_SUBMIT_RE.search(label):
+                        continue
                     return cand
         return None
+
+    async def _find_advance_button(self):
+        """Locate a wizard's NEXT control across all frames. Returns
+        (locator, label) or (None, "").
+
+        Deliberately NOT shared with `_find_submit_button`: the two have
+        different priorities and different exclusion lists, and one of them is
+        destructive. A shared helper is exactly how the two lists drift apart
+        later and a "Next" click ends up submitting an application.
+
+        Acceptance is by LABEL, not by selector, so the broad last-resort
+        selector can't drag in a random button: the label must read as a step
+        control (`_ADVANCE_RE`) and must not read as a submit (`_SUBMITTY_RE`)
+        — a Review page's only button is Submit, and advance_step reports that
+        as `is_submit_page` instead of clicking it."""
+        for sel in ("button:has-text('Save and Continue')",
+                    "button:has-text('Next')",
+                    "button:has-text('Continue')",
+                    "button[type=submit], input[type=submit]",
+                    "button, input[type=button]"):
+            for frame in self.page.frames:
+                try:
+                    cands = frame.locator(sel)
+                    n = await cands.count()
+                except Exception:
+                    continue
+                for i in range(n):
+                    cand = cands.nth(i)
+                    try:
+                        if not await cand.is_visible():
+                            continue
+                    except Exception:
+                        continue
+                    label = await self._label_of(cand)
+                    if not label or _SUBMITTY_RE.search(label):
+                        continue
+                    if not _ADVANCE_RE.match(label):
+                        continue
+                    return cand, label
+        return None, ""
+
+    async def _collect_errors(self) -> list[dict]:
+        """Validation errors currently shown, across all frames, as
+        [{index, field_label, message}]. `index` is null when the error can't
+        be tied to a scanned field — those are REPORTED, never dropped."""
+        rows: list[dict] = []
+        for frame in self.page.frames:
+            try:
+                rows.extend(await frame.evaluate(_ERRORS_JS) or [])
+            except Exception:
+                continue
+        return rows
+
+    @staticmethod
+    def _label_signature(fields: list[dict]) -> str:
+        """A cheap fingerprint of which questions a page is asking. Workday
+        sometimes advances a wizard WITHOUT changing the URL, so comparing
+        URLs alone reports a real advance as "no_change"; comparing the set of
+        labels catches that case."""
+        return "|".join("%s~%s" % (f.get("label", ""), f.get("kind", ""))
+                        for f in fields)
+
+    async def advance_step(self) -> dict:
+        """Click a multi-step application's NEXT control (Workday's "Save and
+        Continue", any wizard's "Next"/"Continue") and report what happened.
+
+        NOT a submit and NOT destructive: it moves through a wizard, which is
+        why it is ungated while submit_application is not. See the MCP tool
+        docstring for the caller-facing contract. Statuses: "advanced",
+        "blocked_validation", "no_change", "is_submit_page" (nothing clicked),
+        "no_advance_button".
+        """
+        if self.page is None:
+            raise RuntimeError("No page open.")
+        before = await self.read_form()
+        before_sig = self._label_signature(before)
+        before_url = self.page.url
+        loc, label = await self._find_advance_button()
+        if loc is None:
+            # No step control. Either this IS the submit page (and the caller
+            # must go through the gated submit path), or it's a single-page
+            # form. _find_submit_button is used here for DETECTION ONLY —
+            # nothing is clicked on either branch.
+            submit = await self._find_submit_button()
+            if submit is not None:
+                return {"status": "is_submit_page", "url_changed": False,
+                        "current_url": before_url, "errors": [],
+                        "error_count": 0, "unmapped_error_count": 0,
+                        "fields": before,
+                        "button_label": await self._label_of(submit),
+                        "note": "this is the submit page — nothing was "
+                                "clicked; review, confirm with the user, then "
+                                "call submit_application"}
+            return {"status": "no_advance_button", "url_changed": False,
+                    "current_url": before_url, "errors": [], "error_count": 0,
+                    "unmapped_error_count": 0, "fields": before,
+                    "button_label": "",
+                    "note": "no next/continue control found — this is a "
+                            "single-page form"}
+        await loc.click()
+        # Fixed settle, like everywhere else in this module. NEVER
+        # wait_for_load_state("networkidle") here: Workday polls continuously,
+        # so networkidle never fires and the call hangs until timeout.
+        await self.page.wait_for_timeout(2500)
+        # Re-read FIRST: this re-tags the live DOM with data-jaidx, so error
+        # rows map to indexes that exist in the `fields` we return.
+        after = await self.read_form()
+        errors = await self._collect_errors()
+        after_url = self.page.url
+        url_changed = after_url != before_url
+        moved = url_changed or self._label_signature(after) != before_sig
+        unmapped = sum(1 for e in errors if e.get("index") is None)
+        if errors:
+            status = "blocked_validation"
+            note = ("the step did not advance — fix the listed fields and call "
+                    "advance_step again. Errors with index null could not be "
+                    "tied to a scanned field (often a visually-hidden input); "
+                    "match them by field_label")
+        elif moved:
+            status = "advanced"
+            note = ("advanced to the next step — ALL field indexes from before "
+                    "this call are dead; use the `fields` in this result")
+        else:
+            status = "no_change"
+            note = ("clicked but neither the URL nor the questions changed — a "
+                    "swallowed click or a modal; screenshot before retrying")
+        return {"status": status, "url_changed": url_changed,
+                "current_url": after_url, "errors": errors,
+                "error_count": len(errors), "unmapped_error_count": unmapped,
+                "fields": after, "button_label": label, "note": note}
 
     # Explicit post-submit signals. Success is only ever concluded from
     # positive success text — a spam rejection (Ashby, invisible reCAPTCHA v3)
@@ -909,7 +1674,18 @@ class BrowserSession:
         """Click the submit control. DESTRUCTIVE — the caller (skill) must
         confirm with the user first. If `index` is given, that field is
         clicked; otherwise the submit button is located across frames
-        (excluding 'Quick Apply' style buttons).
+        (excluding 'Quick Apply' shortcuts and wizard step controls — see
+        _find_submit_button).
+
+        On a multi-step wizard page there is no submit control, so this
+        returns "no_submit_button" with `form_snapshot` intact and clicks
+        NOTHING. That is the intended outcome: failing honestly beats clicking
+        "Save and Continue", advancing the wizard, and reporting on a page the
+        caller never saw. Use advance_step() to move through a wizard.
+
+        An explicit `index` BYPASSES that guard entirely — it clicks whatever
+        the caller points at, so only pass one when you have verified the
+        element is the real submit.
 
         Snapshots the form (labels + current values) just before clicking and
         returns it as `form_snapshot` so the caller can persist what was
