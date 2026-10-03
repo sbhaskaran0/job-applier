@@ -154,6 +154,25 @@ def load_credentials() -> dict:
     return creds
 
 
+def credential(service: str, field: str):
+    """One credential value for server-side use: (value, None), or
+    (None, {"status": "no_credentials"|"bad_credentials_file", "hint"}).
+    Shared by fill_credential and BrowserSession.authenticate so both apply
+    the same placeholder rules. The value must never be returned to a tool
+    caller."""
+    creds = load_credentials() or {}
+    if creds.get("_error"):
+        return None, {"status": "bad_credentials_file",
+                      "hint": "credentials.yaml is not valid YAML; user must fix it"}
+    entry = creds.get(service)
+    value = entry.get(field) if isinstance(entry, dict) else None
+    if not value or str(value).strip() in ("", "change-me"):
+        return None, {"status": "no_credentials",
+                      "hint": "user must create profiles/<id>/secrets/credentials.yaml "
+                              "(see profiles/_template/secrets/credentials.example.yaml)"}
+    return str(value), None
+
+
 def sync_resume_text_from_pdf() -> bool:
     """If a resume.pdf exists and is newer than resume.txt, extract its text and
     (over)write resume.txt so the reasoning text stays in sync with the document

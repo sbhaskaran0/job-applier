@@ -8,6 +8,7 @@ and the memory. Run via:  python -m src.mcp_server   (stdio transport).
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from mcp.server.mcpserver import MCPServer
 
@@ -123,19 +124,12 @@ async def fill_credential(index: int, field: str = "password",
     if field not in ("password", "email"):
         return {"index": index, "status": "bad_field",
                 "error": 'field must be "password" or "email"'}
-    creds = config.load_credentials() or {}
-    if creds.get("_error"):
-        return {"status": "bad_credentials_file",
-                "hint": "credentials.yaml is not valid YAML; user must fix it"}
-    entry = creds.get(service)
-    value = entry.get(field) if isinstance(entry, dict) else None
-    if not value or str(value).strip() in ("", "change-me"):
-        return {"status": "no_credentials",
-                "hint": "user must create profiles/<id>/secrets/credentials.yaml "
-                        "(see profiles/_template/secrets/credentials.example.yaml)"}
+    value, err = config.credential(service, field)
+    if err:
+        return err
     try:
         res = await browser.session.fill_sensitive(
-            index, str(value), require_password=(field == "password"))
+            index, value, require_password=(field == "password"))
     except Exception as e:  # never str(e): it may embed the value
         res = {"index": index, "status": "error", "error": type(e).__name__}
     res = {k: res[k] for k in ("index", "status", "verified", "error") if k in res}
@@ -235,11 +229,105 @@ async def advance_step() -> dict:
       - "is_submit_page" — the only control here is Submit, so NOTHING was
         clicked. Review, confirm with the user, then call submit_application.
         Never use advance_step as a way to "check" the review page.
+      - "entry_page" — a job page / "Start Your Application" chooser (only
+        Apply-like controls). Nothing clicked; call start_application.
+      - "auth_page" — a sign-in / create-account page. Nothing clicked; call
+        authenticate.
       - "no_advance_button" — single-page form; just submit it.
 
     `fields` is always a fresh read of the page as it now stands, so you never
     need a separate read_form after this call."""
     return await browser.session.advance_step()
+
+
+@mcp.tool()
+async def start_application() -> dict:
+    """Get from a job page to the application form (or its sign-in gate) on
+    the ACTIVE tab. Clicks only entry controls: "Apply" on the job page, then
+    "Apply Manually" on Workday's "Start Your Application" chooser, and an
+    "Sign in with email" reveal behind an SSO chooser. It NEVER clicks
+    "Autofill with Resume", "Use My Last Application", SSO buttons, or any
+    submit. Idempotent: on a form or auth page it only classifies. Not gated.
+
+    Returns {status, url, fields, auth}:
+      - "form" — the application form is showing; `fields` is a fresh
+        read_form (passwords masked).
+      - "auth_required" — a sign-in / create-account page. `auth` is
+        {mode: "sign_in"|"create_account"|"unknown", available, email_index,
+        password_index, confirm_index, consent_indexes, submit_label}. Call
+        authenticate() next; never type a password yourself.
+      - "blocked" — a visible CAPTCHA (`signals`); hand to the user.
+      - "no_entry" — nothing to click (dead posting or unknown layout).
+      - "already_in_application" — the tab was already filled, or shows a
+        Back control / step indicator; an "Apply" there may be the FINAL
+        submit, so nothing was clicked. Use advance_step / submit_application."""
+    return await browser.session.start_application()
+
+
+@mcp.tool()
+async def authenticate(mode: str = "auto") -> dict:
+    """Sign in to, or create, the ATS tenant account on the active tab using
+    the user's local credentials.yaml (workday: email/password). The values
+    are filled server-side and NEVER returned; you never see or invent a
+    password. mode: "auto" (default; follows the page, falls back once
+    between sign-in and create-account), "sign_in" or "create_account".
+    Creating a tenant account is allowed in batch Stage A. At most 2 auth
+    submits per call; a wrong password is never retried.
+
+    Returns {status, url, message_excerpt} (message_excerpt is visible page
+    notice text, <= 200 chars, credentials redacted). Statuses:
+      - "authenticated" — the application form is visible; read_form next.
+      - "email_verification_required" — fetch the email from the inbox, then
+        open_verification_link(url) for a link, or detect_verification_gate /
+        fill_verification_code for a code; then authenticate() again.
+      - "account_exists" — create-account said the account exists and the
+        automatic switch to sign-in was not possible.
+      - "no_account" — sign-in said no such user (mode "sign_in" only, else it
+        switches to create-account once automatically).
+      - "bad_credentials" — wrong password. STOP and park; do not retry.
+      - "no_credentials" / "bad_credentials_file" — the user must create or fix
+        profiles/<id>/secrets/credentials.yaml; the page was not touched.
+      - "blocked" — visible CAPTCHA. "unconfirmed" — submitted but the
+        result is unclear; screenshot. "error" — exception type only in
+        `error`. Also "toggle_failed", "no_auth_submit", "bad_mode",
+        "no_entry", "already_in_application".
+      - "unsupported_auth_flow" — not a Workday host (credentials are only
+        ever used on *.myworkdayjobs.com / *.myworkday.com / *.workday.com),
+        or no password field. Park; the user signs in by hand.
+      - "recently_submitted" — an auth submit hit this tenant < 60s ago, so
+        the page was only classified. Wait, then call again.
+    Lockout budget: a per-tenant ledger (profiles/<id>/runtime/
+    auth_attempts.json, timestamps + outcomes only) allows at most one failed
+    sign-in per tenant per 24h; after bad_credentials every call for that
+    tenant returns bad_credentials without submitting until 24h pass or the
+    USER asks for clear_auth_ledger."""
+    return await browser.session.authenticate(mode)
+
+
+@mcp.tool()
+def clear_auth_ledger(tenant: str = "") -> dict:
+    """ONLY on the user's explicit request (e.g. "I fixed my Workday password,
+    try again"). Never call this on your own to get around a
+    bad_credentials result: the ledger is what stops repeated sign-in
+    attempts from locking the user's tenant account. Clears the recorded
+    auth attempts for one tenant (`tenant` = host or URL, e.g.
+    acme.wd5.myworkdayjobs.com) or for all tenants when empty. Returns
+    {status: "cleared", tenants}."""
+    return browser.session.clear_auth_ledger(tenant)
+
+
+@mcp.tool()
+async def open_verification_link(url: str) -> dict:
+    """Open an account-verification link (from the applicant's email) in a
+    NEW tab of the session, read up to 300 chars of its text, close it, and
+    reload the original application tab. Only https links whose ASCII host
+    is on a Workday domain (dot-boundary: *.myworkdayjobs.com,
+    *.myworkday.com, *.workday.com), with no userinfo and no port, and on the
+    same Workday domain as the active tab, are opened; anything else returns
+    {status: "not_allowed"} untouched.
+    Returns {status: "opened", text_excerpt, note}. Then call authenticate()
+    (or start_application) again."""
+    return await browser.session.open_verification_link(url)
 
 
 @mcp.tool()
@@ -258,9 +346,17 @@ async def snapshot_job(url: str, company: str = "", out_dir: str = "") -> dict:
 
     It composes existing primitives (open_job -> read the form + intervention,
     get_job_text -> the JD) and WRITES the prep file directly, so it is exactly
-    as ATS-agnostic as read_form (any ATS, no per-site rules). It does not click
-    or type, so it captures precisely the initially-rendered fields — same
-    fidelity as a manual read_form. Snapshotting fills nothing, so the active tab
+    as ATS-agnostic as read_form (any ATS, no per-site rules). On a normal page
+    it does not click or type, so it captures precisely the initially-rendered
+    fields — same fidelity as a manual read_form. Exception: a page with no
+    form fields (page chrome such as a language picker ignored) on a
+    myworkdayjobs.com host, or one showing an Apply-like control,
+    is walked to the form first (JD read before leaving the description):
+    start_application, then authenticate when it reports auth_required (Stage
+    A may create the tenant account). The receipt carries `entry_status` and
+    `auth_status`; any auth result other than "authenticated" parks with
+    park_reason "<auth_status>: <message_excerpt>". Snapshotting fills no
+    application answers (only, on that path, the account login), so the active tab
     is reused (no new_tab); resume.txt is re-synced from resume.pdf as a harmless
     side effect of open_job.
 
@@ -296,15 +392,46 @@ async def snapshot_job(url: str, company: str = "", out_dir: str = "") -> dict:
     title = opened.get("title", "")
     ats = opened.get("detected_ats", "")
     base = {"url": url, "company": company, "job_title": title, "ats": ats,
-            "prep_path": None, "field_count": 0, "required_count": 0}
+            "prep_path": None, "field_count": 0, "required_count": 0,
+            "entry_status": None, "auth_status": None}
     if interv.get("blocked"):
         return {**base, "status": "parked",
                 "park_reason": "blocked at open: "
                 + (interv.get("message") or "visible challenge")}
+    jd_text = None
+    if not browser.form_fields(fields) and (
+            browser.is_workday_host(urlparse(url).hostname or "")
+            or await browser.session.has_entry_control()):
+        # A Workday job page shows only "Apply": read the JD HERE, before
+        # leaving the description, then walk to the form.
+        jd_text = await browser.session.get_job_text()
+        entry = await browser.session.start_application()
+        entry_status = base["entry_status"] = entry.get("status")
+        if entry_status == "form":
+            fields = entry.get("fields") or []
+        elif entry_status == "auth_required":
+            # Credentials are Workday-only: an "Apply" that led to iCIMS /
+            # Taleo / SuccessFactors parks instead of signing in there.
+            here = urlparse(entry.get("url") or browser.session.page.url).hostname
+            if not browser.is_workday_host(here or ""):
+                return {**base, "status": "parked",
+                        "park_reason": "auth_required on a non-Workday host "
+                                       "(%s); sign in manually" % (here or "?")}
+            auth = await browser.session.authenticate()
+            auth_status = base["auth_status"] = auth.get("status")
+            if auth_status != "authenticated":
+                return {**base, "status": "parked",
+                        "park_reason": "%s: %s" % (
+                            auth_status, auth.get("message_excerpt") or "")}
+            fields = await browser.session.read_form()
+        else:
+            return {**base, "status": "parked",
+                    "park_reason": "entry %s" % entry_status}
     if not fields:
         return {**base, "status": "parked",
                 "park_reason": "no fields (dead/removed posting or unreadable form)"}
-    jd_text = await browser.session.get_job_text()
+    if jd_text is None:
+        jd_text = await browser.session.get_job_text()
     prep_dir = Path(out_dir) if out_dir else config.PREP_DIR
     prep_dir.mkdir(parents=True, exist_ok=True)
     prep_path = prep_dir / f"{tailor.job_slug(company, title, url)}.json"
