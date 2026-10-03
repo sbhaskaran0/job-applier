@@ -54,7 +54,7 @@ playwright install chromium          # the browser the agent drives
 
 Then, in Claude Code, **open this project and reload it** so it loads
 [.mcp.json](.mcp.json). Run `/mcp` — you should see the `job-applier` server with
-**35 tools**.
+**43 tools**.
 
 > Whenever you change code in `src/`, reload Claude Code so the MCP server
 > restarts with the new code.
@@ -92,12 +92,14 @@ the one shared file, at the repo root.
 | File                                   | Purpose                                                                                                                                                          |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `profiles/<id>/profile.yaml`           | Your exact facts (name, email, phone, location, work auth, links…). Filled fields auto-answer forms. Leave a field `""` to skip it.                              |
+| `profiles/<id>/secrets/credentials.yaml` | **Local-only, gitignored.** Your one shared ATS account password (and optional email) for Workday sign-in; copy `profiles/_template/secrets/credentials.example.yaml`. See §7 "Workday applications". |
 | `profiles/<id>/eeo.yaml`               | **Local-only, voluntary** EEO self-ID (gender, race/ethnicity, veteran, disability). Merged into your profile at read time; never synced, never shown in the webapp. Leave values `""` to skip those form fields. |
 | `profiles/<id>/resume.txt`             | Resume **text** used for crafting answers.                                                                                                                       |
 | `resume.pdf` (add to the profile root) | The actual file **uploaded** to forms (preferred over `.txt`). On each apply, its text is auto-synced into `resume.txt`.                                         |
 | `profiles/<id>/context/`               | Your "knowledge base" — `background.md`, `stories.md`, `preferences.md`, and any `.md` / `.txt` / `**.pdf`** you add. Searched when crafting open-ended answers. |
 | `profiles/<id>/criteria.yaml`          | The strict bar for `/find-jobs`: acceptable titles, seniority, locations/remote, and `salary_floor` (currently **$130k**; mid-level ops titles allowed and `Associate` not excluded, per JOB-26). |
 | [watchlist.yaml](watchlist.yaml)       | **Shared, repo root.** The companies searched by `/find-jobs` (80 as of 2026-09-09, incl. Series B+ LA/remote startups added 2026-07-04, mid-level S&O/BizOps sources added 2026-07-05 for JOB-26, the 2026-07-12 batch — Harvey, Zip, Abridge, Mixpanel… — 21 discovery adoptions added 2026-07-13, and 12 more added 2026-07-24 — Headway, Flock Safety, ClickUp, Cursor, Turquoise Health, Kong, SentiLink…). Most rows' `slug` is a plain ATS slug; a **Workday** row's `slug` instead packs `"tenant:shard:site"` (quoted — the colons would otherwise break YAML), e.g. `"capitalone:wd12:Capital_One"` — see §5c. |
+| `profiles/<id>/context/cover_letter_template.md` | The written structure your cover letters follow (generic version in `profiles/_template/context/`). Edit it to change every future letter; it is searchable but not used as a voice sample. |
 | `profiles/<id>/data/history.json`      | Past Q&A answers. Grows automatically as you approve crafted answers.                                                                                            |
 | [profiles/_template/](profiles/_template/) | Tracked skeleton (`profile.yaml`, `eeo.yaml`, `criteria.yaml`, README) — copy it to `profiles/<your-id>/` to onboard a new user. |
 
@@ -231,7 +233,15 @@ stated explicitly.
     while you are logged on (it can wake a sleeping machine, but not a
     logged-off one).
   - **Catch-up on logon:** The task also runs 10 minutes after logon, which catches up a missed 09:00 run (a run is skipped if one succeeded in the last 12h; `--force` overrides).
-  - **Log location:** Runs are logged to `data\refresh.log`.
+  - **Log location:** Runs are logged to `data\refresh.log` (rotated at ~1 MB).
+  - **Health + staleness:** every run writes `data/refresh-health.json`; the
+    Postings page shows an amber banner when postings are over 26h old or the
+    last refresh failed, and the digest notes a gap over 30h ("missed scheduled
+    runs?"). Force a run past the 12h guard with `scripts\refresh.cmd --force` or
+    `JOBAPPLIER_FORCE_REFRESH=1`.
+  - **Workday removals:** a Workday posting is only marked removed after **2
+    consecutive** complete fetches miss it (Workday listings page unstably);
+    other boards remove on the first complete miss.
 - **Linux (cron):** `0 9 * * * cd /path/to/job-applier && python3 -m src.refresh`
 - **macOS:** the same cron line, or a launchd agent.
 
@@ -493,6 +503,37 @@ So an autonomous run ends the same way a batch run does: **"N submitted · K
 awaiting your manual submit · M parked"**, with every unsubmittable job left
 filled for a one- or two-click finish.
 
+### Workday applications (built; live verification pending)
+
+Workday needs an account per company tenant. One-time setup:
+
+1. Copy `profiles/_template/secrets/credentials.example.yaml` to
+   `profiles/<id>/secrets/credentials.yaml` and fill in the one shared password
+   you want for Workday accounts (email is optional, defaults to your profile
+   email). The file is gitignored and local-only.
+2. **Never paste the password into the chat.** The agent never needs it; it types
+   it server-side from this file, and will never invent one. If it asks you for
+   one or makes one up, stop it.
+3. Fill the structured `experience:` and `education:` blocks (and `gpa_policy`:
+   `always`, `if_required` or `never`) in `profile.yaml`; dates are `"YYYY-MM"`.
+   `zip` is also a profile field now (used on forms and in the cover-letter
+   letterhead).
+
+What you will see: the agent clicks Apply (and Apply Manually), signs in or
+creates the account, handles the verification email through Gmail (opening the
+link or typing the code), fills each page, completes My Experience from your
+profile blocks, and **stops at the final page for your explicit go-ahead**; it
+never submits without it. If a sign-in fails with a wrong password it **stops
+and does not retry**: only one failed sign-in per tenant per 24h is allowed, to
+protect you from a lockout. After you fix the password, tell the agent ("I fixed
+my Workday password, try again") and it will clear the lockout record
+(`clear_auth_ledger`). Credentials are only ever typed on Workday hosts; on any
+other site it parks.
+
+Limits: not yet run against a live tenant (watch the first one); SSO-only tenants
+(a Google/LinkedIn-only sign-in such as Snap's) need you to sign in manually; the
+multi-select dropdown fix is pending.
+
 ### Safety
 
 - **By default it never submits on its own.** `submit_application` runs only when
@@ -539,10 +580,33 @@ What happens:
   the profile's `context/` so it matches **your writing voice** — sentence rhythm,
    structure, tone — not a generic AI register. The job description supplies only
    the substance. You approve or edit before it's saved.
+   The letter follows `context/cover_letter_template.md` and is drafted by the
+   Opus-pinned `answer-crafter` agent. The letterhead (name 26pt in Mongolian
+   Baiti, address, `zip`, phone, email, today's date) is **rendered by code** from
+   your `profile.yaml`, so make sure `zip` is filled; a letterhead typed into the
+   draft is stripped. Before saving, the letter is **linted**: HARD failures (em
+   or en dashes, missing salutation or sign-off, parentheticals, contact details
+   or placeholders in the body, outside 270-460 words, outside 3-6 paragraphs)
+   block the save and the agent fixes and retries; SOFT findings (outside the
+   295-425 word target, non-canonical opener/closer, AI-sounding phrases) only
+   warn. The agent uses `force` only if **you** say to save despite a HARD
+   failure. An optional `cover_letter_template.docx` (with `{{full_name}}`,
+   `{{address}}`, `{{phone}}`, `{{email}}`, `{{date}}`, `{{body}}`) in your profile
+   root replaces the generated layout.
 3. Both artifacts are stored under the profile's `resumes/<job-key>/`. The next
   `/apply-to-job` or `/apply-batch` for that exact posting **automatically**
    uploads the tailored resume and attaches/pastes the cover letter; every other
    job still uses the default resume.
+
+**Cover letters on Greenhouse:** at apply time the cover letter is uploaded with
+`upload_resume(target="cover")` into a cover-labelled file input only, never the
+resume slot, and the filename is read back to confirm. If the form has no cover
+upload slot the agent pastes the text instead. (Before 2026-10 a cover upload
+could silently replace the resume; check any earlier Greenhouse submission, for
+example the 2026-09-16 Stripe one.) Not yet verified on a live form.
+
+In the web app, tailoring several roles runs **one at a time**: an "Up next"
+queue offers a Continue button after you approve each result.
 
 **To enable resume tailoring, drop a `resume.docx` in the active profile's
 root** (`profiles/<id>/`) — the
@@ -644,7 +708,7 @@ Notes:
 
 ---
 
-## 8. The full tool set (35)
+## 8. The full tool set (43)
 
 **Browser / apply**
 
@@ -661,10 +725,34 @@ way to expand a summarized `<select>` list).
 - `fill_field(index, value)` — fill one field (text/select/radio/checkbox/combobox).
 Returns `verified: true|false|null` plus `observed_value` to confirm the field
 accepted the input; a proven failure on a pick-from-a-list field returns
-`status: "uncommitted"` instead of `"filled"`.
+`status: "uncommitted"` instead of `"filled"`; password fields are refused.
 - `fill_many([{index,value}])` — **fill many fields in one call** (the fast path).
 Each result carries `verified` and `observed_value` for safe error handling.
-- `upload_resume([index])` — attach the resume (auto-finds hidden file inputs).
+- `upload_resume([index], path, target)` — attach the resume (auto-finds hidden file
+inputs). `target="cover"` + the cover-letter path uploads into a cover-labelled
+input only (never the resume slot; `no_cover_slot` if none). Always returns
+`verified` + `observed_filename`; a cover upload that lands in the resume slot
+returns `status: "error"`.
+- `fill_repeating_section(section)` — fill Workday's "My Experience" Work
+Experience / Education groups from your profile's `experience:` / `education:`
+blocks (fill-blanks only, safe to re-run). Statuses include `ok`,
+`already_present`, `partial`, `section_not_found`, `no_add_button`,
+`no_entries`.
+- `fill_credential(index, field, service)` — type your Workday email/password from
+`credentials.yaml` server-side; the value is never shown. `fill_field` /
+`fill_many` refuse password fields (`use_fill_credential`).
+- `start_application()` — get from a job page to the form or its sign-in gate
+(clicks only Apply / Apply Manually / "Sign in with email"; never Autofill with
+Resume, Use My Last Application, SSO, or submit). Returns `form`,
+`auth_required`, `blocked`, `no_entry`, or `already_in_application`.
+- `authenticate([mode])` — sign in to or create the Workday tenant account using
+`credentials.yaml`. Statuses: `authenticated`, `email_verification_required`,
+`bad_credentials` (stop), `no_credentials`, `unsupported_auth_flow` (non-Workday
+host), `recently_submitted`, and more. Guarded by the auth-attempt ledger.
+- `open_verification_link(url)` — open a Workday verification link from your
+email in a side tab, then reload the application tab (Workday hosts only).
+- `clear_auth_ledger([tenant])` — **only on your request**; lifts the
+failed-sign-in lockout for a tenant.
 - `screenshot([path])` — capture the page for review (saved under the profile's
 `runtime/` dir — `current_page.png` by default).
 - `get_job_text()` — the visible page text (read a JD).
@@ -684,7 +772,9 @@ read the new page. Returns `advanced` (fresh fields on the new page; all prior
 indexes are dead), `blocked_validation` (form errors, possibly `null`
 index for hidden fields, counted in `unmapped_error_count` — match those by
 `field_label`), `no_change`, `is_submit_page` (only a Submit control here), or
-`no_advance_button`. `is_submit_page` means **nothing was clicked** — it hands
+`no_advance_button`, or on Workday `entry_page` / `auth_page` (nothing clicked;
+call `start_application` / `authenticate`). "Review" advances; `is_submit_page`
+means **nothing was clicked** — it hands
 off to the gated `submit_application` below, which is enforced in the tool rather
 than left to the agent to remember. Advancing is not submitting and is not gated.
 - `submit_application([index])` — **gated**; only on your explicit go-ahead. The
@@ -720,9 +810,14 @@ trim edits to a copy of the base, save the profile's
 `resumes/<job-slug>/resume.docx`, export
 `resume.pdf` (formatting preserved).
 - `get_cover_letter_examples()` — full text of your past cover letters + writing
-samples, as voice exemplars.
-- `save_cover_letter(company, job_title, url, text)` — persist the drafted cover
-letter (`cover_letter.txt` + `.pdf`).
+samples, as voice exemplars (the template file is excluded).
+- `save_cover_letter(company, job_title, url, text, force)` — lint, then persist
+the drafted cover letter (`cover_letter.txt` + `.pdf`, letterhead rendered from
+your profile). A HARD lint failure refuses the save and returns
+`{saved: false, lint}`; `force=True` only with your OK. Always returns `saved`
+and `lint`.
+- `lint_text(text, kind)` — style-lint a free-text answer (`kind="answer"`) or a
+cover letter before filling it; returns `{ok, hard, soft, word_count}`.
 - `get_job_artifacts(company, job_title, url)` — at apply time, resolve the
 tailored resume/cover letter for a job, falling back to the default resume.
 
@@ -758,7 +853,7 @@ experience.
 ## 10. Known limits & tips
 
 - **Reload after code changes.** The MCP server caches code until Claude Code
-restarts. (This is why the live Workday run hasn't happened yet — M1/M2 changes need restart.)
+restarts. (New Workday and upload tools only appear after a restart.)
 - **Answer history hygiene:** `scripts/repair_history_markup.py` (dry-run by default) can repair tool-call markup that may have leaked into stored answer text. Run it if you notice markdown or function calls in your reused answers.
 - **Lever postings:** the base URL is the job description; the form is at
 `<url>/apply` (the skill handles this).
@@ -779,12 +874,14 @@ from the company is the ground truth that a submit landed.
 - **A stale `OPENAI_API_KEY`** may still sit in [.env](.env) from the old version;
 it's unused now and safe to delete.
 - **Workday boards:** Postings are discovered, ranked and deep-read like any other
-board. The framework for multi-page wizard forms is now verified by 181 tests
-and a synthetic DOM harness, but **no live Workday application has run yet** —
-that is still outstanding. Creating an account and stepping through Workday's
-multi-page apply flow is planned as M1 (not yet built). Workday also **never
-exposes salary data** anywhere in its API, so every Workday row shows "salary
-not listed" — that's not a missed extraction, it's the platform.
+board. Applying (Apply, sign-in, My Experience, wizard) is **built but not yet
+verified live**: expect to watch the first real run. Known gaps: the multi-select
+fix (D3) is pending, and **SSO-only tenants** (for example Snap's Google/LinkedIn
+sign-in screen) cannot be signed in by the agent; it parks and you sign in by
+hand. Workday also **never exposes salary data** anywhere in its API, so every
+Workday row shows "salary not listed", which is the platform, not a missed
+extraction.
+- **Also pending live checks:** Greenhouse cover-letter upload and read-back.
 
 ---
 
@@ -802,13 +899,14 @@ Job Applier/
 │     ├─ criteria.yaml           # strict search bar (titles/seniority/salary/location)
 │     ├─ resume.txt (resume.pdf) # reasoning text  (uploaded file)
 │     ├─ resume.docx             # base template for /tailor-application (you add it)
-│     ├─ context/                # knowledge base (md/txt/pdf) for crafting answers
+│     ├─ context/                # knowledge base (md/txt/pdf); cover_letter_template.md = letter structure
+│     ├─ secrets/credentials.yaml # local-only Workday password (you create it; gitignored)
 │     ├─ resumes/                # per-job tailored resume + cover letter
 │     ├─ data/
 │     │  ├─ history.json         # learned answers
 │     │  ├─ applications.json    # application tracker (verified submits)
 │     │  └─ prep/                # batch-mode prep files/sheets
-│     └─ runtime/                # screenshots (current_page.png) + persistent browser profile
+│     └─ runtime/                # screenshots, persistent browser profile, auth_attempts.json (Workday lockout ledger)
 ├─ watchlist.yaml                # 80 target companies (shared); Workday rows' slug is "tenant:shard:site"
 ├─ location_aliases.yaml         # location normalization (shared)
 ├─ discovery.yaml                # startup-discovery sources (YC + VC portfolio boards)
@@ -816,7 +914,9 @@ Job Applier/
 ├─ data/digest-latest.md         # refresh digest (gitignored, regenerated)
 ├─ data/near-misses-latest.md    # title-gate audit report (gitignored, regenerated; §5)
 ├─ data/prep/                    # batch-mode prep files/sheets (gitignored)
-├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows)
+├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows; logs to dataefresh.log)
+├─ scripts/refresh_guard.py      # skip-if-succeeded-<12h pre-flight + log rotation
+├─ scripts/setup_refresh_task.ps1 # register the wake-aware daily + at-logon task (idempotent)
 ├─ scripts/near_misses.py        # title-gate near-miss audit (python scripts/near_misses.py; §5)
 ├─ scripts/webapp.cmd            # launch the Applyer web wrapper (§7b)
 ├─ scripts/migrate_profile.py    # one-shot: move a pre-profile checkout into profiles/<id>/
@@ -824,9 +924,10 @@ Job Applier/
 ├─ server/                       # FastAPI backend: /api/* + /ws/chat (Agent SDK bridge)
 ├─ frontend/                     # Applyer React SPA (Vite + TS; npm run build → dist/)
 ├─ src/
-│  ├─ mcp_server.py              # the 35 tools
+│  ├─ mcp_server.py              # the 43 tools
 │  ├─ profiles.py                # active-profile resolution (env → applyer.local.json → …)
-│  ├─ browser.py                 # ATS-agnostic form reading/filling
+│  ├─ browser.py                 # ATS-agnostic form reading/filling + Workday entry/auth
+│  ├─ repeating.py               # repeating sections (Workday My Experience)
 │  ├─ data.py                    # profile lookup + history
 │  ├─ context.py                 # knowledge-base retrieval
 │  ├─ tailor.py                  # JOB-6 per-job resume/cover-letter tailoring
@@ -849,6 +950,7 @@ Job Applier/
    ├─ apply-to-job/SKILL.md      # /apply-to-job
    ├─ apply-batch/SKILL.md       # /apply-batch (queue mode)
    ├─ tailor-application/SKILL.md # /tailor-application (per-job resume + cover letter)
+   (agents/answer-crafter.md    # Opus-pinned drafting subagent, under .claude/agents/)
    └─ commit/SKILL.md            # /commit (dev: commit + docs/diagram hygiene)
 ```
 
