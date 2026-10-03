@@ -257,7 +257,10 @@ async def start_application() -> dict:
         password_index, confirm_index, consent_indexes, submit_label}. Call
         authenticate() next; never type a password yourself.
       - "blocked" — a visible CAPTCHA (`signals`); hand to the user.
-      - "no_entry" — nothing to click (dead posting or unknown layout)."""
+      - "no_entry" — nothing to click (dead posting or unknown layout).
+      - "already_in_application" — the tab was already filled, or shows a
+        Back control / step indicator; an "Apply" there may be the FINAL
+        submit, so nothing was clicked. Use advance_step / submit_application."""
     return await browser.session.start_application()
 
 
@@ -286,18 +289,42 @@ async def authenticate(mode: str = "auto") -> dict:
         profiles/<id>/secrets/credentials.yaml; the page was not touched.
       - "blocked" — visible CAPTCHA. "unconfirmed" — submitted but the
         result is unclear; screenshot. "error" — exception type only in
-        `error`. Also "toggle_failed", "no_auth_submit",
-        "unsupported_auth_flow", "bad_mode", "no_entry"."""
+        `error`. Also "toggle_failed", "no_auth_submit", "bad_mode",
+        "no_entry", "already_in_application".
+      - "unsupported_auth_flow" — not a Workday host (credentials are only
+        ever used on *.myworkdayjobs.com / *.myworkday.com / *.workday.com),
+        or no password field. Park; the user signs in by hand.
+      - "recently_submitted" — an auth submit hit this tenant < 60s ago, so
+        the page was only classified. Wait, then call again.
+    Lockout budget: a per-tenant ledger (profiles/<id>/runtime/
+    auth_attempts.json, timestamps + outcomes only) allows at most one failed
+    sign-in per tenant per 24h; after bad_credentials every call for that
+    tenant returns bad_credentials without submitting until 24h pass or the
+    USER asks for clear_auth_ledger."""
     return await browser.session.authenticate(mode)
+
+
+@mcp.tool()
+def clear_auth_ledger(tenant: str = "") -> dict:
+    """ONLY on the user's explicit request (e.g. "I fixed my Workday password,
+    try again"). Never call this on your own to get around a
+    bad_credentials result: the ledger is what stops repeated sign-in
+    attempts from locking the user's tenant account. Clears the recorded
+    auth attempts for one tenant (`tenant` = host or URL, e.g.
+    acme.wd5.myworkdayjobs.com) or for all tenants when empty. Returns
+    {status: "cleared", tenants}."""
+    return browser.session.clear_auth_ledger(tenant)
 
 
 @mcp.tool()
 async def open_verification_link(url: str) -> dict:
     """Open an account-verification link (from the applicant's email) in a
     NEW tab of the session, read up to 300 chars of its text, close it, and
-    reload the original application tab. Only https links on a Workday host
-    (*.myworkdayjobs.com, *.myworkday.com, or a host containing "workday")
-    are opened; anything else returns {status: "not_allowed"} untouched.
+    reload the original application tab. Only https links whose ASCII host
+    is on a Workday domain (dot-boundary: *.myworkdayjobs.com,
+    *.myworkday.com, *.workday.com), with no userinfo and no port, and on the
+    same Workday domain as the active tab, are opened; anything else returns
+    {status: "not_allowed"} untouched.
     Returns {status: "opened", text_excerpt, note}. Then call authenticate()
     (or start_application) again."""
     return await browser.session.open_verification_link(url)
@@ -373,7 +400,7 @@ async def snapshot_job(url: str, company: str = "", out_dir: str = "") -> dict:
                 + (interv.get("message") or "visible challenge")}
     jd_text = None
     if not browser.form_fields(fields) and (
-            "myworkdayjobs.com" in (urlparse(url).hostname or "")
+            browser.is_workday_host(urlparse(url).hostname or "")
             or await browser.session.has_entry_control()):
         # A Workday job page shows only "Apply": read the JD HERE, before
         # leaving the description, then walk to the form.
@@ -383,6 +410,13 @@ async def snapshot_job(url: str, company: str = "", out_dir: str = "") -> dict:
         if entry_status == "form":
             fields = entry.get("fields") or []
         elif entry_status == "auth_required":
+            # Credentials are Workday-only: an "Apply" that led to iCIMS /
+            # Taleo / SuccessFactors parks instead of signing in there.
+            here = urlparse(entry.get("url") or browser.session.page.url).hostname
+            if not browser.is_workday_host(here or ""):
+                return {**base, "status": "parked",
+                        "park_reason": "auth_required on a non-Workday host "
+                                       "(%s); sign in manually" % (here or "?")}
             auth = await browser.session.authenticate()
             auth_status = base["auth_status"] = auth.get("status")
             if auth_status != "authenticated":

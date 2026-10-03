@@ -41,10 +41,15 @@ FIXTURE = (Path(__file__).resolve().parent / "workday_fixture.html").as_uri()
 UPLOAD_FIXTURE = (Path(__file__).resolve().parent
                   / "greenhouse_upload_fixture.html").as_uri()
 
-ENTRY_FIXTURE = (Path(__file__).resolve().parent
-                 / "workday_entry_fixture.html").as_uri()
-AUTH_FIXTURE = (Path(__file__).resolve().parent
-                / "workday_auth_fixture.html").as_uri()
+# authenticate() only ever acts on a Workday host, so the entry/auth fixtures
+# are served on a fake tenant host by request interception (no network).
+FAKE_TENANT = "https://acme.wd5.myworkdayjobs.com/fixture/"
+ENTRY_FIXTURE = FAKE_TENANT + "entry"
+AUTH_FIXTURE = FAKE_TENANT + "auth"
+_FIXTURE_FILES = {"entry": "workday_entry_fixture.html",
+                  "auth": "workday_auth_fixture.html"}
+AUTH_FILE_URI = (Path(__file__).resolve().parent
+                 / "workday_auth_fixture.html").as_uri()
 
 REVIEW_HTML = """
 <!doctype html><meta charset="utf-8"><h1>Review</h1>
@@ -333,11 +338,27 @@ async def run_entry_auth(s):
     against the synthetic Workday fixtures. Credentials are fakes injected
     by replacing config.credential; nothing real is read."""
     page = s.page
+    s._ledger_path = False           # never write the real profile's ledger
+    s._ledger = None
+
+    async def serve(route):
+        name = route.request.url.split("/fixture/", 1)[1].split("#")[0].split("?")[0]
+        f = Path(__file__).resolve().parent / _FIXTURE_FILES.get(name, "missing")
+        if not f.exists():
+            await route.fulfill(status=404, body="no fixture")
+            return
+        await route.fulfill(status=200, content_type="text/html",
+                            body=f.read_text(encoding="utf-8"))
+    await s.context.route(FAKE_TENANT + "**", serve)
+
     real_cred = browser_mod.config.credential
     browser_mod.config.credential = (
         lambda service, field: (FAKE_EMAIL if field == "email" else FAKE_PW, None))
     try:
         # --- entry: advance_step clicks nothing, start_application walks ---
+        # (a real run reaches here via open_job, which resets the tab's
+        # "filled" flag; the phases above filled this same tab)
+        s.tabs[s.active_id]["filled"] = False
         await _goto(page, ENTRY_FIXTURE)
         await s.read_form()
         res = await s.advance_step()
@@ -400,6 +421,7 @@ async def run_entry_auth(s):
             ("signin,exists", "authenticated", ["sign_in"]),
         ]
         for flags, want, want_subs in scenarios:
+            s.clear_auth_ledger()    # each scenario is a fresh tenant history
             await _goto(page, AUTH_FIXTURE + "#" + flags)
             res = await s.authenticate()
             subs = await page.evaluate("() => window.__submits")
@@ -416,18 +438,60 @@ async def run_entry_auth(s):
                 agreed = await page.evaluate(
                     "() => document.getElementById('agree').checked")
                 check("create-account ticked the privacy consent", agreed)
+                promo = await page.evaluate(
+                    "() => document.getElementById('promo').checked")
+                check("create-account left the marketing opt-in unticked",
+                      promo is False, promo)
             if flags == "verify":
                 check("verification excerpt is page text, email redacted",
                       "verification email" in res.get("message_excerpt", "")
                       and "<redacted>" in res.get("message_excerpt", ""),
                       res.get("message_excerpt"))
 
-        # --- the password is masked in every read ------------------------
+        # --- the ledger: bad_credentials short-circuits the next call ------
+        s.clear_auth_ledger()
         await _goto(page, AUTH_FIXTURE + "#badpw")
-        await s.authenticate()
+        first = await s.authenticate()
+        check("ledger: first bad-password run ends bad_credentials",
+              first.get("status") == "bad_credentials", first)
+        await _goto(page, AUTH_FIXTURE + "#badpw")
+        res = await s.authenticate()
+        subs = await page.evaluate("() => window.__submits")
+        check("ledger: bad_credentials on a fresh page submits nothing",
+              res.get("status") == "bad_credentials" and subs == [], (res, subs))
         rf = await s.read_form()
         check("after auth, read_form never shows the password",
               FAKE_PW not in repr(rf), [f for f in rf if f.get("sensitive")])
+        s.clear_auth_ledger()
+
+        # --- a real overlay: the click_filter intercepts the button --------
+        # (covered by every create scenario above; the submit count of 1
+        # per attempt proves the overlay and its button were not BOTH hit)
+
+        # --- credentials are Workday-only --------------------------------
+        await _goto(page, AUTH_FILE_URI + "#ok")
+        res = await s.authenticate()
+        subs = await page.evaluate("() => window.__submits")
+        val = await page.evaluate("() => document.getElementById('email').value")
+        check("non-Workday host: unsupported_auth_flow, nothing typed/clicked",
+              res.get("status") == "unsupported_auth_flow" and subs == []
+              and val == "", (res, subs, val))
+
+        # --- a filled tab never clicks a bare Apply via start_application -
+        await _goto(page, ENTRY_FIXTURE)
+        await s.read_form()
+        s.tabs[s.active_id]["filled"] = True
+        res = await s.start_application()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("filled tab: start_application refuses the Apply (no click)",
+              res.get("status") == "already_in_application" and clicked == [],
+              (res.get("status"), clicked))
+        res = await s.advance_step()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("filled tab: a lone Apply reads as is_submit_page, not clicked",
+              res.get("status") == "is_submit_page" and clicked == [],
+              (res.get("status"), clicked))
+        s.tabs[s.active_id]["filled"] = False
 
         # --- no credentials: the page is not touched ---------------------
         browser_mod.config.credential = (
@@ -440,9 +504,14 @@ async def run_entry_auth(s):
               res.get("status") == "no_credentials" and subs == [] and val == "",
               (res, subs, val))
 
-        res = await s.open_verification_link("https://evil.example.com/verify")
-        check("open_verification_link refuses a non-Workday host",
-              res.get("status") == "not_allowed", res)
+        for bad in ("https://evil.example.com/verify",
+                    "https://workday.evil.com/x",
+                    "https://evilmyworkdayjobs.com/x",
+                    "https://myworkdayjobs.com@workday-login.ru/",
+                    "https://acme.wd5.myworkdayjobs.com:8443/x"):
+            res = await s.open_verification_link(bad)
+            check("open_verification_link refuses %s" % bad,
+                  res.get("status") == "not_allowed", res)
     finally:
         browser_mod.config.credential = real_cred
 
