@@ -21,7 +21,7 @@ has been run for any of it**.
 | Phase 0: commit Workday M0 / wizard / storage-seam WIP as baseline; delete credential-bearing probe scripts | done | commits 37e814c..3f5e435 on feat/workday-m0-sourcing |
 | A: Greenhouse cover-letter upload targets the cover slot + upload read-back | merged, live check todo | merge `5e9b330`; `upload_resume(target=...)` |
 | B: Cover-letter pipeline: written template, letterhead, lint, Opus-pinned answer-crafter agent, per-role tailoring in web app | merged | merge `11daf6a`; `lint_text`, `save_cover_letter(force)` |
-| C: Refresh reliability: Workday removal grace (schema v5), staleness banner + health file, wake-to-run scheduler | merged | merge `312f5c3`; run `scripts/setup_refresh_task.ps1` on the target machine to register the new task |
+| C: Refresh reliability: Workday removal grace (schema v5), staleness banner + health file, wake-to-run scheduler | merged | merge `312f5c3`; task re-registered on this machine 2026-10-01 (WakeToRun on, wake timers enabled on AC) |
 | D1: Workday credentials + password masking, `fill_credential` | merged | merge `02098b5` |
 | D2: Workday Apply / auth flow (`start_application`, `authenticate`, `open_verification_link`, `clear_auth_ledger`) | merged, live check todo | merge `1f687a2` |
 | D3: Workday multi-select fix | todo | see `docs/handoff-workday-multiselect.md` |
@@ -31,4 +31,4 @@ has been run for any of it**.
 | Open the PR `integrate/fixes-2026-10` to `main` | todo | |
 | Verify the 2026-09-16 Stripe IAM submission (cover letter may have replaced the resume) | todo | user action |
 | Rotate the Workday password an agent invented on 2026-09-17; delete the active profile's `data/ats-accounts.md` | todo | user action |
-| Create `profiles/<id>/secrets/credentials.yaml`; fill profile `zip`, `experience:`, `education:` | todo | user action |
+| Create `profiles/<id>/secrets/credentials.yaml` with the NEW password | todo | user action (profile `zip`, `experience:`, `education:` already filled + user-confirmed 2026-10-03) |

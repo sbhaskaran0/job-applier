@@ -843,7 +843,7 @@ def connections():
                  "Claude Code sessions in this repo via the Agent SDK."},
         {"id": "mcp", "name": "job-applier MCP server", "mono": "JA",
          "required": True, "connected": job_applier,
-         "short": "Browser + your data (36 tools)",
+         "short": "Browser + your data (43 tools)",
          "desc": "Local MCP server — gives the agent a real Chrome browser "
                  "(Playwright), your profile/history, and live jobs."},
         {"id": "gmail", "name": "Gmail", "mono": "GM", "required": False,
