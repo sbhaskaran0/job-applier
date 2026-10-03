@@ -126,17 +126,23 @@ PROFILE_SECTIONS = ("experience", "education")
 
 
 def profile_section(section: str) -> list:
+    """The structured entries for a repeating section (see
+    profile_section_items), without their positions."""
+    return [e for _, e in profile_section_items(section)]
+
+
+def profile_section_items(section: str) -> list:
     """The structured entries for a repeating section ("experience" /
-    "education") from the active profile: a list of dicts, or [] when the
-    block is missing or malformed. Non-dict items, and placeholder entries
-    with no non-empty text value (the template's blank example), are
-    dropped."""
+    "education") from the active profile as (position_in_profile_list, dict)
+    pairs, or [] when the block is missing or malformed. Non-dict items, and
+    placeholder entries with no non-empty text value (the template's blank
+    example), are dropped; positions still index the profile's own list."""
     if section not in PROFILE_SECTIONS:
         return []
     raw = config.load_user_profile().get(section)
     if not isinstance(raw, list):
         return []
-    return [dict(e) for e in raw if isinstance(e, dict) and any(
+    return [(i, dict(e)) for i, e in enumerate(raw) if isinstance(e, dict) and any(
         isinstance(v, (str, int, float)) and not isinstance(v, bool)
         and str(v).strip() for v in e.values())]
 

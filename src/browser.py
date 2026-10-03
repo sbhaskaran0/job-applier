@@ -1993,18 +1993,25 @@ class BrowserSession:
 
     # ------------------------------------------------------------------ #
     # Repeating sections ("My Experience": Work Experience / Education).
-    # Located by HEADING TEXT and document order (see repeating.SECTION_JS);
-    # every value goes through fill_field, so listbox / combobox / toggle
-    # dispatch and read-back verification all apply unchanged.
+    # Located by HEADING TEXT, the heading's own container and document
+    # order (see repeating.SECTION_JS); every value goes through fill_field,
+    # so listbox / combobox / toggle dispatch and read-back verification all
+    # apply unchanged. Fill-blanks everywhere: a field that already holds a
+    # value is never overwritten.
     # ------------------------------------------------------------------ #
+    _RS_OK_STATUSES = ("filled", "already_set", "skipped", "not_found")
+
     async def _section_layout(self, section: str) -> dict | None:
         """Fresh read_form, then the section's groups (one list of field
-        descriptors per entry, each with `key` / `part`) and Add control.
-        None when no heading on any frame names the section. Sensitive
-        fields are dropped here, so this path can never touch one."""
+        descriptors per entry, each with `key` / `part` / `eid`) and Add
+        control. None when no heading on any frame names the section.
+        Sensitive fields are dropped here, so this path can never touch one.
+        A typeahead whose <input> is empty but shows a committed pill reads
+        as the pill text."""
         spec = rep.SECTIONS[section]
         by_idx = {f["index"]: f for f in await self.read_form()}
-        arg = {"heading": spec["heading"], "subhead": spec["subhead"]}
+        arg = {"heading": spec["heading"], "subhead": spec["subhead"],
+               "names": spec["names"]}
         for frame in self.page.frames:
             try:
                 res = await frame.evaluate(rep.SECTION_JS, arg)
@@ -2014,15 +2021,24 @@ class BrowserSession:
                 continue
             rows = []
             for d in res.get("fields") or []:
-                f = by_idx.get(d.get("index"))
+                if d.get("index") is None:
+                    if d.get("rcb") is None or \
+                            _SECRET_LABEL_RE.search(d.get("label") or ""):
+                        continue
+                    rows.append({**d, "kind": "aria_checkbox", "frame": frame,
+                                 "current_value": "checked" if d.get("checked")
+                                 else "", "required": bool(d.get("req"))})
+                    continue
+                f = by_idx.get(d["index"])
                 if f is None or f.get("sensitive") or \
                         _SECRET_LABEL_RE.search(f.get("label") or ""):
                     continue
-                rows.append({**d, "kind": f.get("kind"),
-                             "widget": f.get("widget"),
-                             "label": f.get("label") or "",
-                             "current_value": f.get("current_value", ""),
-                             "required": bool(f.get("required") or d.get("req"))})
+                cv = f.get("current_value", "") or ""
+                row = {**d, "kind": f.get("kind"), "widget": f.get("widget"),
+                       "label": f.get("label") or "",
+                       "current_value": cv or (d.get("pill") or ""),
+                       "required": bool(f.get("required") or d.get("req"))}
+                rows.append(row)
             picker_keys = set()
             for p in res.get("pickers") or []:
                 k = (rep.label_key(p.get("ctx"), section)
@@ -2030,24 +2046,41 @@ class BrowserSession:
                 if k in rep.DATE_KEYS:
                     picker_keys.add(k)
             return {"frame": frame, "add": bool(res.get("add")),
+                    "ambiguous_add": bool(res.get("ambiguous_add")),
                     "add_label": res.get("add_label") or "",
                     "groups": rep.group_fields(rows, section),
                     "picker_keys": picker_keys}
         return None
 
-    async def _add_group(self, section: str, n_before: int):
-        """Click the section's Add control until a new group appears: at most
-        MAX_ADD_CLICKS clicks, ADD_WAIT_S polling after each. Before a second
-        click the layout is re-read, so a slow first click is never doubled.
-        Returns (ok, layout, clicks)."""
+    @staticmethod
+    def _new_blank_groups(lay: dict, known: set):
+        """Groups none of whose elements existed before the Add (diffed by
+        stable element id, so a group inserted ANYWHERE is found). Returns
+        None when there is no new group yet, else the new BLANK groups'
+        anchors (possibly [])."""
+        new = [g for g in lay["groups"]
+               if not any(f.get("eid") in known for f in g)]
+        if not new:
+            return None
+        return [rep.anchor(g) for g in new if rep.group_is_blank(g)]
+
+    async def _add_group(self, section: str, known: set):
+        """Click the section's Add control until a new BLANK group appears:
+        at most MAX_ADD_CLICKS clicks, ADD_WAIT_S polling after each. Before
+        a second click the layout is re-read, so a slow first click is never
+        doubled. Returns (status, clicks, [new blank anchors]) with status
+        ok / no_add_button / ambiguous_add / add_failed /
+        new_group_not_blank."""
         loop = asyncio.get_event_loop()
-        lay, clicks = None, 0
+        clicks = 0
         for _ in range(rep.MAX_ADD_CLICKS):
             lay = await self._section_layout(section)
             if lay is None or not lay["add"]:
-                return False, lay, clicks
-            if len(lay["groups"]) > n_before:
-                return True, lay, clicks
+                return ("ambiguous_add" if lay is not None and lay["ambiguous_add"]
+                        else "no_add_button"), clicks, []
+            new = self._new_blank_groups(lay, known)
+            if new is not None:
+                return ("ok" if new else "new_group_not_blank"), clicks, new
             self._mark_filled()
             try:
                 await lay["frame"].locator('[data-jaadd="1"]').first.click(
@@ -2059,89 +2092,174 @@ class BrowserSession:
             while loop.time() < deadline:
                 await self.page.wait_for_timeout(300)
                 lay = await self._section_layout(section)
-                if lay is not None and len(lay["groups"]) > n_before:
-                    return True, lay, clicks
-        return False, lay, clicks
+                new = None if lay is None else self._new_blank_groups(lay, known)
+                if new is not None:
+                    return ("ok" if new else "new_group_not_blank"), clicks, new
+        return "add_failed", clicks, []
+
+    async def _pill(self, index: int) -> str:
+        frame = (self.fields.get(index) or {}).get("frame")
+        if frame is None:
+            return ""
+        try:
+            return await frame.evaluate(rep.PILL_JS, index) or ""
+        except Exception:
+            return ""
+
+    async def _toggle_aria_checkbox(self, f: dict, value: str) -> dict:
+        """Click a non-native [role=checkbox] (tagged data-jarcb by the
+        layout scan) and verify on aria-checked. One click only."""
+        want = rep.truthy(value)
+        loc = f["frame"].locator('[data-jarcb="%s"]' % f["rcb"]).first
+        self._mark_filled()
+        try:
+            await loc.click(timeout=3000)
+        except Exception as e:
+            return {"status": "error", "verified": False, "error": type(e).__name__}
+        await self.page.wait_for_timeout(200)
+        try:
+            state = await loc.get_attribute("aria-checked")
+        except Exception:
+            state = None
+        if state is None:
+            return {"status": "filled", "verified": None, "value": value}
+        ok = (state == "true") == want
+        res = {"status": "filled" if ok else "uncommitted", "verified": ok,
+               "value": value}
+        if not ok:
+            res["observed_value"] = "checked" if state == "true" else ""
+        return res
 
     async def _rs_fill(self, key: str, f: dict, value: str) -> dict:
-        """fill_field one section field; shape a compact, truncated result."""
-        try:
-            r = await self.fill_field(f["index"], value)
-        except Exception as e:
-            r = {"status": "error", "verified": False,
-                 "error": type(e).__name__}
+        """Fill one section field; shape a compact, truncated result. A
+        typeahead that cleared its input on commit is verified on its pill."""
+        if f.get("rcb") is not None:
+            r = await self._toggle_aria_checkbox(f, value)
+        else:
+            try:
+                r = await self.fill_field(f["index"], value)
+            except Exception as e:
+                r = {"status": "error", "verified": False,
+                     "error": type(e).__name__}
+            if (r.get("verified") is not True and r.get("status") != "unmatched"
+                    and f.get("kind") in ("text", "combobox")
+                    and f.get("widget") != "listbox"):
+                pill = await self._pill(f["index"])
+                if pill and _values_match(value, pill):
+                    r = {k: v for k, v in r.items()
+                         if k not in ("observed_value", "note")}
+                    r.update(status="filled", verified=True, value=pill,
+                             committed_as="pill")
         out = {"key": key, "label": rep.clip(f.get("label")),
-               "index": f["index"], "status": r.get("status"),
+               "index": f.get("index"), "status": r.get("status"),
                "verified": r.get("verified")}
-        if f.get("part"):
-            out["part"] = f["part"]
+        for k in ("part", "rcb"):
+            if f.get(k) is not None:
+                out[k] = f[k]
         if r.get("value") is not None:
             out["value"] = rep.clip(r.get("value"))
         if r.get("observed_value") is not None:
             out["observed_value"] = rep.clip(r.get("observed_value"))
         if r.get("options"):
             out["options"] = [rep.clip(o) for o in r["options"][:20]]
+        if r.get("committed_as"):
+            out["committed_as"] = r["committed_as"]
         if r.get("error"):
-            out["error"] = r["error"]
+            out["error"] = rep.clip(r["error"], rep.ERROR_ECHO)
         return out
 
     async def _fill_date(self, key: str, fs: list, value: str) -> list:
         """Shapes: (b) separate Month / Year boxes -> each part; (a) one box
         -> the format its placeholder / input type asks for (MM/YYYY by
-        default). A missing month is never invented."""
-        out = []
+        default; a native type=date gets day 01 and says so). A missing month
+        is never invented. After typing, focus is moved away (Tab) and the
+        value that SURVIVED the blur is what gets verified: React-style
+        spinbuttons can accept a keystroke and revert on blur."""
+        out, sent = [], []
         parts = [f for f in fs if f.get("part")]
         for f in (parts or fs[:1]):
-            if f.get("part") == "year":
-                shape = "year"
-            elif f.get("part") == "month":
-                shape = ("month_name" if f.get("kind") in ("select", "combobox")
-                         else "month")
-            else:
-                shape = rep.single_date_shape(f)
+            shape = rep.date_shape(f)
             v = rep.format_date(value, shape)
             if v is None:
                 out.append({"key": key, "label": rep.clip(f.get("label")),
-                            "index": f["index"], "status": "skipped",
+                            "index": f.get("index"), "status": "skipped",
                             "reason": "incomplete_date"})
                 continue
-            out.append(await self._rs_fill(key, f, v))
+            row = await self._rs_fill(key, f, v)
+            if shape == "date":
+                row["day_assumed"] = True
+            out.append(row)
+            sent.append((row, f, v))
+        if not sent:
+            return out
+        try:
+            await self.page.keyboard.press("Tab")
+            await self.page.wait_for_timeout(250)
+        except Exception:
+            pass
+        for row, f, v in sent:
+            if f.get("index") is None or row.get("status") == "error":
+                continue
+            obs = await self._read_back(f["index"])
+            if obs is None:
+                continue
+            if _values_match(v, obs):
+                row.pop("observed_value", None)
+                row.update(status="filled", verified=True)
+            else:
+                row.update(status="uncommitted", verified=False,
+                           observed_value=rep.clip(obs),
+                           note="value did not survive leaving the field")
         return out
 
-    async def _fill_group(self, section: str, g: int, entry: dict,
+    async def _fill_group(self, section: str, anchor_id, entry: dict,
                           gpa_policy: str) -> list:
-        """Fill group `g` from one profile entry, key by key in SECTIONS
-        order. The layout is re-read before EVERY key: toggling "I currently
-        work here" removes To, and a listbox commit can re-render the group,
-        so indexes from an earlier read are never trusted."""
+        """Fill-blanks for one group from one profile entry, key by key in
+        SECTIONS order. The layout is re-read before EVERY key (toggling "I
+        currently work here" removes To; a listbox commit can re-render), and
+        the group is re-found by its anchor element, never by position."""
         spec = rep.SECTIONS[section]
-        current = section == "experience" and bool(entry.get("current"))
+        current = section == "experience" and rep.truthy(entry.get("current"))
+        has_box = False
         out: list = []
         for key in spec["order"]:
             lay = await self._section_layout(section)
-            if lay is None or g >= len(lay["groups"]):
+            grp = rep.find_group(lay["groups"], anchor_id) if lay else None
+            if grp is None:
                 out.append({"key": key, "status": "error",
                             "error": "group_vanished"})
                 break
-            fs = [f for f in lay["groups"][g] if f.get("key") == key]
+            fs = [f for f in grp if f.get("key") == key]
             if key == "current":
-                box = next((f for f in fs if f.get("kind") == "checkbox"), None)
+                box = next((f for f in fs if f.get("kind")
+                            in ("checkbox", "aria_checkbox")), None)
                 if box is None:
+                    if current:
+                        out.append({"key": key, "status": "not_found",
+                                    "note": "no 'currently work here' "
+                                            "checkbox; To was not skipped"})
                     continue
-                if (box.get("current_value") == "checked") == current:
-                    out.append({"key": key, "label": rep.clip(box.get("label")),
-                                "index": box["index"], "status": "already_set",
-                                "verified": True})
-                else:
-                    out.append(await self._rs_fill(
-                        key, box, "true" if current else "false"))
-                continue
-            if key == "end" and current:
-                if fs:
+                has_box = True
+                checked = box.get("current_value") == "checked"
+                if current and not checked:
+                    ends = [f for f in grp if f.get("key") == "end"]
+                    if any(rep.has_value(f) for f in ends):
+                        out.append({"key": key, "status": "skipped",
+                                    "reason": "to_already_filled"})
+                    else:
+                        out.append(await self._rs_fill(key, box, "true"))
+                continue                       # never untick
+            if key == "end" and current and has_box:
+                if fs and not any(rep.has_value(f) for f in fs):
                     out.append({"key": key, "status": "skipped",
                                 "reason": "current_role"})
                 continue
             value = rep.entry_value(entry, key)
+            if key == "gpa":
+                fs = rep.gpa_fields(grp, value)
+            empty = [f for f in fs if not rep.has_value(f)]
+            if fs and not empty:
+                continue                       # holds a value: never overwrite
             if not value:
                 if fs:
                     out.append({"key": key, "status": "skipped",
@@ -2161,9 +2279,9 @@ class BrowserSession:
                     out.append({"key": key, "status": "not_found"})
                 continue
             if key in rep.DATE_KEYS:
-                out.extend(await self._fill_date(key, fs, value))
+                out.extend(await self._fill_date(key, empty, value))
                 continue
-            f = fs[0]
+            f = empty[0]
             if key == "degree" and (f.get("kind") == "select"
                                     or f.get("widget") == "listbox"):
                 try:
@@ -2171,24 +2289,34 @@ class BrowserSession:
                         .get("options") or []
                 except Exception:
                     opts = []
-                pick = self._match_option(rep.degree_candidates(value), opts)
-                if pick:
-                    value = pick
+                pick = rep.match_degree(value, opts)
+                if pick is None:
+                    out.append({"key": key, "label": rep.clip(f.get("label")),
+                                "index": f["index"], "status": "unmatched",
+                                "verified": False, "value": rep.clip(value),
+                                "options": [rep.clip(o) for o in opts[:20]],
+                                "note": "no option is this degree; nothing "
+                                        "was picked"})
+                    continue
+                value = pick
             out.append(await self._rs_fill(key, f, value))
         return out
 
     async def fill_repeating_section(self, section: str, entries=None,
                                      gpa_policy: str | None = None) -> dict:
         """Fill a repeating form section ("experience" / "education") from
-        the PROFILE's structured entries: one group per entry, adding groups
-        with the section's Add / Add Another control. Idempotent: an existing
-        group whose company+title (school) already match an entry is reported
-        `already_present` and left alone; a blank existing group is reused
-        before Add is clicked. `entries` / `gpa_policy` are for tests only;
-        the MCP tool never passes them (no model-supplied entry data)."""
+        the PROFILE's structured entries, one group per entry. Where each
+        entry goes is planned up front (repeating.plan_groups): a group that
+        already holds it gets its BLANK fields completed; an orphan group
+        (values, no company/title/school) consistent with it is completed;
+        a blank group is reused; only then is Add clicked — and never while
+        an unresolvable orphan exists. Nothing is ever overwritten.
+        `entries` / `gpa_policy` are for tests only; the MCP tool never
+        passes them (no model-supplied entry data). Entry numbers in the
+        result index the profile's list."""
         section = (section or "").strip().lower()
         out = {"section": section, "status": "ok", "added": 0, "filled": [],
-               "skipped": [], "errors": []}
+               "skipped": [], "errors": [], "warnings": []}
         if section not in rep.SECTIONS:
             out.update(status="bad_section",
                        error="section must be one of: "
@@ -2197,20 +2325,27 @@ class BrowserSession:
         if self.page is None:
             raise RuntimeError("No page open. Call open_job(url) first.")
         if entries is None:
-            entries = data.profile_section(section)
+            items = data.profile_section_items(section)
+        else:
+            items = [(i, e) for i, e in enumerate(entries) if isinstance(e, dict)]
         if gpa_policy is None:
             try:
-                gpa_policy = str(config.load_user_profile().get("gpa_policy")
-                                 or "if_required").strip().lower()
+                gpa_policy = config.load_user_profile().get("gpa_policy")
             except Exception:
-                gpa_policy = "if_required"
-        entries = [e for e in (entries or []) if isinstance(e, dict)]
-        if not entries:
+                gpa_policy = None
+        policy = str(gpa_policy or "if_required").strip().lower()
+        if policy not in rep.GPA_POLICIES:
+            out["warnings"].append(rep.clip(
+                "unknown gpa_policy %r; using if_required" % policy,
+                rep.ERROR_ECHO))
+            policy = "if_required"
+        out["gpa_policy_used"] = policy
+        if not items:
             out["status"] = "no_entries"
             return out
-        for i in range(rep.MAX_ENTRIES, len(entries)):
-            out["skipped"].append({"entry": i, "reason": "entry_cap"})
-        entries = entries[:rep.MAX_ENTRIES]
+        for pos, _ in items[rep.MAX_ENTRIES:]:
+            out["skipped"].append({"entry": pos, "reason": "entry_cap"})
+        items = items[:rep.MAX_ENTRIES]
 
         lay = await self._section_layout(section)
         if lay is None:
@@ -2218,51 +2353,87 @@ class BrowserSession:
             return out
         groups = lay["groups"]
         out["existing_groups"] = len(groups)
-        matched, reusable = rep.plan_groups(groups, entries, section)
-        for i, j in sorted(matched.items()):
-            out["skipped"].append({"entry": i, "reason": "already_present",
-                                   "group": j})
-        n_groups = len(groups)
-        for i, entry in enumerate(entries):
-            if i in matched:
+        plan = rep.plan_groups(groups, [e for _, e in items], section)
+        if plan["unresolved"]:
+            out["orphan_groups"] = list(plan["unresolved"])
+        anchors = [rep.anchor(g) for g in groups]
+        blanks = [anchors[j] for j in plan["blanks"]]
+        touched, add_error = [], None
+        for k, (pos, entry) in enumerate(items):
+            if k in plan["matched"]:
+                target, mode = anchors[plan["matched"][k]], "existing"
+            elif k in plan["orphans"]:
+                target, mode = anchors[plan["orphans"][k]], "completed_orphan"
+            elif blanks:
+                target, mode = blanks.pop(0), "filled"
+            elif add_error or plan["unresolved"]:
+                out["skipped"].append({"entry": pos, "reason":
+                                       add_error or "orphan_groups"})
                 continue
-            if reusable:
-                g = reusable.pop(0)
             else:
-                ok, lay2, clicks = await self._add_group(section, n_groups)
-                if not ok:
-                    err = ("no_add_button" if lay2 is None or not lay2["add"]
-                           else "add_failed")
-                    out["errors"].append({"entry": i, "error": err,
+                now = await self._section_layout(section)
+                known = {f.get("eid") for g in (now or {}).get("groups", [])
+                         for f in g}
+                st, clicks, new = await self._add_group(section, known)
+                if st != "ok":
+                    add_error = st
+                    out["errors"].append({"entry": pos, "error": st,
                                           "clicks": clicks})
-                    for k in range(i + 1, len(entries)):
-                        if k not in matched:
-                            out["skipped"].append({"entry": k, "reason": err})
-                    break
+                    continue
                 out["added"] += 1
-                g = n_groups
-                # an over-eager Add (two groups from one click) leaves blanks
-                # that later entries reuse instead of adding more
-                reusable.extend(range(n_groups + 1, len(lay2["groups"])))
-                n_groups = len(lay2["groups"])
-            out["filled"].append({"entry": i, "group": g, "fields":
-                                  await self._fill_group(section, g, entry,
-                                                         gpa_policy)})
-        out["status"] = self._rs_status(out)
+                target, mode = new[0], "added"
+                blanks.extend(new[1:])
+            rows = await self._fill_group(section, target, entry, policy)
+            touched.append((pos, target))
+            acted = [r for r in rows if r.get("status") not in ("skipped",
+                                                                "not_found")]
+            if mode == "existing":
+                if not acted:
+                    out["skipped"].append({"entry": pos,
+                                           "reason": "already_present"})
+                    continue
+                mode = "completed_blanks"
+            out["filled"].append({"entry": pos, "result": mode, "fields": rows})
+
+        final = await self._section_layout(section)
+        req_empty = []
+        keyed = set(rep.SECTIONS[section]["order"]) | {"overall_result"}
+        for pos, anc in touched:
+            grp = rep.find_group(final["groups"], anc) if final else None
+            for f in grp or []:
+                if (f.get("key") in keyed and f.get("key") != "current"
+                        and rep.is_required(f) and not rep.has_value(f)):
+                    req_empty.append({"entry": pos, "key": f["key"],
+                                      "label": rep.clip(f.get("label"))})
+        if req_empty:
+            out["required_empty"] = req_empty
+        if final is not None:
+            out["leftover_blank_groups"] = sum(
+                1 for g in final["groups"] if rep.group_is_blank(g))
+        if not out["warnings"]:
+            del out["warnings"]
+        out["status"] = self._rs_status(out, section)
         return out
 
-    @staticmethod
-    def _rs_status(out: dict) -> str:
-        bad = any(f.get("status") not in ("filled", "already_set", "skipped",
-                                          "not_found")
-                  or f.get("verified") is False
-                  for e in out["filled"] for f in e["fields"])
-        if out["errors"] and not out["filled"]:
+    @classmethod
+    def _rs_status(cls, out: dict, section: str) -> str:
+        must = set(rep.SECTIONS[section]["identity"]) | {"start", "current"}
+
+        def bad(f):
+            st = f.get("status")
+            if st == "not_found":
+                return f.get("key") in must
+            return st not in cls._RS_OK_STATUSES or f.get("verified") is False
+
+        rows_bad = any(bad(f) for e in out["filled"] for f in e["fields"])
+        present = any(s.get("reason") == "already_present"
+                      for s in out["skipped"])
+        if out["errors"] and not out["filled"] and not present:
             return out["errors"][0]["error"]
-        if bad or out["errors"]:
+        if (rows_bad or out["errors"] or out.get("required_empty")
+                or out.get("orphan_groups")):
             return "partial"
-        if not out["filled"] and any(s.get("reason") == "already_present"
-                                     for s in out["skipped"]):
+        if not out["filled"] and present:
             return "already_present"
         return "ok"
 

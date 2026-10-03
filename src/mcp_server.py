@@ -111,30 +111,47 @@ async def fill_repeating_section(section: str) -> dict:
     """Fill a repeating "My Experience" section from the PROFILE's structured
     entries — `section` is "experience" (Work Experience) or "education".
     You pass no entry data: entries come from profile.yaml server-side, so
-    nothing can be invented. The section is found by its heading; each entry
-    gets its own group (clicking "Add" / "Add Another" as needed, max 8
-    entries); every value goes through fill_field, so dropdowns and
-    verification behave as usual. "I currently work here" is set before To,
-    and To is skipped for a current role. GPA follows the profile's
-    gpa_policy (always | if_required | never). Idempotent: groups already
-    holding an entry (e.g. Workday's resume prefill) are left alone and
-    reported as already_present, so re-running is safe.
+    nothing can be invented. The section is found by its heading; every value
+    goes through fill_field, so dropdowns and verification behave as usual.
+    NOTHING already on the page is overwritten (fill-blanks only).
 
-    Returns {section, status, added, existing_groups, filled: [{entry, group,
-    fields: [{key, label, index, status, verified, value, ...}]}], skipped:
-    [{entry, reason}], errors}. Long values are truncated to 60 chars.
+    Where each entry goes, decided before anything is clicked: a group that
+    already holds it (company + loose title or same start; school) gets its
+    empty fields completed; an "orphan" group (values but no company/title/
+    school, e.g. a half-finished earlier run) consistent with it is
+    completed; a blank group is reused; only then is "Add" / "Add Another"
+    clicked (max 8 entries, 2 clicks each). "I currently work here" is
+    ticked before To and To is skipped for a current role. Degrees match
+    only the profile's own degree (BS <-> Bachelor of Science (BS)) or, on a
+    generic list, its level. GPA follows the profile's gpa_policy (always |
+    if_required | never). Re-running is safe.
+
+    Returns {section, status, added, existing_groups, filled: [{entry, result
+    (added | filled | completed_blanks | completed_orphan), fields: [{key,
+    label, index, status, verified, value, ...}]}], skipped: [{entry,
+    reason}], errors, gpa_policy_used, leftover_blank_groups,
+    orphan_groups?, required_empty?, warnings?}. `entry` indexes the
+    profile's list. Long values are truncated to 60 chars.
     status:
-      - "ok" — every attempted field filled and verified (or unverifiable).
-      - "already_present" — every entry was already on the page; nothing done.
-      - "partial" — some field is uncommitted / unmatched (`options` listed;
-        refill that index with fill_field) / unsupported_date_widget / error.
+      - "ok" — every attempted field verified (or unverifiable) and no
+        required field of a touched group is empty.
+      - "already_present" — every entry was already complete on the page.
+      - "partial" — a field is uncommitted / unmatched (`options` listed;
+        refill that index with fill_field once) / unsupported_date_widget /
+        error; or a company/title/school/start/current-role control was
+        not_found; or `required_empty` lists empty required fields; or
+        `orphan_groups` lists groups no entry fits (Add was not clicked).
       - "section_not_found" — no heading names the section on this step.
-      - "no_add_button" / "add_failed" — the Add control is missing or did
-        not produce a new group after 2 clicks.
+      - "no_add_button" / "ambiguous_add" / "add_failed" /
+        "new_group_not_blank" — no usable Add control, more than one, or
+        clicking it produced no new blank group.
       - "no_entries" — the profile has no entries for the section.
       - "bad_section" — section is not experience / education.
     Per-field statuses beyond fill_field's: already_set, skipped (reason
-    no_value / current_role / gpa_policy / incomplete_date), not_found."""
+    no_value / current_role / gpa_policy / incomplete_date /
+    to_already_filled), not_found; `day_assumed: true` marks a native date
+    input that got day 01; `committed_as: "pill"` marks a typeahead whose
+    choice shows as a chip."""
     return await browser.session.fill_repeating_section(section)
 
 

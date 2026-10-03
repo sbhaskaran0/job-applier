@@ -532,10 +532,10 @@ TEST_PROFILE = {
          "current": True, "description": LONG_DESC},
         {"company": "Acme Corp", "title": "Product Manager",
          "location": "Shelbyville", "start": "2019-06", "end": "2022-02",
-         "current": False, "description": "Shipped things."},
+         "current": "false", "description": "Shipped things."},
     ],
     "education": [
-        {"school": "Example State University", "degree": "Bachelor of Science",
+        {"school": "Example State University", "degree": "B.S.",
          "field_of_study": "Economics", "start": "2014-09", "end": "2018-05",
          "gpa": "3.50"},
     ],
@@ -553,67 +553,89 @@ async def run_experience(s):
             "([s, p]) => { const e = document.querySelector(s);"
             " return e ? e[p] : null; }", [sel, prop])
 
+    async def adds():
+        return await page.evaluate("() => window.__adds")
+
+    async def ngroups(which):
+        return await page.evaluate(
+            "(w) => document.querySelectorAll('#' + w + '-groups .grp').length", which)
+
+    def entry_rows(res, pos):
+        for e in res.get("filled") or []:
+            if e.get("entry") == pos:
+                return e
+        return {}
+
     try:
-        # --- prefilled resume group: idempotent add -----------------------
+        # --- resume-prefilled group: completed in place, one Add -----------
         s.tabs[s.active_id]["filled"] = False
         await _goto(page, EXPERIENCE_FIXTURE + "#prefill")
         res = await s.fill_repeating_section("experience")
-        adds = await page.evaluate("() => window.__adds")
-        check("experience: prefilled role reported already_present",
-              any(k.get("reason") == "already_present" and k.get("entry") == 1
-                  for k in res.get("skipped", [])), res.get("skipped"))
-        check("experience: exactly one Add for the one missing role",
-              res.get("added") == 1 and adds["we"] == 1, (res.get("added"), adds))
+        a = await adds()
+        acme = entry_rows(res, 1)
+        check("experience: prefilled Acme group completed in place (fill-blanks)",
+              acme.get("result") == "completed_blanks", res)
+        check("experience: prefilled title/company not overwritten, blanks filled",
+              await val("#we1-title") == "Product Manager"
+              and await val("#we1-company") == "Acme Corp"
+              and await val("#we1-from-m") == "06" and await val("#we1-to-y") == "2022"
+              and await val("#we1-loc") == "Shelbyville",
+              (await val("#we1-from-m"), await val("#we1-to-y")))
+        check('experience: current="false" string does not tick the box',
+              await val("#we1-cur", "checked") is False)
+        check("experience: exactly one Add, for the one missing role",
+              res.get("added") == 1 and a["we"] == 1, (res.get("added"), a))
         check("experience: status ok", res.get("status") == "ok", res)
         check("experience: no other section's Add was clicked",
-              adds["lang"] == 0 and adds["ed"] == 0, adds)
+              a["lang"] == 0 and a["ed"] == 0 and a["cert"] == 0, a)
         check("experience: fill marked the tab filled", s.filled)
         check("experience: new group holds title + company",
               await val("#we2-title") == "Senior Product Manager"
               and await val("#we2-company") == "Globex",
               (await val("#we2-title"), await val("#we2-company")))
-        check("experience: prefilled group untouched",
-              await val("#we1-title") == "Product Manager"
-              and await val("#we1-from-m") == "", await val("#we1-from-m"))
         check("experience: current role ticks 'I currently work here'",
               await val("#we2-cur", "checked") is True)
         check("experience: To is gone (current role) and was not refilled",
               await val("#we2-to-m") is None)
-        fields = (res.get("filled") or [{}])[0].get("fields", [])
-        check("experience: To reported skipped current_role",
-              any(f.get("key") == "end" and f.get("reason") == "current_role"
-                  for f in fields) or not any(f.get("key") == "end" for f in fields),
-              [f for f in fields if f.get("key") == "end"])
-        check("experience: split Month/Year From filled (shape b)",
+        check("experience: split Month/Year From survives blur (shape b)",
               await val("#we2-from-m") == "03" and await val("#we2-from-y") == "2022",
               (await val("#we2-from-m"), await val("#we2-from-y")))
         check("experience: full description typed into the page",
               await val("#we2-desc") == LONG_DESC)
+        fields = entry_rows(res, 0).get("fields", [])
         desc = [f for f in fields if f.get("key") == "description"]
         check("experience: description echo truncated to 60 chars",
               desc and len(desc[0].get("value", "")) <= 60
               and desc[0].get("verified") is True, desc)
-        check("experience: every filled field verified",
-              all(f.get("verified") is not False for f in fields), fields)
+        check("experience: no leftover blank groups",
+              res.get("leftover_blank_groups") == 0, res.get("leftover_blank_groups"))
 
-        res = await s.fill_repeating_section("experience")
-        adds = await page.evaluate("() => window.__adds")
-        check("experience: re-run is already_present, no new Add",
-              res.get("status") == "already_present" and res.get("added") == 0
-              and adds["we"] == 1, (res.get("status"), adds))
+        for run in (2, 3):
+            res = await s.fill_repeating_section("experience")
+            a = await adds()
+            check("experience: run %d is already_present, no growth" % run,
+                  res.get("status") == "already_present" and res.get("added") == 0
+                  and a["we"] == 1 and await ngroups("we") == 2,
+                  (res.get("status"), a))
 
-        # --- education: listbox degree, typeaheads, shape (a) dates --------
+        # --- education: pill school, specific degree, shape (a) dates ------
         res = await s.fill_repeating_section("education")
         check("education: status ok, one group added",
               res.get("status") == "ok" and res.get("added") == 1, res)
-        check("education: school typeahead committed",
-              await val("#ed1-school") == "Example State University",
+        check("education: prompt school commits as a pill (input cleared)",
+              await val("#ed1-school") == ""
+              and "Example State University" in (await page.evaluate(
+                  "() => document.getElementById('ed1-school-pills').innerText")),
               await val("#ed1-school"))
+        sch = [f for f in entry_rows(res, 0).get("fields", []) if f.get("key") == "school"]
+        check("education: pill school verified true",
+              sch and sch[0].get("verified") is True
+              and sch[0].get("committed_as") == "pill", sch)
         deg = await page.evaluate(
             "() => document.getElementById('ed1-deg').innerText.trim()")
-        check("education: degree listbox -> Bachelor's Degree",
-              deg == "Bachelor's Degree", deg)
-        check("education: field of study committed",
+        check('education: "B.S." -> Bachelor of Science (BS), not BA',
+              deg == "Bachelor of Science (BS)", deg)
+        check("education: plain typeahead keeps value",
               await val("#ed1-fos") == "Economics", await val("#ed1-fos"))
         check("education: GPA filled under gpa_policy=always",
               await val("#ed1-gpa") == "3.50", await val("#ed1-gpa"))
@@ -621,16 +643,45 @@ async def run_experience(s):
               await val("#ed1-from") == "09/2014", await val("#ed1-from"))
         check("education: YYYY-only To",
               await val("#ed1-to") == "2018", await val("#ed1-to"))
-        adds = await page.evaluate("() => window.__adds")
-        check("education: Languages Add never clicked", adds["lang"] == 0, adds)
+        a = await adds()
+        check("education: Languages Add / Add Certification never clicked",
+              a["lang"] == 0 and a["cert"] == 0, a)
+        for run in (2, 3):
+            res = await s.fill_repeating_section("education")
+            check("education: run %d with a pill school is already_present" % run,
+                  res.get("status") == "already_present" and res.get("added") == 0
+                  and await ngroups("ed") == 1, (res.get("status"), await ngroups("ed")))
+
+        # --- prefilled education with a pill school: complete blanks -------
+        await _goto(page, EXPERIENCE_FIXTURE + "#prefill-edu")
+        res = await s.fill_repeating_section("education")
+        check("education (pill prefill): completed_blanks, no Add",
+              res.get("added") == 0 and entry_rows(res, 0).get("result")
+              == "completed_blanks" and res.get("status") == "ok", res)
+        check("education (pill prefill): field of study filled, degree kept",
+              await val("#ed1-fos") == "Economics" and await page.evaluate(
+                  "() => document.getElementById('ed1-deg').innerText.trim()")
+              == "Bachelor of Science (BS)")
+
+        # --- orphan: degree set, school never committed --------------------
+        await _goto(page, EXPERIENCE_FIXTURE + "#orphan-edu")
+        res = await s.fill_repeating_section("education")
+        check("education (orphan): reused, no Add",
+              res.get("added") == 0 and entry_rows(res, 0).get("result")
+              == "completed_orphan", res)
+        for run in (2, 3):
+            res = await s.fill_repeating_section("education")
+            check("education (orphan): run %d no growth" % run,
+                  res.get("added") == 0 and await ngroups("ed") == 1
+                  and (await adds())["ed"] == 0, (res.get("status"), await ngroups("ed")))
 
         # --- empty page: two roles, current one first ----------------------
         await _goto(page, EXPERIENCE_FIXTURE)
         res = await s.fill_repeating_section("experience")
-        adds = await page.evaluate("() => window.__adds")
+        a = await adds()
         check("experience (blank page): two groups added, status ok",
-              res.get("added") == 2 and adds["we"] == 2
-              and res.get("status") == "ok", (res.get("status"), adds))
+              res.get("added") == 2 and a["we"] == 2
+              and res.get("status") == "ok", (res.get("status"), a, res))
         check("experience (blank page): past role keeps To = 02/2022",
               await val("#we2-to-m") == "02" and await val("#we2-to-y") == "2022"
               and await val("#we2-cur", "checked") is False,
@@ -639,6 +690,27 @@ async def run_experience(s):
               await val("#we1-to-m") is None)
         check("result never carries the long description in full",
               LONG_DESC not in repr(res))
+
+        # --- [role=checkbox] current-role control ---------------------------
+        await _goto(page, EXPERIENCE_FIXTURE + "#ariacb")
+        res = await s.fill_repeating_section("experience")
+        on = await page.evaluate(
+            "() => document.getElementById('we1-cur').getAttribute('aria-checked')")
+        check("aria checkbox: current role ticks a [role=checkbox]",
+              on == "true" and await val("#we1-to-m") is None, (on, res.get("status")))
+        check("aria checkbox: status ok", res.get("status") == "ok", res)
+
+        # --- two valid Add controls in one section: click nothing --------
+        await _goto(page, EXPERIENCE_FIXTURE)
+        await page.evaluate(
+            "() => { const b = document.createElement('button');"
+            " b.type = 'button'; b.textContent = 'Add Education';"
+            " document.querySelector('section[aria-labelledby=ed-h]').appendChild(b); }")
+        res = await s.fill_repeating_section("education")
+        a = await adds()
+        check("two Add candidates -> ambiguous_add, nothing clicked",
+              res.get("status") == "ambiguous_add" and a["ed"] == 0
+              and await ngroups("ed") == 0, (res.get("status"), a))
 
         # --- no section on the page --------------------------------------
         await _goto(page, ENTRY_FIXTURE)
