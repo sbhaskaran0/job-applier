@@ -50,6 +50,10 @@ ALIASES: dict[str, list[str]] = {
     "portfolio_url": ["portfolio"],
     "website_url": ["website", "personal site", "url"],
     "address": ["street address", "address line", "mailing address"],
+    # Before city/state/country: "Zip/Postal Code" must never fall through to
+    # a broader key. "zip" also covers "zip code" and "zip/postal code"
+    # (normalized to "zip postal code").
+    "zip": ["zip", "postal code", "postcode", "post code"],
     "city": ["city", "current city"],
     "state": ["state", "province", "region"],
     "country": ["country", "permanent country", "country of residence"],
@@ -116,9 +120,40 @@ def role_key(company: str, title: str) -> tuple:
             " ".join(_normalize(title).split()))
 
 
+# Profile keys holding STRUCTURED lists (the My Experience repeating sections).
+# They are filled only by fill_repeating_section, never as a scalar answer.
+PROFILE_SECTIONS = ("experience", "education")
+
+
+def profile_section(section: str) -> list:
+    """The structured entries for a repeating section ("experience" /
+    "education") from the active profile: a list of dicts, or [] when the
+    block is missing or malformed. Non-dict items, and placeholder entries
+    with no non-empty text value (the template's blank example), are
+    dropped."""
+    if section not in PROFILE_SECTIONS:
+        return []
+    raw = config.load_user_profile().get(section)
+    if not isinstance(raw, list):
+        return []
+    return [dict(e) for e in raw if isinstance(e, dict) and any(
+        isinstance(v, (str, int, float)) and not isinstance(v, bool)
+        and str(v).strip() for v in e.values())]
+
+
+def _is_structured(raw) -> bool:
+    """A list, or a dict that is not the {value, eeo} scalar wrapper."""
+    return isinstance(raw, (list, tuple)) or (
+        isinstance(raw, dict) and "value" not in raw)
+
+
 def _unwrap_profile_value(raw):
     """A profile value may be a scalar or a dict like {value: ..., eeo: true}
-    (the dict form marks voluntary EEO self-ID data). Returns (value, is_eeo)."""
+    (the dict form marks voluntary EEO self-ID data). Returns (value, is_eeo).
+    A structured value (list, or a dict with no `value`) is never a scalar
+    answer and unwraps to None."""
+    if _is_structured(raw):
+        return None, False
     if isinstance(raw, dict):
         return (raw.get("value") or None), bool(raw.get("eeo"))
     return (raw or None), False
@@ -135,6 +170,13 @@ def get_profile_field(question_or_key: str) -> dict:
     profile = config.load_user_profile()
     norm = _normalize(question_or_key)
 
+    # 0) structured blocks (experience/education lists, gpa policy) are not
+    # form answers: they go through fill_repeating_section only.
+    if question_or_key in profile and _is_structured(profile.get(question_or_key)):
+        return {"matched_key": None, "value": None, "confidence": "none",
+                "eeo": False, "note": "structured profile block; use "
+                                      "fill_repeating_section"}
+
     # 1) direct key hit (e.g. Claude passes "email" straight through)
     if question_or_key in profile:
         val, eeo = _unwrap_profile_value(profile.get(question_or_key))
@@ -143,7 +185,7 @@ def get_profile_field(question_or_key: str) -> dict:
 
     # 2) alias phrase match against the normalized question
     for key, phrases in ALIASES.items():
-        if key not in profile:
+        if key not in profile or _is_structured(profile.get(key)):
             continue
         if any(x in norm for x in ALIAS_EXCLUDE.get(key, ())):
             continue

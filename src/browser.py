@@ -17,7 +17,8 @@ from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
 
-from . import config
+from . import config, data
+from . import repeating as rep
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -1989,6 +1990,281 @@ class BrowserSession:
                 results.append({"index": idx, "status": "error",
                                 "error": f"{type(e).__name__}: {e}"})
         return results
+
+    # ------------------------------------------------------------------ #
+    # Repeating sections ("My Experience": Work Experience / Education).
+    # Located by HEADING TEXT and document order (see repeating.SECTION_JS);
+    # every value goes through fill_field, so listbox / combobox / toggle
+    # dispatch and read-back verification all apply unchanged.
+    # ------------------------------------------------------------------ #
+    async def _section_layout(self, section: str) -> dict | None:
+        """Fresh read_form, then the section's groups (one list of field
+        descriptors per entry, each with `key` / `part`) and Add control.
+        None when no heading on any frame names the section. Sensitive
+        fields are dropped here, so this path can never touch one."""
+        spec = rep.SECTIONS[section]
+        by_idx = {f["index"]: f for f in await self.read_form()}
+        arg = {"heading": spec["heading"], "subhead": spec["subhead"]}
+        for frame in self.page.frames:
+            try:
+                res = await frame.evaluate(rep.SECTION_JS, arg)
+            except Exception:
+                continue
+            if not res:
+                continue
+            rows = []
+            for d in res.get("fields") or []:
+                f = by_idx.get(d.get("index"))
+                if f is None or f.get("sensitive") or \
+                        _SECRET_LABEL_RE.search(f.get("label") or ""):
+                    continue
+                rows.append({**d, "kind": f.get("kind"),
+                             "widget": f.get("widget"),
+                             "label": f.get("label") or "",
+                             "current_value": f.get("current_value", ""),
+                             "required": bool(f.get("required") or d.get("req"))})
+            picker_keys = set()
+            for p in res.get("pickers") or []:
+                k = (rep.label_key(p.get("ctx"), section)
+                     or rep.label_key(p.get("label"), section))
+                if k in rep.DATE_KEYS:
+                    picker_keys.add(k)
+            return {"frame": frame, "add": bool(res.get("add")),
+                    "add_label": res.get("add_label") or "",
+                    "groups": rep.group_fields(rows, section),
+                    "picker_keys": picker_keys}
+        return None
+
+    async def _add_group(self, section: str, n_before: int):
+        """Click the section's Add control until a new group appears: at most
+        MAX_ADD_CLICKS clicks, ADD_WAIT_S polling after each. Before a second
+        click the layout is re-read, so a slow first click is never doubled.
+        Returns (ok, layout, clicks)."""
+        loop = asyncio.get_event_loop()
+        lay, clicks = None, 0
+        for _ in range(rep.MAX_ADD_CLICKS):
+            lay = await self._section_layout(section)
+            if lay is None or not lay["add"]:
+                return False, lay, clicks
+            if len(lay["groups"]) > n_before:
+                return True, lay, clicks
+            self._mark_filled()
+            try:
+                await lay["frame"].locator('[data-jaadd="1"]').first.click(
+                    timeout=3000)
+                clicks += 1
+            except Exception:
+                continue
+            deadline = loop.time() + rep.ADD_WAIT_S
+            while loop.time() < deadline:
+                await self.page.wait_for_timeout(300)
+                lay = await self._section_layout(section)
+                if lay is not None and len(lay["groups"]) > n_before:
+                    return True, lay, clicks
+        return False, lay, clicks
+
+    async def _rs_fill(self, key: str, f: dict, value: str) -> dict:
+        """fill_field one section field; shape a compact, truncated result."""
+        try:
+            r = await self.fill_field(f["index"], value)
+        except Exception as e:
+            r = {"status": "error", "verified": False,
+                 "error": type(e).__name__}
+        out = {"key": key, "label": rep.clip(f.get("label")),
+               "index": f["index"], "status": r.get("status"),
+               "verified": r.get("verified")}
+        if f.get("part"):
+            out["part"] = f["part"]
+        if r.get("value") is not None:
+            out["value"] = rep.clip(r.get("value"))
+        if r.get("observed_value") is not None:
+            out["observed_value"] = rep.clip(r.get("observed_value"))
+        if r.get("options"):
+            out["options"] = [rep.clip(o) for o in r["options"][:20]]
+        if r.get("error"):
+            out["error"] = r["error"]
+        return out
+
+    async def _fill_date(self, key: str, fs: list, value: str) -> list:
+        """Shapes: (b) separate Month / Year boxes -> each part; (a) one box
+        -> the format its placeholder / input type asks for (MM/YYYY by
+        default). A missing month is never invented."""
+        out = []
+        parts = [f for f in fs if f.get("part")]
+        for f in (parts or fs[:1]):
+            if f.get("part") == "year":
+                shape = "year"
+            elif f.get("part") == "month":
+                shape = ("month_name" if f.get("kind") in ("select", "combobox")
+                         else "month")
+            else:
+                shape = rep.single_date_shape(f)
+            v = rep.format_date(value, shape)
+            if v is None:
+                out.append({"key": key, "label": rep.clip(f.get("label")),
+                            "index": f["index"], "status": "skipped",
+                            "reason": "incomplete_date"})
+                continue
+            out.append(await self._rs_fill(key, f, v))
+        return out
+
+    async def _fill_group(self, section: str, g: int, entry: dict,
+                          gpa_policy: str) -> list:
+        """Fill group `g` from one profile entry, key by key in SECTIONS
+        order. The layout is re-read before EVERY key: toggling "I currently
+        work here" removes To, and a listbox commit can re-render the group,
+        so indexes from an earlier read are never trusted."""
+        spec = rep.SECTIONS[section]
+        current = section == "experience" and bool(entry.get("current"))
+        out: list = []
+        for key in spec["order"]:
+            lay = await self._section_layout(section)
+            if lay is None or g >= len(lay["groups"]):
+                out.append({"key": key, "status": "error",
+                            "error": "group_vanished"})
+                break
+            fs = [f for f in lay["groups"][g] if f.get("key") == key]
+            if key == "current":
+                box = next((f for f in fs if f.get("kind") == "checkbox"), None)
+                if box is None:
+                    continue
+                if (box.get("current_value") == "checked") == current:
+                    out.append({"key": key, "label": rep.clip(box.get("label")),
+                                "index": box["index"], "status": "already_set",
+                                "verified": True})
+                else:
+                    out.append(await self._rs_fill(
+                        key, box, "true" if current else "false"))
+                continue
+            if key == "end" and current:
+                if fs:
+                    out.append({"key": key, "status": "skipped",
+                                "reason": "current_role"})
+                continue
+            value = rep.entry_value(entry, key)
+            if not value:
+                if fs:
+                    out.append({"key": key, "status": "skipped",
+                                "reason": "no_value"})
+                continue
+            if key == "gpa" and fs and not rep.gpa_allowed(
+                    gpa_policy, any(rep.is_required(f) for f in fs)):
+                out.append({"key": key, "status": "skipped",
+                            "reason": "gpa_policy"})
+                continue
+            if not fs:
+                if key in rep.DATE_KEYS and key in lay["picker_keys"]:
+                    out.append({"key": key, "status": "unsupported_date_widget",
+                                "note": "only a date-picker button, no text "
+                                        "input; fill this date by hand"})
+                else:
+                    out.append({"key": key, "status": "not_found"})
+                continue
+            if key in rep.DATE_KEYS:
+                out.extend(await self._fill_date(key, fs, value))
+                continue
+            f = fs[0]
+            if key == "degree" and (f.get("kind") == "select"
+                                    or f.get("widget") == "listbox"):
+                try:
+                    opts = (await self.get_field_options(f["index"])) \
+                        .get("options") or []
+                except Exception:
+                    opts = []
+                pick = self._match_option(rep.degree_candidates(value), opts)
+                if pick:
+                    value = pick
+            out.append(await self._rs_fill(key, f, value))
+        return out
+
+    async def fill_repeating_section(self, section: str, entries=None,
+                                     gpa_policy: str | None = None) -> dict:
+        """Fill a repeating form section ("experience" / "education") from
+        the PROFILE's structured entries: one group per entry, adding groups
+        with the section's Add / Add Another control. Idempotent: an existing
+        group whose company+title (school) already match an entry is reported
+        `already_present` and left alone; a blank existing group is reused
+        before Add is clicked. `entries` / `gpa_policy` are for tests only;
+        the MCP tool never passes them (no model-supplied entry data)."""
+        section = (section or "").strip().lower()
+        out = {"section": section, "status": "ok", "added": 0, "filled": [],
+               "skipped": [], "errors": []}
+        if section not in rep.SECTIONS:
+            out.update(status="bad_section",
+                       error="section must be one of: "
+                             + ", ".join(rep.SECTIONS))
+            return out
+        if self.page is None:
+            raise RuntimeError("No page open. Call open_job(url) first.")
+        if entries is None:
+            entries = data.profile_section(section)
+        if gpa_policy is None:
+            try:
+                gpa_policy = str(config.load_user_profile().get("gpa_policy")
+                                 or "if_required").strip().lower()
+            except Exception:
+                gpa_policy = "if_required"
+        entries = [e for e in (entries or []) if isinstance(e, dict)]
+        if not entries:
+            out["status"] = "no_entries"
+            return out
+        for i in range(rep.MAX_ENTRIES, len(entries)):
+            out["skipped"].append({"entry": i, "reason": "entry_cap"})
+        entries = entries[:rep.MAX_ENTRIES]
+
+        lay = await self._section_layout(section)
+        if lay is None:
+            out["status"] = "section_not_found"
+            return out
+        groups = lay["groups"]
+        out["existing_groups"] = len(groups)
+        matched, reusable = rep.plan_groups(groups, entries, section)
+        for i, j in sorted(matched.items()):
+            out["skipped"].append({"entry": i, "reason": "already_present",
+                                   "group": j})
+        n_groups = len(groups)
+        for i, entry in enumerate(entries):
+            if i in matched:
+                continue
+            if reusable:
+                g = reusable.pop(0)
+            else:
+                ok, lay2, clicks = await self._add_group(section, n_groups)
+                if not ok:
+                    err = ("no_add_button" if lay2 is None or not lay2["add"]
+                           else "add_failed")
+                    out["errors"].append({"entry": i, "error": err,
+                                          "clicks": clicks})
+                    for k in range(i + 1, len(entries)):
+                        if k not in matched:
+                            out["skipped"].append({"entry": k, "reason": err})
+                    break
+                out["added"] += 1
+                g = n_groups
+                # an over-eager Add (two groups from one click) leaves blanks
+                # that later entries reuse instead of adding more
+                reusable.extend(range(n_groups + 1, len(lay2["groups"])))
+                n_groups = len(lay2["groups"])
+            out["filled"].append({"entry": i, "group": g, "fields":
+                                  await self._fill_group(section, g, entry,
+                                                         gpa_policy)})
+        out["status"] = self._rs_status(out)
+        return out
+
+    @staticmethod
+    def _rs_status(out: dict) -> str:
+        bad = any(f.get("status") not in ("filled", "already_set", "skipped",
+                                          "not_found")
+                  or f.get("verified") is False
+                  for e in out["filled"] for f in e["fields"])
+        if out["errors"] and not out["filled"]:
+            return out["errors"][0]["error"]
+        if bad or out["errors"]:
+            return "partial"
+        if not out["filled"] and any(s.get("reason") == "already_present"
+                                     for s in out["skipped"]):
+            return "already_present"
+        return "ok"
 
     async def upload_resume(self, index: int | None = None,
                             path: str | None = None,

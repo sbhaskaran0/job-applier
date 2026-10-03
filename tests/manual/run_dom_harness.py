@@ -46,8 +46,10 @@ UPLOAD_FIXTURE = (Path(__file__).resolve().parent
 FAKE_TENANT = "https://acme.wd5.myworkdayjobs.com/fixture/"
 ENTRY_FIXTURE = FAKE_TENANT + "entry"
 AUTH_FIXTURE = FAKE_TENANT + "auth"
+EXPERIENCE_FIXTURE = FAKE_TENANT + "experience"
 _FIXTURE_FILES = {"entry": "workday_entry_fixture.html",
-                  "auth": "workday_auth_fixture.html"}
+                  "auth": "workday_auth_fixture.html",
+                  "experience": "workday_experience_fixture.html"}
 AUTH_FILE_URI = (Path(__file__).resolve().parent
                  / "workday_auth_fixture.html").as_uri()
 
@@ -314,6 +316,7 @@ async def run(headless=True):
               and res.get("observed_filename") == "", res)
 
         await run_entry_auth(s)
+        await run_experience(s)
     finally:
         try:
             await s.close()
@@ -514,6 +517,136 @@ async def run_entry_auth(s):
                   res.get("status") == "not_allowed", res)
     finally:
         browser_mod.config.credential = real_cred
+
+
+# A synthetic profile: the real one is never read. Injected by replacing
+# config.load_user_profile, which data.profile_section and the gpa_policy
+# lookup both go through.
+LONG_DESC = ("Owned the roadmap for a synthetic fixture product, coordinating "
+             "a cross-functional team across several launches and metrics.")
+TEST_PROFILE = {
+    "gpa_policy": "always",
+    "experience": [
+        {"company": "Globex", "title": "Senior Product Manager",
+         "location": "Springfield", "start": "2022-03", "end": "",
+         "current": True, "description": LONG_DESC},
+        {"company": "Acme Corp", "title": "Product Manager",
+         "location": "Shelbyville", "start": "2019-06", "end": "2022-02",
+         "current": False, "description": "Shipped things."},
+    ],
+    "education": [
+        {"school": "Example State University", "degree": "Bachelor of Science",
+         "field_of_study": "Economics", "start": "2014-09", "end": "2018-05",
+         "gpa": "3.50"},
+    ],
+}
+
+
+async def run_experience(s):
+    """fill_repeating_section against the synthetic My Experience page."""
+    page = s.page
+    real_profile = browser_mod.config.load_user_profile
+    browser_mod.config.load_user_profile = lambda: TEST_PROFILE
+
+    async def val(sel, prop="value"):
+        return await page.evaluate(
+            "([s, p]) => { const e = document.querySelector(s);"
+            " return e ? e[p] : null; }", [sel, prop])
+
+    try:
+        # --- prefilled resume group: idempotent add -----------------------
+        s.tabs[s.active_id]["filled"] = False
+        await _goto(page, EXPERIENCE_FIXTURE + "#prefill")
+        res = await s.fill_repeating_section("experience")
+        adds = await page.evaluate("() => window.__adds")
+        check("experience: prefilled role reported already_present",
+              any(k.get("reason") == "already_present" and k.get("entry") == 1
+                  for k in res.get("skipped", [])), res.get("skipped"))
+        check("experience: exactly one Add for the one missing role",
+              res.get("added") == 1 and adds["we"] == 1, (res.get("added"), adds))
+        check("experience: status ok", res.get("status") == "ok", res)
+        check("experience: no other section's Add was clicked",
+              adds["lang"] == 0 and adds["ed"] == 0, adds)
+        check("experience: fill marked the tab filled", s.filled)
+        check("experience: new group holds title + company",
+              await val("#we2-title") == "Senior Product Manager"
+              and await val("#we2-company") == "Globex",
+              (await val("#we2-title"), await val("#we2-company")))
+        check("experience: prefilled group untouched",
+              await val("#we1-title") == "Product Manager"
+              and await val("#we1-from-m") == "", await val("#we1-from-m"))
+        check("experience: current role ticks 'I currently work here'",
+              await val("#we2-cur", "checked") is True)
+        check("experience: To is gone (current role) and was not refilled",
+              await val("#we2-to-m") is None)
+        fields = (res.get("filled") or [{}])[0].get("fields", [])
+        check("experience: To reported skipped current_role",
+              any(f.get("key") == "end" and f.get("reason") == "current_role"
+                  for f in fields) or not any(f.get("key") == "end" for f in fields),
+              [f for f in fields if f.get("key") == "end"])
+        check("experience: split Month/Year From filled (shape b)",
+              await val("#we2-from-m") == "03" and await val("#we2-from-y") == "2022",
+              (await val("#we2-from-m"), await val("#we2-from-y")))
+        check("experience: full description typed into the page",
+              await val("#we2-desc") == LONG_DESC)
+        desc = [f for f in fields if f.get("key") == "description"]
+        check("experience: description echo truncated to 60 chars",
+              desc and len(desc[0].get("value", "")) <= 60
+              and desc[0].get("verified") is True, desc)
+        check("experience: every filled field verified",
+              all(f.get("verified") is not False for f in fields), fields)
+
+        res = await s.fill_repeating_section("experience")
+        adds = await page.evaluate("() => window.__adds")
+        check("experience: re-run is already_present, no new Add",
+              res.get("status") == "already_present" and res.get("added") == 0
+              and adds["we"] == 1, (res.get("status"), adds))
+
+        # --- education: listbox degree, typeaheads, shape (a) dates --------
+        res = await s.fill_repeating_section("education")
+        check("education: status ok, one group added",
+              res.get("status") == "ok" and res.get("added") == 1, res)
+        check("education: school typeahead committed",
+              await val("#ed1-school") == "Example State University",
+              await val("#ed1-school"))
+        deg = await page.evaluate(
+            "() => document.getElementById('ed1-deg').innerText.trim()")
+        check("education: degree listbox -> Bachelor's Degree",
+              deg == "Bachelor's Degree", deg)
+        check("education: field of study committed",
+              await val("#ed1-fos") == "Economics", await val("#ed1-fos"))
+        check("education: GPA filled under gpa_policy=always",
+              await val("#ed1-gpa") == "3.50", await val("#ed1-gpa"))
+        check("education: single MM/YYYY From (shape a)",
+              await val("#ed1-from") == "09/2014", await val("#ed1-from"))
+        check("education: YYYY-only To",
+              await val("#ed1-to") == "2018", await val("#ed1-to"))
+        adds = await page.evaluate("() => window.__adds")
+        check("education: Languages Add never clicked", adds["lang"] == 0, adds)
+
+        # --- empty page: two roles, current one first ----------------------
+        await _goto(page, EXPERIENCE_FIXTURE)
+        res = await s.fill_repeating_section("experience")
+        adds = await page.evaluate("() => window.__adds")
+        check("experience (blank page): two groups added, status ok",
+              res.get("added") == 2 and adds["we"] == 2
+              and res.get("status") == "ok", (res.get("status"), adds))
+        check("experience (blank page): past role keeps To = 02/2022",
+              await val("#we2-to-m") == "02" and await val("#we2-to-y") == "2022"
+              and await val("#we2-cur", "checked") is False,
+              (await val("#we2-to-m"), await val("#we2-to-y")))
+        check("experience (blank page): current role has no To",
+              await val("#we1-to-m") is None)
+        check("result never carries the long description in full",
+              LONG_DESC not in repr(res))
+
+        # --- no section on the page --------------------------------------
+        await _goto(page, ENTRY_FIXTURE)
+        res = await s.fill_repeating_section("education")
+        check("no Education heading -> section_not_found",
+              res.get("status") == "section_not_found", res)
+    finally:
+        browser_mod.config.load_user_profile = real_profile
 
 
 def main():
