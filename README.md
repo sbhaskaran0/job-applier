@@ -4,11 +4,11 @@ An AI job-application agent that runs inside **Claude Code**. It finds high-qual
 product/strategy roles across a curated company watchlist and fills out their
 application forms — intelligently, and **never submitting without your
 say-so**. Applications run on Greenhouse, Lever and Ashby. Workday sourcing is
-**verified live**; the browser layer now supports multi-page wizard flows,
-pending one live application.
+**verified live**; the Workday **apply** path (Apply, sign-in, My Experience
+wizard, M1) is now **built but not yet verified against a live tenant**.
 
 Claude Code is the reasoner; a local **MCP server** gives it a real browser
-(Playwright, **35 tools**), your profile/history/knowledge base, and live jobs from company
+(Playwright, **43 tools**), your profile/history/knowledge base, and live jobs from company
 career boards. **No LLM API key or cost** in the core flow.
 
 ## Quick start
@@ -119,9 +119,14 @@ flowchart TD
     subgraph ING["python -m src.refresh — pure Python, no LLM, scheduler-friendly"]
         B["100 watchlist boards (verified 2026-09-09)<br/>public Greenhouse/Lever/Ashby REST APIs<br/>+ 20 Workday boards via the CXS API below"] --> N["normalize<br/>(ats, slug, job_id)"]
         N --> X["extract once per posting:<br/>salary from JD text · min-years (advisory)<br/>· excluded-seniority flag · locations →<br/>canonical tokens + work_mode<br/>(regex + location_aliases.yaml)"]
-        X --> DB[("data/postings.db<br/>first_seen · last_seen · removed_at<br/>(removals only from boards whose fetch<br/>succeeded AND saw the whole board)")]
-        DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield & company<br/>concentration per side of the funnel"]
+        X --> DB[("data/postings.db (schema v5)<br/>first_seen · last_seen · removed_at · missed_runs<br/>(removal only after a COMPLETE successful fetch<br/>missed the row; Workday needs 2 in a row)")]
+        DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield & concentration ·<br/>missed-run gap note (previous run > 30h ago)"]
+        DB --> HL["data/refresh-health.json<br/>run_at · ok · companies_ok / failed"]
     end
+    HL --> BAN["/api/status → Postings page banner<br/>(amber over 26h, or last run failed)"]
+    SCH["scripts/setup_refresh_task.ps1 task:<br/>09:00 daily + at-logon (10 min delay),<br/>WakeToRun · StartWhenAvailable"] --> GD{"refresh_guard.py:<br/>health ok and < 12h old?"}
+    GD -- "yes (exit 10)" --> SK["skip, logged"]
+    GD -- "no, or --force /<br/>JOBAPPLIER_FORCE_REFRESH=1" --> B
     DB --> Q["list_watchlist_postings<br/>deterministic baseline filter<br/>+ already_applied · is_new<br/>(live-fetch fallback if store > 36h old)"]
     Q --> R["/find-jobs: Claude ranks semantically,<br/>deep-reads finalists, returns apply URLs"]
 ```
@@ -129,7 +134,16 @@ flowchart TD
 The store is a cache of public data — delete `data/postings.db` and the next
 refresh rebuilds it. Schedule the refresh daily (Windows Task Scheduler via
 `scripts/refresh.cmd`, or cron/launchd) to get a standing digest of new
-matching roles; see the USER_GUIDE. `python -m src.refresh --near-misses` (or
+matching roles; see the USER_GUIDE. **Reliability (2026-10):** the old task could
+not wake the laptop (missed 9/13, 9/18-22, 9/25-30) and Workday boards page
+unstably, which produced 100-340 false removals per run. Now
+`REMOVAL_GRACE = {"workday": 2}` (a Workday row is removed only after 2
+consecutive complete-fetch misses; live probe: paging is stable within a run and
+`sortBy` is ignored), each run writes `data/refresh-health.json`,
+`scripts/refresh_guard.py` skips a run if one succeeded under 12h ago and rotates
+`data\refresh.log`, and `scripts/setup_refresh_task.ps1` registers a wake-aware,
+idempotent task. "Allow wake timers" must be enabled in the power plan (it is, on
+AC, on this machine as of 2026-10-01). `python -m src.refresh --near-misses` (or
 `python scripts/near_misses.py`) audits what the title gate in
 `job_criteria.yaml` is silently discarding, in case `acceptable_titles` is
 drawn too tightly.
@@ -145,13 +159,10 @@ tagged `location_indeterminate` and surfaced as such everywhere it appears
 (digest, postings API, the Postings page badge), since a silent board isn't
 evidence the role is out of scope (JOB-138).
 
-### Workday boards (M0 — sourcing verified; apply wizard framework ready)
+### Workday boards (M0 — sourcing verified live)
 
 Workday postings are discovered, ranked, and deep-read exactly like any other
-board. The browser layer now supports multi-page wizard flows via `advance_step()`
-(**not yet run against a live Workday application** — the generic framework is
-verified by 181 tests and a synthetic DOM harness; one live run on a real posting
-is still outstanding). `src/providers/workday.py` pulls a tenant's public
+board. Applying is covered in the next section. `src/providers/workday.py` pulls a tenant's public
 `myworkdayjobs` board through the same keyless JSON API its own SPA calls
 (`POST .../wday/cxs/{tenant}/{site}/jobs`, no auth, no cookies). Its shape is
 different enough from the REST-list ATSs above to earn its own diagram:
@@ -174,11 +185,49 @@ flowchart TD
     INC -- "no" --> RM["ingest trusts absence<br/>= removed, as normal"]
 ```
 
-### Workday multi-page apply wizard (M1 — framework ready, pending live run)
+### Workday apply (M1 — built, live verification pending)
 
-The framework for stepping through multi-page forms is now in place, wired for
-Workday's style but ATS-agnostic. A form with a **Next**/**Continue** button
-(distinct from **Submit**) can now be advanced programmatically via `advance_step()`:
+Applying to a Workday job is built end to end but **has not yet run against a
+live tenant** (verified so far by synthetic DOM fixtures and standalone test
+suites only; sign-in, My Experience and the wizard each still need one real run).
+Also open: the D3 multi-select fix (`docs/handoff-workday-multiselect.md`).
+
+Entry and sign-in come first. `start_application` clicks only entry controls
+(Apply, Apply Manually, "Sign in with email"); it never clicks Autofill with
+Resume, Use My Last Application, SSO or submit. `authenticate` signs in or
+creates the tenant account from the local-only
+`profiles/<id>/secrets/credentials.yaml`, server-side: the password is never
+returned, never passes through `fill_field` / `fill_many` (they refuse password
+fields), is masked in every read, and is dropped from `capture_submission` and
+`save_answer`. Credentials are typed only on Workday hosts. A per-tenant ledger
+(`profiles/<id>/runtime/auth_attempts.json`) allows at most one failed sign-in
+per tenant per 24h plus a 60s resubmit guard, so a wrong password cannot lock the
+account.
+
+```mermaid
+flowchart TD
+    SA["start_application"] --> SS{"status?"}
+    SS -- "form" --> WIZ
+    SS -- "blocked (visible CAPTCHA)" --> USER["hand to the user"]
+    SS -- "no_entry /<br/>already_in_application" --> PARK["park, or continue with<br/>advance_step / submit"]
+    SS -- "auth_required" --> AU["authenticate(mode)"]
+    AU --> AS{"status?"}
+    AS -- "unsupported_auth_flow<br/>(non-Workday host)" --> PARK2["park: user signs in by hand<br/>(also SSO-only tenants)"]
+    AS -- "no_credentials /<br/>bad_credentials_file" --> PARK3["park: user creates or fixes<br/>credentials.yaml"]
+    AS -- "bad_credentials" --> LED["ledger stop: no retry for 24h<br/>until the user asks clear_auth_ledger"]
+    AS -- "email_verification_required" --> EV["Gmail: find the email →<br/>open_verification_link(url)<br/>or detect_verification_gate +<br/>fill_verification_code"]
+    EV --> AU
+    AS -- "authenticated" --> WIZ["read_form → fill → advance_step loop"]
+    WIZ --> ME["My Experience step:<br/>fill_repeating_section(experience | education)<br/>from the profile's structured blocks"]
+    ME --> WIZ
+    WIZ -- "is_submit_page" --> GATE["submit_application<br/><b>gated</b>: explicit user say-so"]
+```
+
+Past sign-in, the generic wizard loop below applies. A form with a
+**Next**/**Continue**/**Review** button (distinct from **Submit**) is advanced
+programmatically via `advance_step()`; a lone "Apply" on an already-filled tab
+counts as a submit, and entry or sign-in pages return `entry_page` / `auth_page`
+without a click:
 
 ```mermaid
 flowchart TD
@@ -334,16 +383,24 @@ flowchart TD
     PLAN --> TR["tailor_resume(edits)<br/>edit .docx COPY in place<br/>→ export PDF (MS Word)"]
     TR --> STORE[("resumes/&lt;job-slug&gt;/<br/>resume.docx + resume.pdf")]
 
-    EX["context/ cover letters<br/>+ writing samples"] --> GCE["get_cover_letter_examples<br/>full-text voice exemplars"]
-    GCE --> DRAFT{"Claude drafts cover letter:<br/>YOUR voice + JD substance<br/>(gated for your approval)"}
-    JD --> DRAFT
-    DRAFT --> SCL["save_cover_letter(text)"]
-    SCL --> STORE2[("resumes/&lt;job-slug&gt;/<br/>cover_letter.txt + .pdf")]
+    EX["context/ cover letters + writing samples<br/>(voice corpus; the template file is excluded)"] --> GCE["get_cover_letter_examples"]
+    TPL["context/cover_letter_template.md<br/>(searchable, not voice corpus)"] --> AC
+    GCE --> AC{"answer-crafter agent (pinned Opus)<br/>drafts: YOUR voice + JD substance<br/>(gated for your approval)"}
+    JD --> AC
+    AC --> SCL["save_cover_letter(text)<br/>strip typed letterhead"]
+    SCL --> LINT{"lint_cover_letter"}
+    LINT -- "HARD fail (CL-H..)<br/>saved: false" --> AC
+    LINT -- "SOFT only (CL-S..)<br/>warnings returned" --> LH["render letterhead from profile<br/>(name 26pt, Mongolian Baiti,<br/>address · zip · phone · email · M/D/YYYY)"]
+    LINT -- "ok" --> LH
+    LH --> STORE2[("resumes/&lt;job-slug&gt;/<br/>cover_letter.txt + .docx/.pdf")]
 
     STORE -.-> GJA["get_job_artifacts<br/>(at apply time)"]
     STORE2 -.-> GJA
-    GJA -->|"tailored exists"| USE["upload tailored resume<br/>+ cover letter"]
+    GJA -->|"tailored exists"| UP["upload_resume(path, target=&quot;cover&quot;)<br/>cover-labelled input only,<br/>never the resume slot"]
     GJA -->|"none"| DEF["fall back to<br/>default resume"]
+    UP -->|"verified: true<br/>(observed_filename)"| OK["attached"]
+    UP -->|"no_cover_slot"| PASTE["paste cover_letter_text<br/>into the text field"]
+    UP -->|"error: landed in resume slot"| FIX["re-upload the resume,<br/>flag for the user"]
 ```
 
 The job folder is keyed off the **same `(company, role)` identity**
@@ -354,6 +411,33 @@ otherwise. Drop a `resume.docx` in your profile directory to enable resume tailo
 cross-platform: it uses Microsoft Word when present (Windows or macOS) and
 falls back to LibreOffice (`soffice`, any OS, no Word needed); if neither is
 installed the tailored `.docx` is still saved to export manually.
+
+**Cover-letter pipeline (2026-10).** The letter follows a written template,
+`context/cover_letter_template.md` (derived from your own letters; the generic
+version ships in `profiles/_template/context/`). It is excluded from the voice
+corpus but stays searchable. The letterhead is **rendered by code** from profile
+fields (`full_name`, `address`, `city`, `state` as an abbreviation, `zip`,
+`phone`, `email`, today's date as M/D/YYYY), so a letterhead typed by the model is
+stripped; an optional `cover_letter_template.docx` with `{{placeholders}}` in the
+profile root overrides the generated layout. `save_cover_letter` lints first:
+HARD rules (`COVER_LINT_RULES` in `src/tailor.py`: salutation and sign-off, no
+dashes, no parentheticals, no contact details or placeholders in the body, 270-460
+words, 3-6 paragraphs) refuse the save and return `{saved: false, lint}`; SOFT
+rules (word band 295-425, canonical opener/closer, AI-tell phrasing) only warn.
+`force=True` overrides, only with your OK. The `lint_text` tool applies the same
+style rules to any free-text answer before it is filled. All non-verbatim
+drafting runs through `.claude/agents/answer-crafter.md`, pinned to **Opus**, and
+the web chat session also uses `model="opus"` (webchat usage rows log the model).
+In the web app, `/tailor-application` is queued **one role at a time**: an "Up
+next" list advances with a Continue button after you approve each result.
+
+**Greenhouse upload fix.** Greenhouse hides both file inputs and the old
+auto-locator scored any "cover" container 0, so a cover letter could overwrite the
+resume. `upload_resume(index, path, target="resume"|"cover")` now only puts a
+cover upload into a cover-labelled input, returns `no_cover_slot` otherwise, reads
+the filename back (`verified`, `observed_filename`), and reports an `error` dict
+if a cover letter landed in the resume slot. Live verification on a real
+Greenhouse form is still pending.
 
 ## Batch prep — snapshot & routing (how `/apply-batch` stays cheap)
 

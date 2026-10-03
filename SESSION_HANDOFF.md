@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + taskman. Last updated 2026-10-01.
+per-session narrative lives in `git log` + taskman. Last updated 2026-10-03.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -9,7 +9,7 @@ code until Claude Code restarts.
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
-`python -m src.mcp_server`, **35 tools**) provides a live Playwright browser +
+`python -m src.mcp_server`, **43 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
 - **`/find-jobs <query>`** — roles across a curated 80-company watchlist
   (public Greenhouse/Lever/Ashby APIs, **+ Workday boards as of M0, 2026-09-09**),
@@ -35,8 +35,10 @@ the user's data. **No LLM API key** in the core flow. Skills:
 - **`/tailor-application <url>`** (JOB-6) — on-demand bespoke resume + cover
   letter for ONE posting. Edits `resume.docx` in place (reorder/re-emphasize/trim
   bullets, sharpen summary; formatting preserved), exports PDF, drafts a cover
-  letter in the user's voice from past cover letters in `context/`. Saves to
-  `resumes/<job-slug>/`; apply flow auto-picks it up. NOT run per-application.
+  letter in the user's voice from past cover letters in `context/` (written
+  template + lint + code-rendered letterhead, drafted by the Opus-pinned
+  `answer-crafter` agent, 2026-10). Saves to `resumes/<job-slug>/`; apply flow
+  auto-picks it up. NOT run per-application.
 - **`/commit`** (dev) — every commit must update README + USER_GUIDE + this file,
   and add/refresh a Mermaid diagram for any new workflow.
 - **Applyer web wrapper** — `scripts\webapp.cmd` → FastAPI `server/` on :8765
@@ -67,9 +69,9 @@ User: **Siddharth Bhaskaran**, Los Angeles, ~5-yr PM targeting mid/senior
 `sbhaskaran0/job-applier`. Strategy verdict: **hybrid, REVISED 2026-09-09** —
 own the discovery/data layer (the compounding asset); the earlier plan to lean
 on Cowork/Claude-in-Chrome for Workday wizards instead of building an executor
-is **reversed by explicit user decision** — Workday sourcing (M0) is now built
-(this session) and an in-repo Workday apply wizard is planned as M1 (see
-Current state / Proposed backlog below). Cowork/Chrome remains the fallback
+is **reversed by explicit user decision** — Workday sourcing (M0, 2026-09-09)
+and the in-repo Workday apply path (M1, built 2026-10-03, **live verification
+pending**) are built (see Current state / Open items below). Cowork/Chrome remains the fallback
 for other hard executor cases (auth walls, combobox probe-typing, non-English
 aliases, JS-only dropzones).
 
@@ -99,7 +101,7 @@ aliases, JS-only dropzones).
   `profiles/_template/`; legacy checkouts: `scripts/migrate_profile.py`.
   Multi-user roadmap (GCP data plane, auth, onboarding UI, per-user filtered
   postings): `docs/backlog-multiuser.md`.
-- `src/mcp_server.py` — 34 MCP tools (mcp SDK 2.x `MCPServer`, migrated from
+- `src/mcp_server.py` — **43 MCP tools** as of 2026-10-03 (2026-10 added `lint_text`, `fill_credential`, `fill_repeating_section`, `start_application`, `authenticate`, `open_verification_link`, `clear_auth_ledger`, and a `target` arg on `upload_resume`; mcp SDK 2.x `MCPServer`, migrated from
   `FastMCP` 2026-09-08 — same `@mcp.tool()`/`mcp.run()` surface, only the
   import + constructor changed); thin wrappers. `get_profile_paths`
   returns the active profile's resolved dirs (skills call it instead of
@@ -124,6 +126,24 @@ aliases, JS-only dropzones).
   from **page text**: `submitted` / `rejected_spam` / `attempted` (vanished form ≠
   success). Workday-style dropdowns (`aria-haspopup="listbox"`) visible; dispatch
   on widget not site.
+  **2026-10 browser additions:** `upload_resume(target="resume"|"cover")` (cover
+  goes only into a cover-labelled input, never the resume slot; `no_cover_slot`;
+  read-back `verified`/`observed_filename`; dict errors). **Workday M1:** sensitive
+  (password) fields are masked everywhere, sticky through the show-password
+  toggle, refused by `fill_field`/`fill_many` (`use_fill_credential`) and filled
+  only via `fill_sensitive`/`fill_credential`; `start_application`,
+  `authenticate` (Workday hosts only, per-tenant ledger
+  `profiles/<id>/runtime/auth_attempts.json`: 1 failed sign-in/tenant/24h,
+  `bad_credentials` short-circuits, 60s resubmit guard), `open_verification_link`;
+  button classes entry / auth / never-click; `advance_step` gains
+  `entry_page`/`auth_page`, "Review" advances, a lone "Apply" on a filled tab is a
+  submit (per-tab filled flag); `snapshot_job` walks entry + auth on Workday.
+- `src/repeating.py` (**new, 2026-10**) — pure helpers + `SECTION_JS` for
+  `fill_repeating_section` (Workday My Experience): locate a section by heading,
+  split fields into per-entry groups, plan which existing/orphan/blank group each
+  profile entry goes to (fill-blanks only, max 8 entries), date-widget shapes,
+  degree matching (`match_degree`), pill/typeahead read-back, GPA per
+  `gpa_policy`. Entries come only from `profile.yaml` `experience:`/`education:`.
 - `src/data.py` — profile alias lookup, fuzzy history search, `save_answer`
   (normalized question identity), `log_application_record` (deduped on
   **(company, role)**; URL only as fallback). **Answer hygiene (2026-09-16):**
@@ -142,6 +162,19 @@ aliases, JS-only dropzones).
   samples + past answers; excludes structured KB), `save_cover_letter`,
   `job_artifacts` (apply-time lookup w/ default fallback), `_export_pdf`
   (Word COM → docx2pdf → LibreOffice `soffice`; docx still saved if none).
+  **2026-10:** `context/cover_letter_template.md` (excluded from the voice
+  corpus, searchable; generic copy in `profiles/_template/context/`);
+  `COVER_LINT_RULES` table (CL-H01..H12 HARD, CL-S01..S12 SOFT; tune the table,
+  not the code); `lint_cover_letter` / `lint_text`; `strip_letterhead`;
+  `save_cover_letter(force=False)` lints first and returns `{saved, lint}`;
+  letterhead rendered from profile fields (`full_name`, `address`, `city`,
+  `state`→abbr, `zip`, `phone`, `email`, date M/D/YYYY; Mongolian Baiti, name
+  26pt) or an optional `cover_letter_template.docx` with `{{placeholders}}`.
+- `.claude/agents/answer-crafter.md` (**new, 2026-10**) — `model: opus`,
+  read-only drafting subagent; skills route ALL non-verbatim drafting (essays,
+  cover letters, adaptations) through it. `server/chat.py` also pins
+  `model="opus"` and webchat usage rows log the model. Web `/tailor-application`
+  queues one role at a time ("Up next" + Continue).
 - `src/store.py` — **postings store**: SQLite `data/postings.db` (gitignored
   cache; PK `(ats, slug, job_id)`; `first_seen`/`last_seen`/`removed_at`;
   removals ONLY from boards that fetched OK **and completely** —
@@ -149,7 +182,11 @@ aliases, JS-only dropzones).
   `fetch_all_with_status()` (M0: names truncated-but-otherwise-OK Workday
   boards) and skips the removal pass for those too, without counting them as
   a `companies_failed` board-health failure), `passes_baseline`,
-  `list_postings_from_store`, `yield_stats`. Schema v2 (JOB-55, auto-migrates
+  `list_postings_from_store`, `yield_stats`. **Schema v5 (2026-10):** `postings.missed_runs` +
+  `REMOVAL_GRACE = {"workday": 2}` — a row is removed only after N consecutive
+  COMPLETE-fetch misses (frozen while a board fails/incomplete, reset on any
+  sighting; non-Workday = 1). Live probe: Workday paging is stable within a run,
+  `sortBy` is ignored. Schema v2 (JOB-55, auto-migrates
   via `PRAGMA user_version`): `work_mode`/`posted_at` columns + normalized
   `posting_locations` + `location_observations` (raw→canonical audit trail for
   alias curation). Same-role-multiple-cities rows are merged in
@@ -268,10 +305,26 @@ aliases, JS-only dropzones).
   failed one. `outcome == "none"` still counts as awaiting; `"ghosted"` is
   the sentinel that clears a row. Records with a missing/unparseable `date`
   are skipped, not listed.
+  **2026-10 reliability:** `data/refresh-health.json` (run_at, ok, companies_ok/
+  failed, new/removed counts; ok=false if it raised or 0 boards fetched); digest
+  "Note: previous refresh was Nh before this one" when > 30h; `/api/status`
+  returns `health`; Postings page amber banner over 26h or on a failed run.
+  `scripts/refresh_guard.py` (skip if health ok and < 12h; `--force` /
+  `JOBAPPLIER_FORCE_REFRESH=1`; rotates `data
+efresh.log` at ~1 MB);
+  `scripts/refresh.cmd` logs; `scripts/setup_refresh_task.ps1` (WakeToRun,
+  StartWhenAvailable, battery flags, 09:00 daily + at-logon 10-min delay,
+  Interactive principal, idempotent via `Register-ScheduledTask -Force`).
 - `src/providers/extract.py` — ingest-time regex enrichment: salary-from-JD
   (`salary_source: 'api'|'jd'`; Greenhouse ~60%, Lever 0%), advisory `min_years`,
   word-bounded `seniority_flag`.
-- `src/config.py` — paths + loaders: `user_profile.yaml`, `job_criteria.yaml`,
+- `src/config.py` — **(2026-10)** `load_credentials()`/`credential(service, field)`
+  read `profiles/<id>/secrets/credentials.yaml` (gitignored; template
+  `credentials.example.yaml`) for server-side use only: a malformed file gives
+  `bad_credentials_file` with no message, blank/`change-me` gives
+  `no_credentials`, a blank Workday email falls back to the profile email;
+  `cover_letter_template_docx()`; profile blocks `zip`, `experience:`,
+  `education:`, `gpa_policy`. Paths + loaders: `user_profile.yaml`, `job_criteria.yaml`,
   `watchlist.yaml`, `discovery.yaml`, `resume.txt`/`.pdf`/`.docx` (JOB-6 base),
   `context/`, `data/history.json`, `data/applications.json`. `RESUMES_DIR`
   (gitignored), `base_resume_docx()`. **Storage seam (2026-09-16):** four loaders
@@ -352,6 +405,56 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   `probe*.py` scripts — **deleted** this session and `probe*.py` gitignored;
   user to rotate it. Phase 0 committed the 2026-09-09/09-16 WIP below as the
   baseline (CI gate green: 13 suites, 194 tests).
+  **What landed 2026-10-02/03** on `integrate/fixes-2026-10` (parallel
+  worktree workstreams, each reviewed then merged; tip `573123e`):
+  - **A: Greenhouse cover upload** (merge `5e9b330`; `beeba3e`, `ba65939`).
+    Root cause confirmed: GH hides both file inputs and the auto-locator scored
+    any "cover" container 0. `upload_resume(target="cover")` only uses a
+    cover-labelled input (`no_cover_slot` otherwise), reads the filename back
+    (`verified`, `observed_filename`), detects a cover letter that landed in the
+    resume slot; errors are dicts. Review: index guard, own-attribute cover
+    detection, fresh read-back.
+  - **B: cover-letter pipeline** (merge `11daf6a`; `03a35b1`, `49bfc1e`,
+    `befca93`, `5057961`, `54896e6`). Template, letterhead, `COVER_LINT_RULES`,
+    `lint_text`, `save_cover_letter(force)`, Opus-pinned `answer-crafter`, web
+    chat on Opus + model in usage rows, per-role tailoring queue (Up next +
+    Continue). Review: template-aligned rule set, letterhead styling, fixture
+    profile passed explicitly to `lint_text` (`0943e61`).
+  - **C: refresh reliability** (merge `312f5c3`; `35fba6b`, `08b4ea5`,
+    `13c353f`). Schema v5 `missed_runs` + `REMOVAL_GRACE`, health file, digest
+    gap note, `/api/status` health, staleness banner, `refresh_guard.py`,
+    wake-aware scheduler script. Live probe: Workday paging is stable within a
+    run, `sortBy` ignored, so the grace (2 misses) is the fix, not sorting.
+    Wake timers are enabled on AC on this machine as of 2026-10-01. Root cause
+    of the misses (9/13, 9/18-22, 9/25-30): the old task could not wake the
+    laptop.
+  - **D1: credentials + masking** (merge `02098b5`; `2e068d9`, review `c3894cb`).
+    Review closed leaks: tools return only the exception TYPE, sticky
+    sensitivity survives the show-password toggle, `fill_sensitive` re-checks the
+    live element, malformed `credentials.yaml` gives no message.
+  - **D2: Workday entry + auth** (merge `1f687a2`; `06221d5`, review `af24049`).
+    Review (10 findings): credentials only on Workday hosts (dot-boundary host
+    gate, re-checked before every fill/submit), toggles confined to the auth
+    form, verification links restricted to the tab's Workday domain, per-tab
+    "filled" flag so a final "Apply" is a submit, the lockout ledger, and a
+    `_CHROME_LABEL_RE` that held literal 0x08 bytes instead of `\b` (fixed, plus
+    a test failing on any control character in `src/` or `tests/`).
+  - **D4: structured profile blocks + `fill_repeating_section`** (merges
+    `2b5b69d`, `8a943fe`; `2c62c51`, review `938d822`). Review: `match_degree`
+    (no confident match gives `unmatched`, nothing picked), pill/typeahead
+    read-back, loose group matching with orphan reuse, `required_empty` gives
+    `partial`. New zip aliases.
+  - **D5: skills** (merge `0ea9286`; `186b1f9`, `573123e`): Workday flow in
+    apply-to-job / apply-batch, routing of `fill_repeating_section` statuses.
+  - **origin/main merge** (`be54066`): dev-loop PRs #12/#13 (JOB-135..138) merged
+    into the integration branch.
+  - **Security/hygiene:** the `probe*.py` scripts (agent-invented Workday
+    password) were deleted and `probe*.py` is gitignored; `.claude/worktrees/`
+    ignored; `credentials.yaml` under the template is ignored too.
+  - **Still NOT done:** D3 multi-select fix (`docs/handoff-workday-multiselect.md`)
+    and every live verification (Greenhouse cover upload, real Workday sign-in,
+    My Experience). Everything above is verified by standalone suites and
+    synthetic DOM fixtures (`tests/manual/`) only.
 - **2026-09-16 session — Workday M0 wizard framework + verified fills + storage seam.**
   This session built the generic infrastructure for multi-page form wizards and
   verified fills, **not yet exercised against a live Workday application**.
@@ -418,7 +521,8 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
     harness (`tests/manual/run_dom_harness.py` + `workday_fixture.html`) drives
     real headless Chromium on synthetic Workday page, catching two defects stubbed
     tests missed. Named to skip CI's `tests/test_*.py` glob.
-  - **Honest framing:** the generic browser layer now supports Workday-style wizards
+  - **(History, superseded 2026-10-03: M1 apply is now built, live run still
+    pending.)** **Honest framing:** the generic browser layer now supports Workday-style wizards
     and is verified by tests + synthetic DOM; **one live run on a real posting is
     still outstanding**. M1 (account creation/login + structured experience/education
     profile blocks) and M2 (batch Stage A/B hardening + wizard) remain unbuilt.
@@ -524,9 +628,8 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   ```
 - **2026-09-09 session — Workday sourcing (M0), branch `feat/workday-m0-sourcing`.**
   Workday postings can now be **discovered, ranked, and deep-read** like any
-  other watchlist board. **Applying to a Workday job is NOT built** — that's
-  M1 (apply wizard) and M2 (hardening + batch), both planned but unbuilt; see
-  Proposed backlog below. What landed:
+  other watchlist board. **(History: applying was not built then; M1 apply landed
+  2026-10-03, M2 batch hardening remains.)** What landed:
   - `src/providers/workday.py` — the fetcher (see the Architecture section
     above for the mechanism: list+detail keyless JSON API, 2000-row wall,
     full-vs-partitioned-by-facet paging, `LAST_RUN_NOTES` diagnostics).
@@ -567,7 +670,7 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   - **Not yet committed** — work is sitting on `feat/workday-m0-sourcing`,
     no commit SHA to reference yet.
   - **User's three M1 decisions (recorded here so they survive into the next
-    session — M1 itself is not built):**
+    session; M1 built 2026-10-03, decisions honored):**
     1. The user supplies **one shared Workday password**, stored local-only —
        it is never generated by the agent.
     2. Batch Stage A **may create tenant accounts and server-side drafts
@@ -754,18 +857,31 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
    7/27 squatter on :8765; port check + API-404 guard still NOT built) ·
    JOB-82…98 (multi-user M2–M4 backlog). JOB-33 closed 2026-08-10
    (superseded by JOB-81).
-6. **Commit the Workday M0 + verified-fills + storage-seam branch**
-   (`feat/workday-m0-sourcing`, 2026-09-16 session) — currently unmerged,
-   pending review. **Outstanding before M1:** (a) one live Workday application
-   to verify the wizard framework against a real posting; (b) taskman API key +
-   ontology setup + dual-write harness test (currently file-only); (c) Workday
-   account creation + structured experience/education profile blocks (M1 unbuilt).
-   Restart Claude Code before relying on the `/src` changes, per usual.
+6. ~~Commit the Workday M0 branch~~ — baselined in Phase 0 (2026-10-01) and
+   M1 built 2026-10-03 (see Current state). Still outstanding: taskman API key +
+   ontology setup + dual-write harness test (datastore is file-only).
+7. **2026-10 branch follow-ups** (`integrate/fixes-2026-10`, tip `573123e`):
+   - **Open the PR to `main`** (merge is the user's click); restart Claude Code
+     and the webapp afterwards.
+   - **D3 live:** the Workday multi-select fix, per
+     `docs/handoff-workday-multiselect.md`.
+   - **Live checks (all unverified):** a Greenhouse cover-letter upload with
+     read-back; a real Workday sign-in/account creation + email verification;
+     My Experience via `fill_repeating_section`; then the wizard to the gated
+     submit. SSO-only tenants (e.g. Snap) need a manual sign-in.
+   - **User actions:** rotate the Workday password an agent invented on
+     2026-09-17 and delete the active profile's `data/ats-accounts.md`; create
+     `profiles/<id>/secrets/credentials.yaml` (one shared password, never in
+     chat); fill the profile's `zip`, `experience:`, `education:`; verify the
+     2026-09-16 Stripe IAM submission (the cover letter may have replaced the
+     resume).
+   - **Tracker filing:** the stories in `docs/tracker-pending.md` still need
+     filing once the taskman MCP connects.
 
 ## Proposed backlog (not built — bring back for approval)
-- **Workday apply, M1/M2 — planned, unbuilt, reverses the old strategy verdict**
-  (see the "Strategy verdict" line near the top, REVISED 2026-09-09).
-  **M1 (apply wizard):** build an in-repo Workday executor — account
+- **Workday apply: M1 BUILT 2026-10-03 (live verification pending); M2 not
+  built.** Original plan, kept as history (see the "Strategy verdict" line near
+  the top, REVISED 2026-09-09). **M1 (apply wizard):** build an in-repo Workday executor — account
   creation/login with the user's one shared local-only password, the
   multi-page apply wizard, and structured `experience:`/`education:` profile
   blocks (see the three M1 decisions under Current state / 2026-09-09).
@@ -779,6 +895,18 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
 - **Polish (P2):** screenshot downscaling · prompt-cache stable prefixes.
 
 ## Gotchas / environment
+- **Workday auth ledger (2026-10):** `profiles/<id>/runtime/auth_attempts.json`
+  allows 1 failed sign-in per tenant per 24h; after `bad_credentials` every
+  `authenticate` returns `bad_credentials` without submitting. Only the user's
+  explicit request may call `clear_auth_ledger`. **Credentials are typed only on
+  Workday hosts** (`*.myworkdayjobs.com` / `*.myworkday.com` / `*.workday.com`);
+  elsewhere `unsupported_auth_flow` and park. Never paste or invent a password.
+- **background.md current role ends Oct 2026:** when it does, flip `profile.yaml`
+  `experience[0]` (`current: true` to an `end` date) so Workday My Experience
+  stays truthful, and re-check tense in `context/background.md`.
+- **`.claude/worktrees/` are agent worktrees** (gitignored). Worktrees sometimes
+  start from a stale base: `git log --oneline -1`, then
+  `git reset --hard integrate/fixes-2026-10` before working.
 - **Windows 11**; PowerShell primary + Git Bash tool. Multi-line commit messages
   in Bash: heredoc `git commit -F - <<'EOF'`, NOT PowerShell `@'…'@`.
 - **MCP server staleness:** `src/` edits need a Claude Code restart; verify
