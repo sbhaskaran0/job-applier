@@ -417,7 +417,8 @@ single-page form:
    saw. **(Autonomous run:** there is no consent to exceed — craft that page's
    rows with one `answer-crafter` spawn, `lint_text`, fill, `save_answer`.)
    On Workday's My Experience step, `fill_repeating_section` runs first (see
-   **Workday flow (batch)**).
+   **Workday flow (batch)**); route its statuses exactly as apply-to-job's
+   Workday flow step 3 does, with "flag" meaning **park**.
 3. **`blocked_validation`** — fix the listed `errors`
    (`[{index, field_label, message}]`) and call `advance_step()` again.
    `index` can be `null` for a field that was hidden and never scanned

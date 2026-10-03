@@ -364,10 +364,20 @@ tab for the user; in an autonomous run, park with that reason.
    fields from model-generated values**. Re-calling is safe (no duplicate
    groups).
    - `ok`, `already_present`, `no_entries`, `section_not_found` → continue.
-   - `partial` → for each unverified/unmatched field, one
-     `fill_field(index, <one of its options>)`; still unverified → flag.
-   - `unsupported_date_widget`, `no_add_button`, `add_failed` → flag, leave
-     the tab filled, don't fight it. (`bad_section` is a skill bug.)
+     (A row may say `completed_blanks`/`completed_orphan`: an existing group
+     was matched and only its empty fields were filled — that's success.)
+   - `partial` → for each `unmatched`/`uncommitted` field, one
+     `fill_field(index, <one of its options>)`, then call the tool again (it
+     only completes blanks). A `required_empty` field the profile has no value
+     for goes through the normal cascade. Still unverified → flag.
+   - **Flag, leave the tab filled, don't fight it:** `partial` carrying
+     `orphan_groups` or an `unsupported_date_widget` field; an identity or
+     start field (`company`/`title`/`school`/`start`) `not_found`; a current
+     role whose `current` is `not_found`; `no_add_button`, `ambiguous_add`,
+     `add_failed`, `new_group_not_blank`. (`bad_section` is a skill bug.)
+   - A degree comes back `unmatched` with `options` when no option is
+     confidently the profile's degree — pick the exact equivalent if one is
+     obvious, never a different degree.
    Then `upload_resume()` (Workday's Resume/CV input usually sits on this
    step), **re-read** with `read_form` (pre-call indexes are dead), and
    resolve + `fill_many` the rest as usual.
