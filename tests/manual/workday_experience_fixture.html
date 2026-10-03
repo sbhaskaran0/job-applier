@@ -1,0 +1,229 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Workday-shaped My Experience fixture</title>
+<!--
+  A synthetic "My Experience" wizard step, modelled on the DOM shapes a
+  Workday tenant uses for repeating sections. NOT a copy of any Workday page
+  and NOT observed live (that step sits behind sign-in): it is the minimum
+  markup that exercises what fill_repeating_section keys off:
+
+    * section headings ("Work Experience", "Education") with an Add /
+      Add Another button that INJECTS a new field group via JS
+    * a numbered sub-heading per group ("Work Experience 2")
+    * one PREFILLED experience group (resume parse) for the idempotency case
+    * "I currently work here" REMOVES the To field from the DOM
+    * dates: shape (b) separate Month / Year spinbuttons (experience; the
+      From label is label[for] the Month box, Workday-style) and shape (a)
+      a single MM/YYYY text box (education From) plus a YYYY box (To)
+    * Degree as button[aria-haspopup=listbox] with a "Select One" placeholder
+    * School and Field of Study as role=combobox typeaheads
+    * a later "Languages" section with its OWN Add button, which must never
+      be clicked by the experience/education fill
+-->
+<style>
+  body { font: 14px system-ui; padding: 24px; max-width: 720px; }
+  .field { margin: 12px 0; }
+  label { display: block; font-weight: 600; margin-bottom: 4px; }
+  input[type=text], textarea { width: 100%; padding: 6px; box-sizing: border-box; }
+  input[role=spinbutton] { width: 70px; padding: 6px; }
+  .grp { border: 1px solid #ccc; padding: 8px 12px; margin: 10px 0; }
+  button[aria-haspopup=listbox] {
+    width: 100%; text-align: left; padding: 8px; background: #fff;
+    border: 1px solid #999; min-height: 34px;
+  }
+  [role=listbox] { border: 1px solid #999; background: #fff; }
+  [role=option] { padding: 6px 8px; cursor: pointer; }
+  [hidden] { display: none !important; }
+  .cb label { display: inline; font-weight: 400; }
+</style>
+
+<h2>My Experience</h2>
+
+<section aria-labelledby="we-h">
+  <h3 id="we-h">Work Experience</h3>
+  <div id="we-groups"></div>
+  <button id="we-add" type="button">Add</button>
+</section>
+
+<section aria-labelledby="ed-h">
+  <h3 id="ed-h">Education</h3>
+  <div id="ed-groups"></div>
+  <button id="ed-add" type="button">Add</button>
+</section>
+
+<section aria-labelledby="lang-h">
+  <h3 id="lang-h">Languages</h3>
+  <div id="lang-groups"></div>
+  <button id="lang-add" type="button">Add</button>
+</section>
+
+<button type="button">Back</button>
+<button type="submit">Save and Continue</button>
+
+<script>
+  window.__adds = {we: 0, ed: 0, lang: 0};
+  var SCHOOLS = ['University of Southern California',
+                 'University of California, Santa Barbara',
+                 'Stanford University', 'Example State University'];
+  var FIELDS = ['Economics', 'Computer Science', 'Mathematics', 'History'];
+  var DEGREES = ['High School Diploma', "Associate's Degree", "Bachelor's Degree",
+                 "Master's Degree", 'Doctorate'];
+
+  function esc(s) { return String(s).replace(/"/g, '&quot;'); }
+
+  function monthYear(id, label, withFor) {
+    return '<div class="field" id="' + id + '-wrap">' +
+      '<label ' + (withFor ? 'for="' + id + '-m"' : '') + '>' + label + '</label>' +
+      '<div role="group">' +
+      '<input type="text" role="spinbutton" aria-label="Month" placeholder="MM" id="' + id + '-m">' +
+      ' / <input type="text" role="spinbutton" aria-label="Year" placeholder="YYYY" id="' + id + '-y">' +
+      ' <button type="button" aria-label="Calendar">&#128197;</button>' +
+      '</div></div>';
+  }
+
+  function addExperience(pre) {
+    var n = document.querySelectorAll('#we-groups .grp').length + 1;
+    var p = 'we' + n;
+    var g = document.createElement('div');
+    g.className = 'grp';
+    g.setAttribute('role', 'group');
+    g.setAttribute('aria-labelledby', p + '-h');
+    g.innerHTML =
+      '<h4 id="' + p + '-h">Work Experience ' + n + '</h4>' +
+      '<button type="button">Delete</button>' +
+      '<div class="field"><label for="' + p + '-title">Job Title*</label>' +
+      '<input type="text" id="' + p + '-title" required></div>' +
+      '<div class="field"><label for="' + p + '-company">Company*</label>' +
+      '<input type="text" id="' + p + '-company" required></div>' +
+      '<div class="field"><label for="' + p + '-loc">Location</label>' +
+      '<input type="text" id="' + p + '-loc"></div>' +
+      '<div class="field cb"><input type="checkbox" id="' + p + '-cur">' +
+      '<label for="' + p + '-cur">I currently work here</label></div>' +
+      monthYear(p + '-from', 'From*', true) +
+      '<div id="' + p + '-toslot">' + monthYear(p + '-to', 'To*', false) + '</div>' +
+      '<div class="field"><label for="' + p + '-desc">Role Description</label>' +
+      '<textarea id="' + p + '-desc" rows="3"></textarea></div>';
+    document.getElementById('we-groups').appendChild(g);
+    var cur = document.getElementById(p + '-cur');
+    cur.addEventListener('change', function () {
+      var slot = document.getElementById(p + '-toslot');
+      // Workday removes To entirely while "I currently work here" is ticked.
+      slot.innerHTML = cur.checked ? '' : monthYear(p + '-to', 'To*', false);
+    });
+    if (pre) {
+      document.getElementById(p + '-title').value = pre.title;
+      document.getElementById(p + '-company').value = pre.company;
+    }
+    document.getElementById('we-add').textContent = 'Add Another';
+  }
+
+  function typeahead(id, label, list) {
+    return '<div class="field"><label for="' + id + '">' + label + '</label>' +
+      '<input type="text" role="combobox" id="' + id + '" aria-expanded="false" ' +
+      'aria-controls="' + id + '-lb" autocomplete="off" placeholder="Search">' +
+      '<div role="listbox" id="' + id + '-lb" hidden></div></div>';
+  }
+
+  function wireTypeahead(id, list) {
+    var inp = document.getElementById(id);
+    var lb = document.getElementById(id + '-lb');
+    function render() {
+      var q = inp.value.trim().toLowerCase();
+      lb.innerHTML = '';
+      list.filter(function (o) { return !q || o.toLowerCase().indexOf(q) !== -1; })
+        .forEach(function (o) {
+          var d = document.createElement('div');
+          d.setAttribute('role', 'option');
+          d.textContent = o;
+          lb.appendChild(d);
+        });
+      lb.hidden = false;
+      inp.setAttribute('aria-expanded', 'true');
+    }
+    inp.addEventListener('focus', render);
+    inp.addEventListener('input', render);
+    lb.addEventListener('mousedown', function (e) {
+      var o = e.target.closest('[role=option]');
+      if (!o) return;
+      e.preventDefault();
+      inp.value = o.textContent;
+      lb.hidden = true;
+      inp.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function wireListbox(btnId, lbId) {
+    var btn = document.getElementById(btnId);
+    var lb = document.getElementById(lbId);
+    btn.addEventListener('click', function () {
+      var open = !lb.hidden;
+      lb.hidden = open;
+      btn.setAttribute('aria-expanded', String(!open));
+    });
+    lb.addEventListener('click', function (e) {
+      var opt = e.target.closest('[role=option]');
+      if (!opt) return;
+      btn.innerHTML = '<span data-automation-id="selectedItem">' +
+        opt.textContent.trim() + '</span>';
+      lb.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function addEducation() {
+    var n = document.querySelectorAll('#ed-groups .grp').length + 1;
+    var p = 'ed' + n;
+    var g = document.createElement('div');
+    g.className = 'grp';
+    g.setAttribute('role', 'group');
+    g.setAttribute('aria-labelledby', p + '-h');
+    g.innerHTML =
+      '<h4 id="' + p + '-h">Education ' + n + '</h4>' +
+      '<button type="button">Delete</button>' +
+      typeahead(p + '-school', 'School or University*') +
+      '<div class="field"><label id="' + p + '-deg-l">Degree*</label>' +
+      '<button type="button" id="' + p + '-deg" aria-haspopup="listbox" ' +
+      'aria-expanded="false" aria-controls="' + p + '-deg-lb" ' +
+      'aria-labelledby="' + p + '-deg-l">Select One</button>' +
+      '<div role="listbox" id="' + p + '-deg-lb" hidden>' +
+      DEGREES.map(function (d) { return '<div role="option">' + d + '</div>'; }).join('') +
+      '</div></div>' +
+      typeahead(p + '-fos', 'Field of Study') +
+      '<div class="field"><label for="' + p + '-gpa">Overall Result (GPA)</label>' +
+      '<input type="text" id="' + p + '-gpa"></div>' +
+      '<div class="field"><label for="' + p + '-from">From</label>' +
+      '<input type="text" id="' + p + '-from" placeholder="MM/YYYY"></div>' +
+      '<div class="field"><label for="' + p + '-to">To (Actual or Expected)*</label>' +
+      '<input type="text" id="' + p + '-to" placeholder="YYYY"></div>';
+    document.getElementById('ed-groups').appendChild(g);
+    wireTypeahead(p + '-school', SCHOOLS);
+    wireTypeahead(p + '-fos', FIELDS);
+    wireListbox(p + '-deg', p + '-deg-lb');
+    document.getElementById('ed-add').textContent = 'Add Another';
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('[role=listbox]').forEach(function (lb) {
+      lb.hidden = true;
+      var b = document.querySelector('[aria-controls="' + lb.id + '"]');
+      if (b) b.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  // Groups appear a beat after the click, like a real async render.
+  document.getElementById('we-add').addEventListener('click', function () {
+    window.__adds.we += 1; setTimeout(function () { addExperience(null); }, 150);
+  });
+  document.getElementById('ed-add').addEventListener('click', function () {
+    window.__adds.ed += 1; setTimeout(addEducation, 150);
+  });
+  document.getElementById('lang-add').addEventListener('click', function () {
+    window.__adds.lang += 1;
+  });
+
+  // Resume-parse prefill: one experience group already holds a role.
+  if (location.hash.indexOf('prefill') !== -1) {
+    addExperience({title: 'Product Manager', company: 'Acme Corp'});
+  }
+</script>
