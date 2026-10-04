@@ -16,6 +16,12 @@
 
   window.__clicked records every control label clicked, so the harness can
   prove the autofill / last-application buttons were never touched.
+
+  #slow (the live Capital One wd12 shape, 2026-10-04): "Apply" opens the
+  chooser as a MODAL ([role=dialog][aria-modal=true]) on the SAME URL ~2.5s
+  after the click, with the job page's "Apply" still visible behind it;
+  "Apply Manually" flips the URL to .../apply/applyManually at once
+  (pushState) and the Create Account form renders ~2.5s later.
 -->
 <style>
   body { font-family: sans-serif; margin: 20px; }
@@ -23,6 +29,8 @@
   .view.on { display: block; }
   a[role=button] { display: inline-block; padding: 6px 12px; margin: 4px;
                    border: 1px solid #333; cursor: pointer; }
+  #modal { position: fixed; top: 80px; left: 40px; padding: 16px;
+           background: #fff; border: 2px solid #333; z-index: 10; }
 </style>
 </head>
 <body>
@@ -57,8 +65,27 @@
   <button type="submit" id="next">Save and Continue</button>
 </section>
 
+<div id="modal" class="view" role="dialog" aria-modal="true">
+  <h2>Start Your Application</h2>
+  <a role="button" href="#autofill" id="m-autofill">Autofill with Resume</a>
+  <a role="button" href="#manual" id="m-manual">Apply Manually</a>
+  <a role="button" href="#last" id="m-last">Use My Last Application</a>
+</div>
+
+<section id="auth" class="view">
+  <h2>Create Account</h2>
+  <label for="email">Email Address*</label>
+  <input id="email" type="text" autocomplete="email">
+  <label for="pw">Password*</label>
+  <input id="pw" type="password" autocomplete="new-password">
+  <label for="pw2">Verify New Password*</label>
+  <input id="pw2" type="password" autocomplete="new-password">
+  <button type="submit" id="create">Create Account</button>
+</section>
+
 <script>
   window.__clicked = [];
+  var slow = (location.hash || '').indexOf('slow') !== -1;
   function show(id) {
     document.querySelectorAll('.view').forEach(function (v) {
       v.classList.toggle('on', v.id === id);
@@ -70,6 +97,18 @@
     window.__clicked.push((t.innerText || '').trim());
     if (t.tagName === 'A') e.preventDefault();
     // SPA-style: render after a short delay, like Workday's router
+    if (slow) {
+      if (t.id === 'apply') setTimeout(function () {
+        document.getElementById('modal').classList.add('on');   // job stays
+      }, 2500);
+      if (t.id === 'm-manual') {
+        history.pushState({}, '', location.pathname.replace(/\/$/, '')
+                          + '/apply/applyManually');
+        show('none');
+        setTimeout(function () { show('auth'); }, 2500);
+      }
+      return;
+    }
     if (t.id === 'apply') setTimeout(function () { show('chooser'); }, 300);
     if (t.id === 'manual') setTimeout(function () { show('form'); }, 300);
   });

@@ -138,6 +138,17 @@ aliases, JS-only dropzones).
   button classes entry / auth / never-click; `advance_step` gains
   `entry_page`/`auth_page`, "Review" advances, a lone "Apply" on a filled tab is a
   submit (per-tab filled flag); `snapshot_job` walks entry + auth on Workday.
+  **2026-10-04 first live Workday run (Capital One wd12) fixes:** `data-jactl`
+  control tags are now STABLE across scans (only untagged elements get a new
+  number; shared tags re-issued), `_click_control` refuses a tag whose live
+  label/class no longer matches, `_click_first(pick=...)` re-picks each
+  candidate from a fresh scan, and `authenticate` re-scans after the fills
+  before choosing the submit (a show-password toggle had shifted the old
+  renumbered tags -> `no_auth_submit`). `start_application` waits for real
+  progress (new entry control / form / sign-in fields; a URL flip alone is
+  not progress), prefers controls in an open `[role=dialog]`/`[aria-modal]`
+  over the background Apply, waits for a late-rendering Apply, and is bounded
+  at 4 clicks / ~30s per call; live probe reaches `auth_required` in one call.
 - `src/repeating.py` (**new, 2026-10**) — pure helpers + `SECTION_JS` for
   `fill_repeating_section` (Workday My Experience): locate a section by heading,
   split fields into per-entry groups, plan which existing/orphan/blank group each
