@@ -29,6 +29,7 @@ import asyncio
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -387,6 +388,24 @@ async def run_entry_auth(s):
         check("start_application is idempotent on the form",
               res.get("status") == "form" and clicked2 == clicked, clicked2)
 
+        # --- slow entry (live Capital One): a same-URL modal ~2.5s after
+        # Apply, then an auth form ~2.5s after Apply Manually's URL flip ---
+        await _goto(page, ENTRY_FIXTURE + "#slow")
+        await s.read_form()
+        t0 = time.monotonic()
+        res = await s.start_application()
+        took = time.monotonic() - t0
+        clicked = await page.evaluate("() => window.__clicked")
+        check("slow modal entry: auth_required in ONE start_application call",
+              res.get("status") == "auth_required", res.get("status"))
+        check("slow modal entry: clicked exactly Apply, Apply Manually "
+              "(the background Apply not re-clicked)",
+              clicked == ["Apply", "Apply Manually"], clicked)
+        check("slow modal entry: landed on /apply/applyManually",
+              (res.get("url") or "").endswith("/apply/applyManually"),
+              res.get("url"))
+        check("slow modal entry: bounded (< 30s)", took < 30, round(took, 1))
+
         # --- auth page: classification, no clicks from advance/submit -----
         await _goto(page, AUTH_FIXTURE + "#ok")
         res = await s.start_application()
@@ -422,6 +441,9 @@ async def run_entry_auth(s):
             ("verify", "email_verification_required", ["create"]),
             ("signin", "authenticated", ["sign_in", "create"]),
             ("signin,exists", "authenticated", ["sign_in"]),
+            # filling the password inserts a show-password eye before the
+            # submit and re-renders the overlay + button (live Capital One)
+            ("eye", "authenticated", ["create"]),
         ]
         for flags, want, want_subs in scenarios:
             s.clear_auth_ledger()    # each scenario is a fresh tenant history
@@ -445,6 +467,10 @@ async def run_entry_auth(s):
                     "() => document.getElementById('promo').checked")
                 check("create-account left the marketing opt-in unticked",
                       promo is False, promo)
+            if flags == "eye":
+                eye = await page.evaluate("() => window.__eye")
+                check("authenticate #eye never clicks the show-password eye",
+                      eye == 0, eye)
             if flags == "verify":
                 check("verification excerpt is page text, email redacted",
                       "verification email" in res.get("message_excerpt", "")

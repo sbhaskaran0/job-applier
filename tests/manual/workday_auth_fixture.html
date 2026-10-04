@@ -28,6 +28,11 @@
     exists   the account already exists
     badpw    the stored password is wrong (sign-in fails)
     verify   create-account requires email verification
+    eye      the live Capital One shape (2026-10-04): typing a password inserts
+             a "Show Password" button BEFORE the submit and re-renders the
+             submit block (fresh overlay + button nodes), so any control tag
+             or index taken before the fill is stale. window.__eye counts
+             clicks on the eye; it must stay 0.
   Errors are shown in a [role=alert] banner. window.__submits records each
   credential submit ("create" / "sign_in"); window.__hdr counts header clicks.
 -->
@@ -82,6 +87,7 @@
   var created = false;
   window.__submits = [];
   window.__hdr = 0;
+  window.__eye = 0;
   function $(id) { return document.getElementById(id); }
   function render() {
     var c = mode === 'create_account';
@@ -128,6 +134,32 @@
   }
   $('cf').addEventListener('click', submit);
   $('submit').addEventListener('click', submit);
+  function rerenderSubmit() {
+    // React-style: brand-new nodes, none of the old attributes
+    var label = mode === 'create_account' ? 'Create Account' : 'Sign In';
+    var cf = document.createElement('div');
+    cf.className = 'click-filter'; cf.id = 'cf';
+    cf.setAttribute('role', 'button'); cf.setAttribute('aria-label', label);
+    cf.addEventListener('click', submit);
+    var b = document.createElement('button');
+    b.type = 'submit'; b.id = 'submit'; b.innerText = label;
+    b.addEventListener('click', submit);
+    $('cf').replaceWith(cf);
+    $('submit').replaceWith(b);
+  }
+  if (has('eye')) {
+    var onPw = function () {
+      if (!$('eye')) {
+        var eye = document.createElement('button');
+        eye.id = 'eye'; eye.type = 'button'; eye.innerText = 'Show Password';
+        eye.addEventListener('click', function () { window.__eye += 1; });
+        document.querySelector('.btnwrap').before(eye);
+      }
+      rerenderSubmit();
+    };
+    $('pw').addEventListener('input', onPw);
+    $('pw2').addEventListener('input', onPw);
+  }
   $('toggle').addEventListener('click', function () {
     mode = mode === 'create_account' ? 'sign_in' : 'create_account';
     banner('');

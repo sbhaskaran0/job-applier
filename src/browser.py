@@ -947,6 +947,17 @@ def _host_of(url: str) -> str:
 # first visible password input in DOM order (separates the in-form "Sign In"
 # toggle from the page header's "Sign In"). Also returns visible headings and
 # short notice/error texts for auth classification. Text only; never values.
+#
+# Tags are STABLE: an element keeps the number it was first given and only
+# untagged elements get a new one, from a per-document counter that never
+# reuses a number. Renumbering on every scan made a control dict from an
+# earlier scan point at a DIFFERENT element after any re-scan (live Capital
+# One run: a password show/hide toggle shifted the numbers between the scan
+# and the Create Account click). A tag two elements share (a cloned node) is
+# dropped from both and re-issued. A re-rendered node loses its tag, so a
+# stale reference then resolves to nothing rather than to a neighbour.
+# `in_dialog` / `has_dialog`: an open modal ([role=dialog], [aria-modal=true],
+# <dialog open>), whose controls win over the page visible behind it.
 _CONTROLS_JS = r"""
 (emailIdx) => {
   const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
@@ -957,7 +968,23 @@ _CONTROLS_JS = r"""
     return r.width > 1 && r.height > 1;
   };
   const FOLLOWS = Node.DOCUMENT_POSITION_FOLLOWING;
-  document.querySelectorAll('[data-jactl]').forEach(e => e.removeAttribute('data-jactl'));
+  const tagged = Array.from(document.querySelectorAll('[data-jactl]'));
+  const count = new Map();
+  tagged.forEach(e => {
+    const t = e.getAttribute('data-jactl');
+    count.set(t, (count.get(t) || 0) + 1);
+  });
+  let maxTag = -1;
+  tagged.forEach(e => {
+    const t = e.getAttribute('data-jactl');
+    if (count.get(t) > 1) { e.removeAttribute('data-jactl'); return; }
+    const v = parseInt(t, 10);
+    if (v > maxTag) maxTag = v;
+  });
+  if (typeof window.__jactlNext !== 'number' || window.__jactlNext <= maxTag)
+    window.__jactlNext = maxTag + 1;
+  const dsel = '[role=dialog], [role=alertdialog], [aria-modal=true], dialog[open]';
+  const has_dialog = Array.from(document.querySelectorAll(dsel)).some(vis);
   const pw = Array.from(document.querySelectorAll('input[type=password]')).find(vis) || null;
   const email = (emailIdx === null || emailIdx === undefined || emailIdx < 0) ? null
     : document.querySelector('[data-jaidx="' + emailIdx + '"]');
@@ -969,23 +996,27 @@ _CONTROLS_JS = r"""
   const chrome = 'header, nav, footer, [role=banner], [role=navigation], [role=contentinfo]';
   const sel = 'button, [role=button], [role=link], a, input[type=submit], input[type=button]';
   const controls = [];
-  let n = 0;
   for (const el of Array.from(document.querySelectorAll(sel))) {
-    if (n >= 300) break;
+    if (controls.length >= 300) break;
     if (el.disabled || !vis(el)) continue;
     let label = clean(el.innerText || el.value || '');
     if (!label) label = clean(el.getAttribute('aria-label'));
     if (!label || label.length > 60) continue;
-    el.setAttribute('data-jactl', String(n));
-    controls.push({i: n, label: label, tag: el.tagName.toLowerCase(),
+    let tag = el.getAttribute('data-jactl');
+    if (tag === null) {
+      tag = String(window.__jactlNext++);
+      el.setAttribute('data-jactl', tag);
+    }
+    const dlg = el.closest(dsel);
+    controls.push({i: parseInt(tag, 10), label: label, tag: el.tagName.toLowerCase(),
       type: (el.getAttribute('type') || '').toLowerCase(),
       role: el.getAttribute('role') || '',
       pos: order.get(el),
       in_chrome: !!el.closest(chrome),
       same_form_email: !!(emailForm && el.closest('form') === emailForm),
       after_email: !!(email && (email.compareDocumentPosition(el) & FOLLOWS)),
-      after_password: !!(pw && (pw.compareDocumentPosition(el) & FOLLOWS))});
-    n++;
+      after_password: !!(pw && (pw.compareDocumentPosition(el) & FOLLOWS)),
+      in_dialog: !!(dlg && vis(dlg))});
   }
   const field_pos = {};
   document.querySelectorAll('[data-jaidx]').forEach(e => {
@@ -1002,7 +1033,18 @@ _CONTROLS_JS = r"""
     if (t && t.length <= 300 && notices.indexOf(t) === -1) notices.push(t);
   }
   return {controls: controls, headings: headings, notices: notices.slice(0, 10),
-          field_pos: field_pos, has_step: has_step};
+          field_pos: field_pos, has_step: has_step, has_dialog: has_dialog};
+}
+"""
+
+# JS: the label of ONE located control, computed exactly as _CONTROLS_JS does,
+# so _click_control can confirm a tag still sits on the intended control.
+_CONTROL_LABEL_JS = r"""
+(el) => {
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  let label = clean(el.innerText || el.value || '');
+  if (!label) label = clean(el.getAttribute('aria-label'));
+  return label;
 }
 """
 
@@ -1150,6 +1192,45 @@ def _is_auth_page(fields: list[dict], controls: list[dict]) -> bool:
         return False
     return any(classify_control(c.get("label")) == "auth" and _in_auth_form(c)
                for c in controls or [])
+
+
+def _entry_targets(state: dict, kind: str) -> list[dict]:
+    """Ranked `kind` ("entry" / "auth_reveal") controls to click. When an
+    open modal holds such controls, ONLY those: the job page's "Apply" stays
+    visible behind Workday's "Start Your Application" modal. A modal without
+    any (a cookie banner) does not hide the page's controls."""
+    ctls = [c for c in state.get("controls") or []
+            if (c.get("cls") or classify_control(c.get("label"))) == kind]
+    in_dialog = [c for c in ctls if c.get("in_dialog")]
+    if in_dialog:
+        ctls = in_dialog
+    if kind == "entry":
+        ctls = sorted(ctls, key=lambda c: _entry_rank(c.get("label")))
+    return ctls
+
+
+def _entry_landed(state: dict) -> bool:
+    """start_application's terminal pages: blocked, sign-in gate, or form."""
+    if state.get("blocked"):
+        return True
+    fields = state.get("fields") or []
+    return _is_auth_page(fields, state.get("controls")) or bool(form_fields(fields))
+
+
+def _entry_progress(state: dict, before: dict) -> bool:
+    """Did an entry click get somewhere? Landed, or an entry / email-reveal
+    control appeared that was not there before (the chooser rendered), or a
+    modal opened holding one. A bare URL change is NOT progress: Workday's
+    /apply route renders its form seconds after the URL flips."""
+    if _entry_landed(state):
+        return True
+
+    def labels(st):
+        return {(_norm_label(c.get("label")), bool(c.get("in_dialog")))
+                for c in st.get("controls") or []
+                if (c.get("cls") or classify_control(c.get("label")))
+                in ("entry", "auth_reveal")}
+    return bool(labels(state) - labels(before))
 
 
 def _pick_auth_controls(controls: list[dict], mode: str, submit: bool,
@@ -2925,6 +3006,7 @@ class BrowserSession:
     # -> Create Account / Sign In). Classified by visible text and ARIA only.
     # ------------------------------------------------------------------ #
     _WAIT_S = 10.0
+    _ENTRY_BUDGET_S = 30.0
     _LEDGER_WINDOW_S = 24 * 3600
     _RECENT_SUBMIT_S = 60
     _AUTH_OK = ("authenticated", "verification")
@@ -2936,7 +3018,7 @@ class BrowserSession:
 
     async def _scan_page_bits(self, email_index=None) -> dict:
         out = {"controls": [], "headings": [], "notices": [], "field_pos": {},
-               "has_step": False}
+               "has_step": False, "has_dialog": False}
         arg = -1 if email_index is None else email_index
         for frame in self.page.frames:
             try:
@@ -2953,6 +3035,7 @@ class BrowserSession:
             out["notices"].extend(res.get("notices") or [])
             out["field_pos"].update(res.get("field_pos") or {})
             out["has_step"] = out["has_step"] or bool(res.get("has_step"))
+            out["has_dialog"] = out["has_dialog"] or bool(res.get("has_dialog"))
         return out
 
     async def _page_state(self) -> dict:
@@ -2977,7 +3060,8 @@ class BrowserSession:
                          ";".join(c.get("label", "") for c in state.get("controls") or []),
                          ";".join(f.get("label") or "" for f in state.get("fields") or []),
                          ";".join(state.get("headings") or []),
-                         ";".join(state.get("notices") or [])])
+                         ";".join(state.get("notices") or []),
+                         "dialog" if state.get("has_dialog") else ""])
 
     async def _settle(self, before_sig: str, timeout: float | None = None,
                       until=None) -> dict:
@@ -3004,11 +3088,28 @@ class BrowserSession:
     async def _click_control(self, ctl: dict, timeout: int = 3000) -> bool:
         """Click one tagged control. A trial click first: when an overlay
         (Workday's click_filter) intercepts the element, the trial fails and
-        nothing is clicked, so the caller moves to the next candidate."""
+        nothing is clicked, so the caller moves to the next candidate.
+
+        Guarded: the tag must resolve to exactly ONE element whose live label
+        (and so its class) still equals the scanned control's. A tag that now
+        sits on anything else -- or on nothing -- is never clicked."""
         frame = ctl.get("frame")
         if frame is None:
             return False
-        loc = frame.locator('[data-jactl="%s"]' % ctl["i"]).first
+        want = _norm_label(ctl.get("label"))
+        if not want:
+            return False
+        want_cls = ctl.get("cls") or classify_control(want)
+        locs = frame.locator('[data-jactl="%s"]' % ctl["i"])
+        try:
+            if await locs.count() != 1:
+                return False
+            loc = locs.first
+            live = await loc.evaluate(_CONTROL_LABEL_JS, timeout=1500)
+        except Exception:
+            return False
+        if _norm_label(live) != want or classify_control(live) != want_cls:
+            return False
         try:
             await loc.click(trial=True, timeout=1500)
         except Exception:
@@ -3019,26 +3120,62 @@ class BrowserSession:
         except Exception:
             return False
 
-    async def _click_first(self, ctls: list[dict], before_sig: str | None = None):
+    @staticmethod
+    def _ctl_keys(ctls: list[dict]) -> list[tuple]:
+        """(identity, control) for each candidate. Identity is what a control
+        IS (label, tag, type, role) plus its rank among same-identity
+        candidates, so it survives a re-scan that gives the element a new
+        tag or a fresh dict."""
+        seen: dict = {}
+        out = []
+        for c in ctls or []:
+            base = (_norm_label(c.get("label")), c.get("tag") or "",
+                    c.get("type") or "", c.get("role") or "")
+            n = seen.get(base, 0)
+            seen[base] = n + 1
+            out.append((base + (n,), c))
+        return out
+
+    async def _click_first(self, ctls: list[dict], before_sig: str | None = None,
+                           pick=None):
         """Click the first candidate that accepts a click. After every
         attempt that did not report success (including one that raised) the
-        page signature is re-read: if it changed, that attempt DID click and
+        page is re-read: if its signature changed, that attempt DID click and
         nothing else is tried, so an overlay and its button are never both
-        clicked. Returns the clicked control or None; re-raises the last
-        exception when nothing was clicked."""
+        clicked. Otherwise the next candidate is taken from that FRESH read
+        when `pick(state) -> ranked controls` is given (never a control dict
+        from before the re-read), skipping identities already tried. Returns
+        the clicked control or None; re-raises the last exception when
+        nothing was clicked."""
         if before_sig is None:
             before_sig = self._state_sig(await self._page_state())
         last_exc = None
-        for c in ctls:
-            if c.get("cls") == "never" or classify_control(c.get("label")) == "never":
-                continue
+        tried: set = set()
+        cands = list(ctls or [])
+        for _ in range(8):
+            nxt = None
+            for key, c in self._ctl_keys(cands):
+                if key in tried:
+                    continue
+                if (c.get("cls") == "never"
+                        or classify_control(c.get("label")) == "never"):
+                    continue
+                nxt = (key, c)
+                break
+            if nxt is None:
+                break
+            key, c = nxt
+            tried.add(key)
             try:
                 if await self._click_control(c):
                     return c
             except Exception as e:
                 last_exc = e
-            if self._state_sig(await self._page_state()) != before_sig:
+            state = await self._page_state()
+            if self._state_sig(state) != before_sig:
                 return c
+            if pick is not None:
+                cands = list(pick(state) or [])
         if last_exc is not None:
             raise last_exc
         return None
@@ -3112,23 +3249,42 @@ class BrowserSession:
         auth page it only classifies. Refuses to click an entry control once
         the tab is inside an application (status already_in_application),
         because there a bare "Apply" is the final submit. Statuses: form,
-        auth_required, blocked, no_entry, already_in_application. Bounded: at
-        most 4 clicks, ~10s wait each, stops when a click changes nothing."""
+        auth_required, blocked, no_entry, already_in_application. Controls in
+        an open modal win over the page behind it. After each click it waits
+        for real progress (a new entry control, the form, the sign-in fields),
+        not just any change, so a modal or SPA route that renders seconds
+        later is not misread as no_entry. Bounded: at most 4 clicks and
+        _ENTRY_BUDGET_S (~30s) per call; stops when a click changes nothing."""
         if self.page is None:
             raise RuntimeError("No page open. Call open_job(url) first.")
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + self._ENTRY_BUDGET_S
+
+        def left() -> float:
+            return max(0.0, deadline - loop.time())
+
+        def actionable(st):
+            return (_entry_landed(st) or bool(_entry_targets(st, "entry"))
+                    or bool(_entry_targets(st, "auth_reveal")))
+
         state = await self._page_state()
+        if not actionable(state):
+            # The job page's Apply renders late (live Capital One probe: none
+            # at open_job's 2.5s mark, there a moment later).
+            state = await self._settle("", timeout=min(self._WAIT_S, left()),
+                                       until=actionable)
+        start_path = urlparse(state.get("url") or "").path
         popup_done = False
         for _ in range(4):
             if state["blocked"]:
                 return self._entry_result("blocked", state)
-            fields, controls = state["fields"], state["controls"]
-            if _is_auth_page(fields, controls):
+            fields = state["fields"]
+            if _is_auth_page(fields, state["controls"]):
                 return self._entry_result("auth_required", state)
             if form_fields(fields):
                 return self._entry_result("form", state)
-            entries = sorted((c for c in controls if c["cls"] == "entry"),
-                             key=lambda c: _entry_rank(c["label"]))
-            reveal = [c for c in controls if c["cls"] == "auth_reveal"]
+            entries = _entry_targets(state, "entry")
+            reveal = _entry_targets(state, "auth_reveal")
             if entries:
                 if self._inside_application(state):
                     return self._entry_result(
@@ -3136,23 +3292,46 @@ class BrowserSession:
                         note="this tab is inside an application; an Apply "
                              "control here may be the final submit — nothing "
                              "was clicked (use advance_step / submit_application)")
-                target = entries
+                kind, target = "entry", entries
             elif reveal:
-                target = reveal          # "Sign in with email": never a submit
+                # "Sign in with email": never a submit
+                kind, target = "auth_reveal", reveal
             else:
+                break
+            if left() <= 0:
                 break
             sig = self._state_sig(state)
             try:
                 pages_before = list(self.context.pages) if self.context else []
             except Exception:
                 pages_before = []
-            if await self._click_first(target, sig) is None:
+            if await self._click_first(
+                    target, sig,
+                    pick=lambda st, k=kind: _entry_targets(st, k)) is None:
                 break
             if not popup_done:
                 popup_done = await self._adopt_popup(pages_before) is not None
-            state = await self._settle(sig)
+            before = state
+
+            def progressed(st, before=before):
+                return _entry_progress(st, before)
+            state = await self._settle(sig, timeout=min(self._WAIT_S, left()),
+                                       until=progressed)
+            if not progressed(state) and left() > 0:
+                # Slow render: Workday opens the "Start Your Application"
+                # chooser as a modal on the SAME URL, sometimes seconds after
+                # the click. One more bounded wait before judging the click.
+                state = await self._settle(sig, timeout=min(self._WAIT_S, left()),
+                                           until=progressed)
             if self._state_sig(state) == sig:
                 break                    # the click changed nothing: stop
+        if (not _entry_landed(state) and left() > 0
+                and (state.get("has_dialog")
+                     or urlparse(state.get("url") or "").path != start_path)):
+            # An entry click moved us (/apply, /applyManually, a modal) but
+            # the form / sign-in fields have not rendered yet.
+            state = await self._settle("", timeout=min(self._WAIT_S, left()),
+                                       until=_entry_landed)
         if state["blocked"]:
             return self._entry_result("blocked", state)
         if _is_auth_page(state["fields"], state["controls"]):
@@ -3336,11 +3515,16 @@ class BrowserSession:
                     if not _pick_auth_controls(state["controls"], want, True):
                         return out("toggle_failed", state, secrets, wanted=want)
                 else:
-                    toggles = _pick_auth_controls(state["controls"], want,
-                                                  submit=False, current=lay["mode"])
+                    cur = lay["mode"]
+
+                    def pick_toggle(st, want=want, cur=cur):
+                        return _pick_auth_controls(st["controls"], want,
+                                                   submit=False, current=cur)
+                    toggles = pick_toggle(state)
                     sig = self._state_sig(state)
                     origin = urlparse(state["url"])[:2]
-                    if await self._click_first(toggles, sig) is None:
+                    if await self._click_first(toggles, sig,
+                                               pick=pick_toggle) is None:
                         return out("toggle_failed", state, secrets, wanted=want)
                     state = await self._settle(sig)
                     if urlparse(state["url"])[:2] != origin:
@@ -3380,14 +3564,22 @@ class BrowserSession:
                 t = self.tabs.get(self.active_id)
                 if t is not None:
                     t["filled"] = was_filled   # a consent tick is not an answer
-            subs = _pick_auth_controls(state["controls"], want, submit=True)
+            # Re-scan AFTER the fills: typing makes Workday add controls
+            # (password show/hide toggles) and validation text, so neither the
+            # control dicts nor the signature from before the fills may be
+            # used to pick or judge the submit click.
+            state = await self._page_state()
+
+            def pick_submit(st, want=want):
+                return _pick_auth_controls(st["controls"], want, submit=True)
+            subs = pick_submit(state)
             if not subs:
                 return out("no_auth_submit", state, secrets)
             if not self._on_workday():
                 return out("unsupported_auth_flow", state, secrets)
             sig = self._state_sig(state)
             before_notices = list(state.get("notices") or [])
-            if await self._click_first(subs, sig) is None:
+            if await self._click_first(subs, sig, pick=pick_submit) is None:
                 return out("no_auth_submit", state, secrets)
             submits += 1
             state = await self._settle(
