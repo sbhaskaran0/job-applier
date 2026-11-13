@@ -432,9 +432,21 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
     on the input id, so every live upload returned `verified:false,
     container_text:""` although the file had attached. Read-back now keys on
     a `data-jaslot` tag on the slot box (the input's ARIA group, else its tight
-    box), polls through the progressbar (`readback:"container"`, `pending`),
-    and a filled slot is still seen: resume never goes into the cover slot
-    and a 2nd upload into a filled slot is refused ("already holds a file").
+    box), polls through the progressbar (`readback:"container"`, `pending`;
+    the settle window restarts on every busy scan), and never verifies while
+    the slot is busy or shows `role=alert`/`aria-invalid` (`slot_error`).
+    Filled slots stay visible (present:false), including an untagged
+    `role=group`/`fieldset` named resume/CV with no file input (filled before
+    the tool's first scan). Guarantees: the resume is refused for any input
+    whose own attributes say cover or whose single-input box says cover (not
+    resume/cv), auto-located or by explicit index, and for every non-resume
+    input while a resume slot has no free input; an input with no label
+    signal at all can still get the resume when no resume slot is
+    recognisable. A 2nd upload into a slot that shows a file (filename or
+    remove button) is refused ("already holds a file"); on GH a re-upload
+    after "landed in resume slot" therefore always fails, so the skills park.
+    The chosen input is tagged through its slot box and the upload aborts if
+    that resolves to anything but one input.
   - **B: cover-letter pipeline** (merge `11daf6a`; `03a35b1`, `49bfc1e`,
     `befca93`, `5057961`, `54896e6`). Template, letterhead, `COVER_LINT_RULES`,
     `lint_text`, `save_cover_letter(force)`, Opus-pinned `answer-crafter`, web

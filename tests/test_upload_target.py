@@ -30,10 +30,13 @@ from src import browser                 # noqa: E402
 
 choose = browser._choose_file_input
 
-# Read-back polls the slot until it verifies; keep the fakes fast.
+# Read-back polls the slot until it verifies. The fakes advance one state
+# per SCAN, not per unit of time, so the settle window only has to outlast
+# one poll; it is kept far above Windows' ~15ms sleep granularity so the
+# gap between "progressbar gone" and "filename shown" can never time out.
 browser.BrowserSession._READBACK_POLL_S = 0.001
-browser.BrowserSession._READBACK_SETTLE_S = 0.02
-browser.BrowserSession._READBACK_MAX_S = 0.2
+browser.BrowserSession._READBACK_SETTLE_S = 0.25
+browser.BrowserSession._READBACK_MAX_S = 0.6
 
 
 def cand(i, text="", name="", id="", aria="", label="", file="", single=True):
@@ -191,8 +194,8 @@ class FakeFrame:
             return [x.descriptor() for x in self.inputs]
         if js is browser._TAG_FILE_JS:
             for x in self.inputs:
-                x.tagged = x.i == arg
-            return None
+                x.tagged = x.i == arg["i"]
+            return 1
         for x in self.inputs:           # the untag snippet
             x.tagged = False
         return None
@@ -361,9 +364,11 @@ class Slot:
 class UnmountFrame:
     """A frame whose upload widget unmounts the input, like Greenhouse.
     `busy_polls` = how many candidate scans show the progressbar first."""
-    def __init__(self, slots, busy_polls=0, redirect_to=None, sticky=None):
+    def __init__(self, slots, busy_polls=0, redirect_to=None, sticky=None,
+                 name_while_busy=False, fail=False):
         self.slots, self.busy_polls = slots, busy_polls
         self.redirect_to, self.sticky = redirect_to, sticky
+        self.name_while_busy, self.fail = name_while_busy, fail
         self.uploads, self.tag = [], None
 
     def _present(self):
@@ -400,18 +405,28 @@ class UnmountFrame:
             for s in self.slots:
                 if s.mounted:
                     continue
+                name = getattr(s, "pending_name", None)
+                err = ""
                 if s.busy_left > 0:
                     s.busy_left -= 1
-                elif getattr(s, "pending_name", None) and self.sticky is not False:
-                    s.box = s.label + " " + s.pending_name
+                    if self.name_while_busy:
+                        s.box = s.label + " " + name + " 40%"
+                elif name and self.sticky is not False:
+                    s.box = s.label + " " + name
+                    err = "Upload failed" if self.fail else ""
                 out.append({"i": -1, "present": False, "text": s.box,
                             "single": True, "name": "", "id": "",
                             "aria": "", "label": s.label, "slot": str(s.n),
                             "slot_text": s.box, "busy": s.busy_left > 0,
+                            "slot_error": err, "removable": False,
                             "file": ""})
             return out
         if js is browser._TAG_FILE_JS:
-            self.tag = arg
+            # resolve by SLOT, like the real JS (position would be stale)
+            live = self._present()
+            hits = [k for k, s in enumerate(live) if str(s.n) == arg["slot"]]
+            self.tag = hits[0] if len(hits) == 1 else None
+            return len(hits)
         return None
 
 
@@ -518,6 +533,138 @@ def test_filename_must_appear_as_a_whole_token():
     assert not browser._shows({"slot_text": "Resume/CV* my_resume.pdf"},
                               "resume.pdf")
     assert not browser._shows({"slot_text": "resume.pdf.bak"}, "resume.pdf")
+
+
+# Review follow-ups --------------------------------------------------------
+def test_gap_between_progressbar_and_filename_is_waited_out_every_time():
+    # busy for 2 scans, then ONE scan with neither progressbar nor filename,
+    # then the filename. The settle window restarts on each busy scan.
+    for _ in range(25):
+        s, frame = gh_session(busy_polls=2)
+        assert up(s, "/x/resume.pdf", "resume")["verified"] is True
+        assert up(s, "/x/cover_letter.pdf", "cover")["verified"] is True
+
+
+def test_filename_shown_while_still_busy_is_not_accepted_early():
+    s, frame = gh_session(busy_polls=10 ** 6, name_while_busy=True)
+    r = up(s, "/x/resume.pdf", "resume")
+    assert frame.slots[0].box == "Resume/CV* resume.pdf 40%"
+    assert r["verified"] is False and r.get("pending") is True, r
+    s, frame = gh_session(busy_polls=3, name_while_busy=True)
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["verified"] is True and frame.slots[0].busy_left == 0, \
+        "verified only once the progressbar is gone: %r" % r
+
+
+def test_filename_next_to_an_upload_error_is_not_verified():
+    s, frame = gh_session(fail=True)
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["verified"] is False and r["slot_error"] == "Upload failed", r
+    assert browser._verify_upload(
+        "a.pdf", {}, {"slot_text": "a.pdf", "slot_error": "aria-invalid"}
+    )["verified"] is False
+
+
+def test_index_resume_into_a_cover_input_is_refused():
+    s, frame = session(gh_inputs())
+    r = up(s, "/x/resume.pdf", "resume", index=1)
+    assert r["status"] == "error" and "cover-letter slot" in r["error"], r
+    assert frame.uploads == []
+    r = up(s, "/x/resume.pdf", "resume", index=0)
+    assert r["status"] == "uploaded" and r["verified"] is True, r
+
+
+def test_explicit_index_cover_counts_unmounted_slots_in_total():
+    # container-only cover signal, resume slot already unmounted: the
+    # describe JS reports total = slots (2), not mounted inputs (1)
+    d = dict(cand(0, text="Cover Letter Attach"), total=2)
+    assert browser._is_cover_candidate(d, d["total"])
+
+
+def test_prefilled_resume_slot_blocks_resume_going_to_portfolio():
+    # The resume slot was filled before the tool's first scan: the JS now
+    # emits it (untagged role=group named Resume/CV, no file input).
+    s, frame = gh_session()
+    frame.slots[0].mounted = False
+    frame.slots[0].box = "Resume/CV* old_resume.pdf"
+    frame.slots.append(Slot(3, "Portfolio", "portfolio"))
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["status"] == "error" and "already holds a file" in r["error"], r
+    assert frame.uploads == []
+
+
+def test_resume_slot_without_input_and_without_file_still_blocks_other_slots():
+    s, frame = gh_session()
+    frame.slots[0].mounted = False
+    frame.slots[0].box = "Resume/CV* Paste your resume"
+    frame.slots[1] = Slot(3, "Portfolio", "portfolio")
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["status"] == "error" and "no other attachment slot" in r["error"], r
+    assert frame.uploads == []
+
+
+def test_container_only_cover_input_never_gets_the_resume_even_when_alone():
+    assert choose([cand(0, text="Cover Letter Attach")], "resume") is None
+    s, frame = session([FakeInput(0, "Cover Letter Attach")])
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["status"] == "error" and "cover-letter slots" in r["error"], r
+    assert frame.uploads == []
+
+
+def test_enter_manually_cover_slot_is_no_cover_slot_not_filled():
+    s, frame = gh_session()
+    frame.slots[1].mounted = False          # input swapped for a textarea
+    frame.slots[1].box = "Cover Letter"
+    r = up(s, "/x/cover_letter.pdf", "cover")
+    assert r["status"] == "no_cover_slot", r
+    assert frame.uploads == []
+
+
+def test_slot_that_rerendered_between_scan_and_upload_aborts():
+    s, frame = gh_session()
+    orig = frame.evaluate
+
+    async def ev(js, arg=None):
+        if js is browser._TAG_FILE_JS:
+            return 0
+        return await orig(js, arg)
+    frame.evaluate = ev
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["status"] == "error" and "re-rendered" in r["error"], r
+    assert frame.uploads == []
+
+
+def test_a_failing_scan_is_retried_not_fatal():
+    s, frame = gh_session(busy_polls=1)
+    orig, calls = frame.evaluate, []
+
+    async def ev(js, arg=None):
+        if js is browser._FILE_CANDIDATES_JS and frame.uploads:
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("Execution context was destroyed")
+        return await orig(js, arg)
+    frame.evaluate = ev
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["verified"] is True and "readback_error" not in r, r
+
+
+def test_resume_slot_text_mentioning_resume_inside_a_cover_box():
+    assert not browser._is_resume_slot(
+        {"text": "Cover letter (in addition to your resume)"})
+    assert browser._is_resume_slot({"text": "Resume/CV* r.pdf"})
+
+
+def test_filename_whitespace_is_collapsed_like_the_box_text():
+    assert browser._shows({"slot_text": "Resume/CV* my resume.pdf"},
+                          "my  resume.pdf")
+
+
+def test_looks_filled_needs_a_filename_or_remove_button():
+    assert browser._looks_filled({"slot_text": "Resume/CV* resume.pdf"})
+    assert browser._looks_filled({"slot_text": "Resume/CV*", "removable": True})
+    assert not browser._looks_filled(
+        {"slot_text": "Cover Letter Accepted file types: pdf, doc, docx"})
 
 
 # Fix 6: errors are dicts ---------------------------------------------------

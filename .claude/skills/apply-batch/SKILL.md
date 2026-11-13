@@ -322,9 +322,11 @@ For each approved job, in order:
    file" uploaded nothing: park, do not retry. On `no_cover_slot` paste `cover_letter_text` into a
    cover-letter textarea if listed, else flag it as a manual step (Greenhouse
    "Enter manually" can't be clicked via the tools). Never retry a cover upload
-   without `target="cover"` (it overwrites the resume); on `error` ("landed in
-   resume slot") re-upload the resume, and park the job if that reports the
-   slot "already holds a file"; any other `error` parks the job.
+   without `target="cover"` (it overwrites the resume). On `error` ("landed in
+   resume slot") PARK the job on Greenhouse: a re-upload there always returns
+   "already holds a file" (no input in a filled slot; "Remove file" can't be
+   clicked via the tools). Elsewhere one resume re-upload is fine, parking if
+   it errors. Any other `error` parks the job.
 5. Verify via `read_form(values_only=True)` — the lean payload
    (`{index, kind, label, current_value}`, no option lists) is all a
    verification pass needs; confirm every intended `current_value` is set.

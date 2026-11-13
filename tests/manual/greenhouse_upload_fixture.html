@@ -25,32 +25,56 @@
   // aria-labelledby; label[for] on the input just says "Attach". On change
   // the widget UNMOUNTS the input, shows a role=progressbar while it POSTs the
   // file, then renders "<filename>" + a "Remove file" button in the group.
-  if (location.hash === '#unmount') {
-    var slot = function (id, title, req) {
+  // Variants (hash suffix):
+  //   -busyname   the filename + "40%" is shown WHILE the progressbar is up
+  //   -fail       after the progressbar: filename + role=alert "Upload failed"
+  //   -prefilled  the resume slot is already filled at page load (no input,
+  //               never tagged), plus a Portfolio upload slot
+  //   -visible    inputs are visible, so read_form lists them (explicit index)
+  // "Enter manually" (cover slot) swaps the file input for a textarea.
+  var H = location.hash;
+  if (H.indexOf('#unmount') === 0) {
+    var filled = function (name) {
+      return '<div class="file-upload__filename"><p>' + name + '</p>' +
+        '<button type="button" aria-label="Remove file">x</button></div>';
+    };
+    var slot = function (id, title, req, pre) {
+      var cls = H === '#unmount-visible' ? '' : ' class="visually-hidden"';
+      var body = pre ? filled(pre) :
+        '<div class="button-container"><div class="secondary-button">' +
+        '<div><button type="button">Attach</button><label class="visually-hidden" for="' + id + '">Attach</label>' +
+        '<input id="' + id + '"' + cls + ' type="file" accept=".pdf"></div></div>' +
+        '<div class="secondary-button"><button type="button" class="manual" data-for="' + id + '">Enter manually</button></div>' +
+        '<p>Accepted file types: pdf</p></div>';
       return '<div class="field-wrapper"><div role="group" aria-labelledby="upload-label-' + id + '"' +
         ' aria-required="' + req + '" class="file-upload"><div id="upload-label-' + id + '"' +
         ' class="label upload-label">' + title + (req ? '<span class="required">*</span>' : '') +
-        '</div><div class="file-upload__wrapper"><div class="button-container"><div class="secondary-button">' +
-        '<div><button type="button">Attach</button><label class="visually-hidden" for="' + id + '">Attach</label>' +
-        '<input id="' + id + '" class="visually-hidden" type="file" accept=".pdf"></div></div>' +
-        '<div class="secondary-button"><button type="button">Dropbox</button></div>' +
-        '<p>Accepted file types: pdf</p></div></div></div></div>';
+        '</div><div class="file-upload__wrapper">' + body + '</div></div></div>';
     };
+    var pre = H === '#unmount-prefilled';
     document.getElementById('app').innerHTML = '<div class="application--questions">' +
-      slot('resume', 'Resume/CV', true) + slot('cover_letter', 'Cover Letter', false) + '</div>';
+      slot('resume', 'Resume/CV', true, pre ? 'old_resume.pdf' : '') +
+      slot('cover_letter', 'Cover Letter', false) +
+      (pre ? slot('portfolio', 'Portfolio', false) : '') + '</div>';
+    document.getElementById('app').addEventListener('click', function (e) {
+      if (!e.target.classList.contains('manual')) return;
+      var wrap = e.target.closest('.file-upload__wrapper');
+      wrap.innerHTML = '<label for="cl_text">Type here</label><textarea id="cl_text"></textarea>';
+    });
     document.getElementById('app').addEventListener('change', function (e) {
       if (e.target.type !== 'file') return;
       var f = e.target.files[0];
       var wrap = e.target.closest('.file-upload__wrapper');
-      wrap.innerHTML = '<div role="progressbar" aria-valuenow="0"><span></span></div>';
+      wrap.innerHTML = '<div role="progressbar" aria-valuenow="40"><span></span></div>' +
+        (H === '#unmount-busyname' ? '<p>' + f.name + ' 40%</p>' : '');
       setTimeout(function () {
-        wrap.innerHTML = '<div class="file-upload__filename"><p>' + f.name + '</p>' +
-          '<button type="button" aria-label="Remove file">x</button></div>';
+        wrap.innerHTML = filled(f.name) + (H === '#unmount-fail' ?
+          '<div role="alert">Upload failed. Please try again.</div>' : '');
       }, 600);
     });
   }
   // Dropzones render the chosen filename next to the button.
-  if (location.hash !== '#unmount') ['resume', 'cover_letter'].forEach(function (id) {
+  if (location.hash.indexOf('#unmount') !== 0) ['resume', 'cover_letter'].forEach(function (id) {
     document.getElementById(id).addEventListener('change', function (e) {
       var f = e.target.files[0];
       var span = e.target.parentElement.querySelector('.filename');

@@ -622,58 +622,106 @@ const slotOf = (el) => {
   }
   return box;
 };
+// Per-slot state signals, all ARIA contracts: still uploading
+// (role=progressbar), showing an error (role=alert, aria-invalid=true), and
+// "holds a file" evidence a widget renders once it has one (a
+// remove/delete/clear button). Filename-like text is judged in Python.
 const busyIn = (box) => !!(box && box.querySelector('[role=progressbar]'));
+const errorIn = (box) => {
+  if (!box) return '';
+  const a = Array.from(box.querySelectorAll('[role=alert]'))
+    .map(n => clean(n.innerText)).filter(Boolean).join(' ');
+  if (a) return a.slice(0, 160);
+  return box.querySelector('[aria-invalid=true]') ? 'aria-invalid' : '';
+};
+const removableIn = (box) => !!(box && Array.from(box.querySelectorAll('button, [role=button]'))
+  .some(b => /\b(remove|delete|clear)\b/i.test(
+    (b.getAttribute('aria-label') || '') + ' ' + (b.innerText || ''))));
+const state = (box) => ({busy: busyIn(box), slot_error: errorIn(box),
+                         removable: removableIn(box)});
 const describe = (el, i) => {
   const box = tightBox(el);
   const slot = slotOf(el);
-  return {i: i, present: true, text: clean(box && box.innerText).slice(0, 200),
+  return Object.assign({i: i, present: true,
+          text: clean(box && box.innerText).slice(0, 200),
           single: !!box && nFiles(box) === 1,
           name: el.name || '', id: el.id || '',
           aria: el.getAttribute('aria-label') || '',
           label: clean(labelOf(el) + ' ' + groupName(groupOf(el))),
           slot: slot ? slot.getAttribute(SLOT) : '',
           slot_text: clean(slot && slot.innerText).slice(0, 200),
-          busy: busyIn(slot),
-          file: (el.files && el.files[0] && el.files[0].name) || ''};
+          file: (el.files && el.files[0] && el.files[0].name) || ''},
+          state(slot));
 };
-"""
-
-# Every file SLOT in the document: one descriptor per <input type=file>
-# (present:true, `i` = its position among the inputs), plus one per tagged
-# slot box whose input has been unmounted (present:false, i:-1) -- a filled
-# Greenhouse slot looks exactly like that.
-_FILE_CANDIDATES_JS = "() => {" + _FILE_HELPERS_JS + r"""
+const RESUME_NAME = (t) => /resume|\bcv\b|curriculum/i.test(t) && !/cover/i.test(t);
+const gone = (box, label) => {
+  const t = clean(box.innerText).slice(0, 200);
+  return Object.assign({i: -1, present: false, text: t, single: true,
+          name: '', id: '', aria: '', label: label,
+          slot: box.getAttribute(SLOT), slot_text: t, file: ''}, state(box));
+};
+// Every file SLOT in the document: one descriptor per <input type=file>
+// (present:true, `i` = its position among the inputs); one per tagged slot
+// box whose input has been unmounted (present:false, i:-1) -- a filled
+// Greenhouse slot looks exactly like that; and one per UNTAGGED role=group /
+// fieldset whose accessible name says resume/CV and that holds no file input
+// (a resume slot already filled before this tool ever scanned the page).
+const scanSlots = () => {
   const out = Array.from(document.querySelectorAll('input[type=file]'))
     .map((el, i) => describe(el, i));
   const seen = new Set(out.map(d => d.slot));
+  document.querySelectorAll('[role=group], fieldset').forEach(g => {
+    if (g.hasAttribute(SLOT) || nFiles(g) > 0) return;
+    if (g.closest('[' + SLOT + ']') || g.querySelector('[' + SLOT + ']')) return;
+    if (!RESUME_NAME(groupName(g))) return;
+    window.__jaslotSeq = (window.__jaslotSeq || 0) + 1;
+    g.setAttribute(SLOT, String(window.__jaslotSeq));
+  });
   document.querySelectorAll('[' + SLOT + ']').forEach(box => {
     const s = box.getAttribute(SLOT);
     if (seen.has(s) || nFiles(box) > 0) return;
     seen.add(s);
-    const t = clean(box.innerText).slice(0, 200);
     const g = box.matches('[role=group], fieldset') ? box : null;
-    out.push({i: -1, present: false, text: t, single: true, name: '', id: '',
-              aria: '', label: groupName(g), slot: s, slot_text: t,
-              busy: busyIn(box), file: ''});
+    out.push(gone(box, groupName(g)));
   });
   return out;
+};
+"""
+
+_FILE_CANDIDATES_JS = "() => {" + _FILE_HELPERS_JS + r"""
+  return scanSlots();
 }"""
 
 # Describe ONE element (an explicit-index upload target); null if it is not a
-# file input. `total` = file inputs on the page/frame.
+# file input. `total` = upload slots in the frame (mounted inputs plus slots
+# whose input is gone), the same count the auto-locator uses.
 _FILE_DESCRIBE_JS = "(el) => {" + _FILE_HELPERS_JS + r"""
   if (!el || el.tagName !== 'INPUT' || el.type !== 'file') return null;
   const all = Array.from(document.querySelectorAll('input[type=file]'));
   const d = describe(el, all.indexOf(el));
-  d.total = all.length;
+  d.total = scanSlots().length;
   return d;
 }"""
 
+# Tag the input to upload into, via its SLOT box: the slot's single file
+# input, so a re-render between the scan and the upload cannot shift a
+# positional index onto another slot's input. Returns how many inputs the
+# slot resolved to (anything but 1 aborts). Without a slot id (no box), the
+# position is used.
 _TAG_FILE_JS = r"""
-(i) => {
-  const inputs = Array.from(document.querySelectorAll('input[type=file]'));
-  inputs.forEach(el => el.removeAttribute('data-jaidx-file'));
-  if (inputs[i]) inputs[i].setAttribute('data-jaidx-file', '1');
+(a) => {
+  document.querySelectorAll('[data-jaidx-file]')
+    .forEach(el => el.removeAttribute('data-jaidx-file'));
+  let ins;
+  if (a.slot) {
+    const box = document.querySelector('[data-jaslot="' + CSS.escape(a.slot) + '"]');
+    ins = box ? Array.from(box.querySelectorAll('input[type=file]')) : [];
+  } else {
+    const all = Array.from(document.querySelectorAll('input[type=file]'));
+    ins = all[a.i] ? [all[a.i]] : [];
+  }
+  if (ins.length === 1) ins[0].setAttribute('data-jaidx-file', '1');
+  return ins.length;
 }"""
 
 _RESUME_RE = re.compile(r"resume|\bcv\b|curriculum", re.I)
@@ -711,9 +759,11 @@ def _choose_file_input(candidates: list[dict], target: str = "resume"):
 
     target="resume": the historical scoring -- cover-labelled 0, resume/cv-
     labelled 2, otherwise 1; highest wins, first on ties -- except that an
-    input which passes `_is_cover_candidate` is never eligible: once the
-    resume slot is filled its input is unmounted, and the lone remaining
-    (cover) input must not silently receive the resume.
+    input that looks like a cover slot is never eligible: own attributes say
+    cover, or (whatever `total` is) its single-input box says cover and not
+    resume/cv. Once the resume slot is filled its input is unmounted, and the
+    lone remaining cover input must not silently receive the resume. A box
+    that says both ("Upload resume or cover letter") stays eligible.
 
     Only `present` inputs can be chosen; a filled slot whose input was
     unmounted (present False) still counts toward `total`, the number of
@@ -732,7 +782,7 @@ def _choose_file_input(candidates: list[dict], target: str = "resume"):
         return weak
     best, best_score = None, -1
     for c in live:
-        if _is_cover_candidate(c, total):
+        if _is_cover_candidate(c, max(total, 2)):
             continue
         t = _own(c) + " " + str(c.get("text") or "")
         score = 0 if _COVER_RE.search(t) else 2 if _RESUME_RE.search(t) else 1
@@ -742,9 +792,29 @@ def _choose_file_input(candidates: list[dict], target: str = "resume"):
 
 
 def _is_resume_slot(c: dict) -> bool:
-    if _COVER_RE.search(_own(c)):
+    """Resume/CV slot? Own attributes decide when they say either word;
+    otherwise the box text must say resume/cv and NOT cover (so "Cover
+    letter (in addition to your resume)" is not a resume slot)."""
+    own = _own(c)
+    if _COVER_RE.search(own):
         return False
-    return bool(_RESUME_RE.search(_own(c) + " " + str(c.get("text") or "")))
+    if _RESUME_RE.search(own):
+        return True
+    text = str(c.get("text") or "")
+    return bool(_RESUME_RE.search(text) and not _COVER_RE.search(text))
+
+
+# A document filename as upload widgets render it ("resume.pdf").
+_FILENAME_RE = re.compile(
+    r"[^\s/\\]\.(?:pdf|docx?|rtf|txt|odt|pages|png|jpe?g|html?)(?![\w.])", re.I)
+
+
+def _looks_filled(c: dict) -> bool:
+    """Does a slot whose input is gone actually HOLD a file? Only with
+    evidence: a remove/delete/clear button or a filename in the box. A slot
+    whose input was swapped for a textarea ("Enter manually") has neither."""
+    text = str(c.get("slot_text") or c.get("text") or "")
+    return bool(c.get("removable") or _FILENAME_RE.search(text))
 
 
 def _slot_key(c: dict):
@@ -782,9 +852,10 @@ def _shows(c: dict, low: str) -> bool:
     """Does slot `c` display filename `low`? Either its input's files[0].name
     or the slot box's text, as a whole token (so "resume.pdf" is not seen in
     "my_resume.pdf")."""
+    low = " ".join(str(low or "").split())      # box text is whitespace-collapsed
     if not c or not low:
         return False
-    if str(c.get("file") or "").lower() == low:
+    if " ".join(str(c.get("file") or "").lower().split()) == low:
         return True
     text = " ".join(str(c.get(k) or "") for k in ("slot_text", "text")).lower()
     return re.search(r"(?<![\w.-])" + re.escape(low) + r"(?![\w.-])",
@@ -813,8 +884,11 @@ def _verify_upload(fname: str, before: dict | None, after: dict | None) -> dict:
     """Decide `verified`. The input's own files[0].name must equal the
     filename. Slot-box text is accepted only when the input reads back EMPTY
     or is gone (a widget that unmounted / swapped the node) AND the filename
-    was not already in the box before the upload. `readback` says which of
-    the two confirmed it ("input" / "container"), or "none"."""
+    was not already in the box before the upload. Nothing is verified while
+    the slot still shows a progressbar (`busy`: "resume.pdf ... 40%") or an
+    error (`slot_error`: role=alert / aria-invalid, e.g. "Upload failed").
+    `readback` says which evidence confirmed it ("input" / "container"), or
+    "none"."""
     after = after or {}
     observed = str(after.get("file") or "")
     if observed:
@@ -823,10 +897,15 @@ def _verify_upload(fname: str, before: dict | None, after: dict | None) -> dict:
         low = fname.lower()
         ok = bool(low) and _shows(after, low) and not _shows(before or {}, low)
         how = "container"
+    if after.get("busy") or after.get("slot_error"):
+        ok = False
     text = str(after.get("slot_text") or after.get("text") or "")
-    return {"verified": bool(ok), "observed_filename": observed,
-            "container_text": text[:160],
-            "readback": how if ok else "none"}
+    res = {"verified": bool(ok), "observed_filename": observed,
+           "container_text": text[:160],
+           "readback": how if ok else "none"}
+    if after.get("slot_error"):
+        res["slot_error"] = str(after["slot_error"])[:160]
+    return res
 
 
 # JS: the validation errors a page is currently showing, mapped back to the
@@ -2627,22 +2706,30 @@ class BrowserSession:
         (Greenhouse/Ashby "Attach" widgets back their dropzone with a hidden
         <input type=file>, which read_form doesn't list).
 
-        target="resume" prefers a resume/CV input and never uses a cover-
-        letter one. target="cover" only ever uses an input labelled "cover" --
-        an explicit `index` that is not one is refused -- and NEVER falls back
-        to the resume slot: with none it returns {"status": "no_cover_slot"}.
-        If the wanted slot is already filled (upload widgets unmount the input
-        and show the filename instead) nothing is uploaded and the result is
-        an error naming what the slot shows.
+        target="resume" prefers a resume/CV input. It refuses (auto-located or
+        explicit `index`) an input that looks like a cover slot: own name/id/
+        aria/label says cover, or its single-input box says cover and not
+        resume/cv. It also refuses every non-resume input while a resume/CV
+        slot exists without a free input (filled, possibly before this tool
+        first scanned the page). An input with no label signal at all can
+        still receive the resume when no resume slot is recognisable.
+        target="cover" only ever uses an input labelled "cover" -- an explicit
+        `index` that is not one is refused -- and NEVER falls back to the
+        resume slot: with none it returns {"status": "no_cover_slot"}. If the
+        wanted slot already holds a file (a remove button or a filename in
+        the box; upload widgets unmount the input) nothing is uploaded and
+        the result is an error naming what the slot shows.
 
         Results carry `verified`, `observed_filename` (the input's
         files[0].name, "" when the widget unmounted it), `readback`
         ("input" / "container" / "none": what confirmed it), `container_text`
-        (the slot box), and `pending` if the slot was still uploading when
-        read-back gave up. A cover upload that changed the resume slot returns
-        status "error". Failures (bad target, missing cover path, unknown
-        index, no file input) are returned as {"status": "error", ...}, never
-        raised."""
+        (the slot box), `slot_error` (role=alert / aria-invalid text in the
+        slot), and `pending` if the slot was still uploading when read-back
+        gave up. Nothing is verified while the slot is busy or shows an
+        error. A cover upload that changed the resume slot returns status
+        "error". Failures (bad target, missing cover path, unknown index, no
+        file input, refused slot, page re-rendered mid-upload) are returned as
+        {"status": "error", ...}, never raised."""
         self._mark_filled()
         try:
             return await self._upload_file(index, path, target)
@@ -2673,35 +2760,51 @@ class BrowserSession:
             desc = await asyncio.wait_for(loc.evaluate(_FILE_DESCRIBE_JS), 2)
             if desc is None:
                 raise ValueError(f"index {index} is not a file input")
-            if cover and not _is_cover_candidate(desc, desc.get("total", 0)):
+            total = desc.get("total", 0)
+            if cover and not _is_cover_candidate(desc, total):
                 return {"index": index, "status": "error", "target": target,
                         "error": "index is not a cover slot"}
+            if not cover and _is_cover_candidate(desc, max(total, 2)):
+                return {"index": index, "status": "error", "target": target,
+                        "error": "index is a cover-letter slot; the resume "
+                                 "was not put there"}
             await loc.set_input_files(up_path)
             res = {"index": index, "status": "uploaded", "path": up_path,
                    "target": target}
             res.update(await self._file_readback(frame, desc, fname))
             return await self._guard_cover_landing(res, before_all, fname, cover)
 
-        filled = []     # slots of the wanted kind whose input is already gone
+        gone = []         # slots of the wanted kind whose input is not mounted
+        cover_only = False
         for frame in self.page.frames:
             try:
                 cands = await self._eval(frame, _FILE_CANDIDATES_JS)
             except Exception:
                 cands = []
             cands = cands or []
-            filled += [c for c in cands if not c.get("present", True)
-                       and (_is_cover_candidate(c, len(cands)) if cover
-                            else _is_resume_slot(c))]
+            gone += [c for c in cands if not c.get("present", True)
+                     and (_is_cover_candidate(c, len(cands)) if cover
+                          else _is_resume_slot(c))]
             pick = _choose_file_input(cands, target)
             if pick is None:
+                cover_only = cover_only or (not cover and any(
+                    c.get("present", True) for c in cands))
                 continue
             desc = next(c for c in cands
                         if c["i"] == pick and c.get("present", True))
-            if filled and not cover and not _is_resume_slot(desc):
-                # The resume slot is filled; the best free input is some
-                # other attachment slot. Do not put the resume there.
+            if gone and not cover and not _is_resume_slot(desc):
+                # The resume slot has no free input (filled, or filled
+                # before we ever scanned); the best free input is some other
+                # attachment slot. Do not put the resume there.
                 continue
-            await self._eval(frame, _TAG_FILE_JS, pick)
+            n = await self._eval(frame, _TAG_FILE_JS,
+                                 {"slot": str(desc.get("slot") or ""), "i": pick})
+            if n != 1:
+                return {"index": -1, "status": "error", "target": target,
+                        "path": up_path,
+                        "error": f"the chosen {target} slot resolved to {n} file "
+                                 "inputs at upload time (the page re-rendered); "
+                                 "nothing was uploaded. Re-run upload_resume."}
             loc = frame.locator('[data-jaidx-file="1"]').first
             try:
                 await loc.set_input_files(up_path)
@@ -2717,6 +2820,7 @@ class BrowserSession:
                    "target": target, "note": "auto-located file input"}
             res.update(await self._file_readback(frame, desc, fname))
             return await self._guard_cover_landing(res, before_all, fname, cover)
+        filled = [c for c in gone if _looks_filled(c)]
         if filled:
             shows = filled[0].get("slot_text") or filled[0].get("text") or ""
             return {"index": -1, "status": "error", "target": target,
@@ -2725,12 +2829,25 @@ class BrowserSession:
                              f"no free file input (slot shows: {shows[:120]!r});"
                              " nothing was uploaded. Remove the attached file "
                              "first to replace it."}
+        if gone and not cover:
+            shows = gone[0].get("slot_text") or gone[0].get("text") or ""
+            return {"index": -1, "status": "error", "target": target,
+                    "path": up_path,
+                    "error": "the resume slot has no file input (slot shows: "
+                             f"{shows[:120]!r}); nothing was uploaded and no "
+                             "other attachment slot was used."}
         if cover:
             return {"index": -1, "status": "no_cover_slot", "target": target,
                     "path": up_path,
                     "note": "no file input labelled 'cover' on the page; the "
                             "resume slot was NOT touched. Use the free-text "
                             "cover letter (cover_letter_text) instead."}
+        if cover_only:
+            return {"index": -1, "status": "error", "target": target,
+                    "path": up_path,
+                    "error": "no free resume file input: the only file "
+                             "input(s) on the page are cover-letter slots; the "
+                             "resume was not put there."}
         raise RuntimeError("No file input found on the page to attach the resume.")
 
     async def _file_slot_snapshot(self) -> list[dict]:
@@ -2748,8 +2865,11 @@ class BrowserSession:
 
     # Read-back timing. Greenhouse unmounts the input at once, shows a
     # [role=progressbar] while it POSTs the file to storage (~1s live), then
-    # renders the filename. Poll until verified; give up after SETTLE seconds
-    # unless the slot still shows a progressbar, and after MAX regardless.
+    # renders the filename. Poll until verified. Give up once the slot has
+    # been NOT busy for SETTLE seconds (the window restarts on every busy
+    # scan, so the gap between the progressbar vanishing and the filename
+    # rendering is never mistaken for "done, nothing there"), and after MAX
+    # regardless. A failing scan is retried until MAX, not fatal.
     _READBACK_POLL_S = 0.25
     _READBACK_SETTLE_S = 2.0
     _READBACK_MAX_S = 12.0
@@ -2761,28 +2881,36 @@ class BrowserSession:
         else position). `pending` = the slot was still uploading when we
         stopped waiting (so `verified` is False but not a failure yet)."""
         loop = asyncio.get_running_loop()
-        start = loop.time()
+        start = quiet_since = loop.time()
+        res, after, busy, err = None, None, False, ""
         while True:
             try:
                 cands = await self._eval(frame, _FILE_CANDIDATES_JS)
+                err = ""
+                after = _match_slot(cands or [], before)
+                res = _verify_upload(fname, before, after)
+                if res["verified"]:
+                    return res
+                busy = bool(after and after.get("busy"))
             except Exception as e:
-                return {"verified": False, "observed_filename": "",
-                        "readback": "none",
-                        "readback_error": f"{type(e).__name__}: {e}"}
-            after = _match_slot(cands or [], before)
-            res = _verify_upload(fname, before, after)
-            if res["verified"]:
-                return res
-            busy = bool(after and after.get("busy"))
-            waited = loop.time() - start
-            if waited >= self._READBACK_MAX_S or (
-                    not busy and waited >= self._READBACK_SETTLE_S):
-                if after is None:
-                    res["readback_error"] = "upload slot not found after upload"
-                if busy:
-                    res["pending"] = True
-                return res
+                err = f"{type(e).__name__}: {e}"
+            now = loop.time()
+            if busy or err:
+                quiet_since = now
+            if now - start >= self._READBACK_MAX_S or (
+                    now - quiet_since >= self._READBACK_SETTLE_S):
+                break
             await asyncio.sleep(self._READBACK_POLL_S)
+        if res is None:
+            res = {"verified": False, "observed_filename": "",
+                   "readback": "none"}
+        if err:
+            res["readback_error"] = err
+        elif after is None:
+            res["readback_error"] = "upload slot not found after upload"
+        if busy:
+            res["pending"] = True
+        return res
 
     async def _guard_cover_landing(self, res: dict, before: list[dict],
                                    fname: str, cover: bool) -> dict:

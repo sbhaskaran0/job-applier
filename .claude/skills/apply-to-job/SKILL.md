@@ -163,9 +163,12 @@ issue any genuinely independent calls together in a single message.
      one; it can't be clicked via the tools, so it is a manual step). Never
      retry a cover upload without `target="cover"` — that overwrites the
      resume. Status `error` is returned (not raised): "landed in resume slot"
-     means re-upload the resume (if that says the slot "already holds a
-     file", the user must remove it by hand: flag it); any other error (e.g. "index is not a cover
-     slot") means flag it and do not retry. If no tailored cover letter exists, only fill a cover-letter
+     means the resume slot now holds the cover letter. On Greenhouse a
+     re-upload ALWAYS returns "already holds a file" (the filled slot has no
+     input and the tools can't click "Remove file"), so do not retry there:
+     flag it for the user to remove the file and re-attach by hand. On forms
+     whose file input stays mounted, one resume re-upload is fine. Any other
+     error (e.g. "index is not a cover slot") means flag it and do not retry. If no tailored cover letter exists, only fill a cover-letter
      field if the user asks.
 5. **Craft + gate the rest** — for `context` rows, `review`-confidence history
    rows, and anything uncertain:
