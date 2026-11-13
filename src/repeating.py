@@ -433,6 +433,46 @@ def find_group(groups: list, anchor_id):
     return None
 
 
+def refind_group(groups: list, entry: dict, section: str, pos=None):
+    """Re-identify `entry`'s group once its anchor element is gone, or None.
+
+    A framework re-render can REPLACE a group's elements wholesale, which
+    drops the stable ids SECTION_JS stamped on them (live Capital One
+    Workday, first pass: every newly added group "vanished" right after
+    Job Title + Company were typed, and a second call then completed it by
+    content). So: by content first, the group that holds this entry
+    (match_score, ties broken by distance from the last known position
+    `pos`); then, when nothing identifying has been written yet, the group
+    still at `pos` if it is blank or consistent with the entry. Never a group
+    that holds some other entry."""
+    scored = []
+    for j, g in enumerate(groups):
+        s = match_score(g, entry, section)
+        if s is not None:
+            scored.append((-s, abs(j - pos) if pos is not None else 0, j))
+    if scored:
+        return groups[min(scored)[2]]
+    if pos is not None and 0 <= pos < len(groups):
+        g = groups[pos]
+        if not group_has_identity(g, section) and (
+                group_is_blank(g) or consistent(g, entry, section)):
+            return g
+    return None
+
+
+def locate_group(groups: list, anchor_id, entry: dict, section: str, pos=None):
+    """(group, its position, re-found?) for an entry's group: by anchor
+    element when it still exists, else by refind_group. (None, None, False)
+    when neither finds it."""
+    for j, g in enumerate(groups):
+        if any(f.get("eid") == anchor_id for f in g):
+            return g, j, False
+    g = refind_group(groups, entry, section, pos)
+    if g is None:
+        return None, None, False
+    return g, next(j for j, x in enumerate(groups) if x is g), True
+
+
 def _cmp(text) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).split())
 

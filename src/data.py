@@ -79,6 +79,14 @@ ALIAS_EXCLUDE: dict[str, list[str]] = {
     "location": ["remote", "sponsor", "relocat", "work permit",
                  "anticipate working", "authorized"],
     "city": ["remote", "sponsor", "work permit"],
+    # Phone METADATA pickers sit beside the number on Workday-style forms
+    # ("Phone Device Type*", "Country Phone Code*", "Phone Extension"). They
+    # contain "phone" but are not the number: resolving them to it at
+    # confidence "exact" types "310-..." into a device-type/country picker.
+    # "Country Phone Code" then falls through to `country`, the value its
+    # options are named by ("United States of America (+1)").
+    "phone": ["device type", "phone type", "type of phone", "phone code",
+              "country code", "dialing code", "calling code", "extension"],
 }
 
 

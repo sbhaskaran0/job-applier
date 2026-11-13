@@ -726,6 +726,54 @@ async def run_experience(s):
               on == "true" and await val("#we1-to-m") is None, (on, res.get("status")))
         check("aria checkbox: status ok", res.get("status") == "ok", res)
 
+        # --- a group re-rendered mid-fill (live Capital One first pass) ----
+        await _goto(page, EXPERIENCE_FIXTURE + "#remount")
+        res = await s.fill_repeating_section("experience")
+        rows = [f for e in res.get("filled") or [] for f in e.get("fields", [])]
+        vanished = [f for f in rows if f.get("error") == "group_vanished"]
+        check("remount: the fixture really re-rendered both groups",
+              await page.evaluate("() => window.__remounts") == 2,
+              await page.evaluate("() => window.__remounts"))
+        check("remount: one call, no group_vanished, status ok",
+              not vanished and res.get("status") == "ok",
+              (res.get("status"), vanished, res.get("errors")))
+        check("remount: the result says the groups were re-found",
+              sum(e.get("regrouped", 0) for e in res.get("filled") or []) >= 2,
+              [e.get("regrouped") for e in res.get("filled") or []])
+        check("remount: both groups filled end to end in the page",
+              await val("#we1-loc") == "Springfield"
+              and await val("#we1-from-m") == "03"
+              and await val("#we1-desc") == LONG_DESC
+              and await val("#we2-loc") == "Shelbyville"
+              and await val("#we2-to-m") == "02" and await val("#we2-to-y") == "2022"
+              and await val("#we2-desc") == "Shipped things.",
+              (await val("#we1-loc"), await val("#we2-loc"), await val("#we2-to-y")))
+        co = [f for f in rows if f.get("key") == "company"]
+        check("remount: company rows end verified (settled by the re-read)",
+              len(co) == 2 and all(f.get("verified") is True for f in co), co)
+        check("remount: no internal bookkeeping leaks into the result",
+              "_eid" not in repr(res))
+
+        # --- prompt School / Field of Study that drop unpicked text ---------
+        await _goto(page, EXPERIENCE_FIXTURE + "#prompt-edu")
+        res = await s.fill_repeating_section("education")
+        rows = [f for e in res.get("filled") or [] for f in e.get("fields", [])]
+        sch = [f for f in rows if f.get("key") == "school"]
+        fos = [f for f in rows if f.get("key") == "field_of_study"]
+        check("prompt: the page really holds no school / field of study",
+              await val("#ed1-school") == "" and await val("#ed1-fos") == "",
+              (await val("#ed1-school"), await val("#ed1-fos")))
+        check("prompt: School is NOT verified:true over an empty box",
+              sch and sch[0].get("verified") is False
+              and sch[0].get("status") == "uncommitted", sch)
+        check("prompt: Field of Study is NOT verified:true over an empty box",
+              fos and fos[0].get("verified") is False
+              and fos[0].get("status") == "uncommitted", fos)
+        check("prompt: result agrees with its own required_empty",
+              any(r.get("key") == "school" for r in res.get("required_empty") or [])
+              and res.get("status") == "partial", (res.get("status"),
+                                                    res.get("required_empty")))
+
         # --- two valid Add controls in one section: click nothing --------
         await _goto(page, EXPERIENCE_FIXTURE)
         await page.evaluate(

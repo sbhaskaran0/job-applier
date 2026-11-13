@@ -612,6 +612,96 @@ def test_error_strings_clipped():
 
 
 # --------------------------------------------------------------------------
+# re-rendered groups and the end-of-section re-read (live Capital One,
+# 2026-11-13: groups "vanished" after Job Title + Company on the first pass;
+# School / Field of Study reported verified:true over empty boxes)
+# --------------------------------------------------------------------------
+class Remount(FakeSession):
+    """Typing the Company re-renders the group: every element is new, so
+    every stamped id changes (values carried over)."""
+
+    def _set(self, g, f, value):
+        super()._set(g, f, value)
+        if f["label"] == "Company*":
+            for x in g:
+                x["eid"] = str(next(_EID))
+
+
+def test_remounted_group_is_refound_not_vanished():
+    s = Remount([], exp_group)
+    res = _run(s, "experience", [PAST, dict(PAST, company="Initech",
+                                            title="Analyst", location="Z")])
+    rows = [f for e in res["filled"] for f in e["fields"]]
+    assert not any(f.get("error") == "group_vanished" for f in rows), rows
+    assert res["status"] == "ok", res
+    assert all(e.get("regrouped") == 1 for e in res["filled"]), res["filled"]
+    assert ("Location", "Y") in s.calls and ("Location", "Z") in s.calls, s.calls
+    assert ("Role Description", "d") in s.calls, s.calls
+    assert "_eid" not in repr(res)
+
+
+def test_refind_group_by_content_then_position():
+    a = _grp("experience", ("Job Title", "PM"), ("Company", "Acme"))
+    b = _grp("experience", ("Job Title", "Analyst"), ("Company", "Initech"))
+    blank = _grp("experience", ("Job Title", ""), ("Company", ""))
+    entry = {"company": "Initech", "title": "Analyst"}
+    assert rep.refind_group([a, b, blank], entry, "experience", 2) is b
+    # nothing identifying written yet: the blank group still at `pos`
+    fresh = {"company": "Globex", "title": "VP"}
+    assert rep.refind_group([a, b, blank], fresh, "experience", 2) is blank
+    # ...but never a group holding some other entry
+    assert rep.refind_group([a, b, blank], fresh, "experience", 0) is None
+    assert rep.refind_group([a, b], fresh, "experience", None) is None
+    g, pos, refound = rep.locate_group([a, b], b[0]["eid"], entry, "experience")
+    assert g is b and pos == 1 and refound is False
+    g, pos, refound = rep.locate_group([a, b], "gone", entry, "experience", 0)
+    assert g is b and pos == 1 and refound is True
+
+
+class DropsTypedText(FakeSession):
+    """A search/prompt widget whose fill_field (as the old code did) read
+    the typed text back as verified:true, while the widget dropped it."""
+
+    def _set(self, g, f, value):
+        if f["label"] in ("School or University*", "Field of Study"):
+            self.calls.append((f["label"], value))
+            return
+        super()._set(g, f, value)
+
+
+def test_verified_true_over_an_empty_box_is_downgraded():
+    s = DropsTypedText([], edu_group)
+    res = _run(s, "education", [{"school": "Example U", "degree": "BS",
+                                 "field_of_study": "Economics", "end": "2018-05"}])
+    rows = {f["key"]: f for f in _rows(res)}
+    for k in ("school", "field_of_study"):
+        assert rows[k]["verified"] is False and rows[k]["status"] == "uncommitted", rows[k]
+        assert rows[k]["observed_value"] == "", rows[k]
+    assert rows["degree"]["verified"] is True, rows["degree"]
+    assert any(r["key"] == "school" for r in res.get("required_empty", [])), res
+    assert res["status"] == "partial", res["status"]
+
+
+class LosesHandle(FakeSession):
+    """fill_field could not read back (the element was replaced mid-verify)
+    but the value did land."""
+
+    async def fill_field(self, index, value):
+        r = await super().fill_field(index, value)
+        g, f = self._find(lambda x: x.get("index") == index)
+        if f["label"] == "Location":
+            r.update(verified=None, note="could not verify")
+        return r
+
+
+def test_unverifiable_fill_is_settled_by_the_reread():
+    s = LosesHandle([], exp_group)
+    res = _run(s, "experience", [PAST])
+    loc = [f for f in _rows(res) if f["key"] == "location"][0]
+    assert loc["verified"] is True and loc.get("verified_by") == "section_reread", loc
+
+
+# --------------------------------------------------------------------------
 # data layer
 # --------------------------------------------------------------------------
 PROFILE = {

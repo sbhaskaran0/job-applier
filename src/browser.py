@@ -386,6 +386,18 @@ _FIELD_VALUE_JS = r"""
 }
 """
 
+# JS: blur the element at data-jaidx=idx when it (or something inside it) has
+# focus. Returns whether a blur happened.
+_BLUR_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  const a = document.activeElement;
+  if (!el || !a || !(a === el || el.contains(a))) return false;
+  a.blur();
+  return true;
+}
+"""
+
 # JS: LIVE check of the element at data-jaidx=idx, run immediately before a
 # fill (cached scan metadata goes stale on a type flip or re-render). Returns
 # {password: a real <input type=password>, sensitive: password-like by type,
@@ -1733,8 +1745,33 @@ class BrowserSession:
                 await loc.select_option(value=value)
         else:  # text / textarea / contenteditable
             await loc.fill(value)
+            # Verify what SURVIVES leaving the field, not the keystrokes: a
+            # search/prompt typeahead that renders as a plain <input> holds
+            # the typed text until blur and then drops it unless a result
+            # was picked. Reading before blur is how live Workday School /
+            # Field of Study came back verified:true over empty boxes.
+            await self._blur(index)
         observed = await self._read_back(index)
-        return _fill_result(index, kind, value, observed)
+        res = _fill_result(index, kind, value, observed)
+        if kind == "text" and observed == "" and value:
+            res["note"] = ("the typed value did not survive leaving the field: "
+                           "a search/prompt widget that needs a pick from its "
+                           "results, or a validator rejected it")
+        return res
+
+    async def _blur(self, index: int) -> None:
+        """Blur the field at `index` if it holds focus (focusout fires, so
+        framework commit/validate-on-blur handlers run), then let it settle.
+        Uses el.blur(), not Tab: Tab would focus, and possibly open, the NEXT
+        widget."""
+        frame = (self.fields.get(index) or {}).get("frame")
+        if frame is None:
+            return
+        try:
+            await frame.evaluate(_BLUR_JS, index)
+            await self.page.wait_for_timeout(150)
+        except Exception:
+            pass
 
     async def fill_sensitive(self, index: int, value: str,
                              require_password: bool = False,
@@ -2233,7 +2270,8 @@ class BrowserSession:
                              committed_as="pill")
         out = {"key": key, "label": rep.clip(f.get("label")),
                "index": f.get("index"), "status": r.get("status"),
-               "verified": r.get("verified")}
+               "verified": r.get("verified"),
+               "_eid": f.get("eid")}       # internal; popped before returning
         for k in ("part", "rcb"):
             if f.get(k) is not None:
                 out[k] = f[k]
@@ -2273,11 +2311,13 @@ class BrowserSession:
             sent.append((row, f, v))
         if not sent:
             return out
-        try:
-            await self.page.keyboard.press("Tab")
-            await self.page.wait_for_timeout(250)
-        except Exception:
-            pass
+        # fill_field already blurs a text part; this covers any part that
+        # kept focus. A targeted blur, not Tab: with focus already gone, Tab
+        # would land on the page's first focusable element.
+        for _, f, _ in sent:
+            if f.get("index") is not None:
+                await self._blur(f["index"])
+        await self.page.wait_for_timeout(100)
         for row, f, v in sent:
             if f.get("index") is None or row.get("status") == "error":
                 continue
@@ -2293,19 +2333,43 @@ class BrowserSession:
                            note="value did not survive leaving the field")
         return out
 
-    async def _fill_group(self, section: str, anchor_id, entry: dict,
+    async def _locate(self, section: str, entry: dict, track: dict):
+        """Fresh layout + this entry's group. By its anchor element first;
+        when that element is gone (a re-render replaced the group's DOM),
+        re-found by content / last position (repeating.refind_group) and
+        `track` re-anchored. One short wait and re-read before giving up,
+        since a re-render can be caught mid-flight."""
+        lay = None
+        for attempt in range(2):
+            lay = await self._section_layout(section)
+            if lay is not None:
+                grp, pos, refound = rep.locate_group(
+                    lay["groups"], track["anchor"], entry, section,
+                    track.get("pos"))
+                if grp is not None:
+                    track["pos"] = pos
+                    if refound:
+                        track["anchor"] = rep.anchor(grp)
+                        track["regrouped"] = track.get("regrouped", 0) + 1
+                    return lay, grp
+            if attempt == 0:
+                await self.page.wait_for_timeout(600)
+        return lay, None
+
+    async def _fill_group(self, section: str, track: dict, entry: dict,
                           gpa_policy: str) -> list:
         """Fill-blanks for one group from one profile entry, key by key in
         SECTIONS order. The layout is re-read before EVERY key (toggling "I
         currently work here" removes To; a listbox commit can re-render), and
-        the group is re-found by its anchor element, never by position."""
+        the group is re-found by its anchor element, never by position alone
+        (see _locate for the re-render case). `track` carries the anchor and
+        is updated in place when the group had to be re-found."""
         spec = rep.SECTIONS[section]
         current = section == "experience" and rep.truthy(entry.get("current"))
         has_box = False
         out: list = []
         for key in spec["order"]:
-            lay = await self._section_layout(section)
-            grp = rep.find_group(lay["groups"], anchor_id) if lay else None
+            lay, grp = await self._locate(section, entry, track)
             if grp is None:
                 out.append({"key": key, "status": "error",
                             "error": "group_vanished"})
@@ -2464,8 +2528,9 @@ class BrowserSession:
                 out["added"] += 1
                 target, mode = new[0], "added"
                 blanks.extend(new[1:])
-            rows = await self._fill_group(section, target, entry, policy)
-            touched.append((pos, target))
+            track = {"anchor": target}
+            rows = await self._fill_group(section, track, entry, policy)
+            touched.append((pos, entry, track, rows))
             acted = [r for r in rows if r.get("status") not in ("skipped",
                                                                 "not_found")]
             if mode == "existing":
@@ -2474,18 +2539,28 @@ class BrowserSession:
                                            "reason": "already_present"})
                     continue
                 mode = "completed_blanks"
-            out["filled"].append({"entry": pos, "result": mode, "fields": rows})
+            res = {"entry": pos, "result": mode, "fields": rows}
+            if track.get("regrouped"):
+                res["regrouped"] = track["regrouped"]
+            out["filled"].append(res)
 
         final = await self._section_layout(section)
         req_empty = []
         keyed = set(rep.SECTIONS[section]["order"]) | {"overall_result"}
-        for pos, anc in touched:
-            grp = rep.find_group(final["groups"], anc) if final else None
+        for pos, entry, track, rows in touched:
+            grp = None
+            if final:
+                grp, _, _ = rep.locate_group(final["groups"], track["anchor"],
+                                             entry, section, track.get("pos"))
+            self._reconcile_rows(rows, grp)
             for f in grp or []:
                 if (f.get("key") in keyed and f.get("key") != "current"
                         and rep.is_required(f) and not rep.has_value(f)):
                     req_empty.append({"entry": pos, "key": f["key"],
                                       "label": rep.clip(f.get("label"))})
+        for _, _, _, rows in touched:
+            for r in rows:
+                r.pop("_eid", None)
         if req_empty:
             out["required_empty"] = req_empty
         if final is not None:
@@ -2495,6 +2570,50 @@ class BrowserSession:
             del out["warnings"]
         out["status"] = self._rs_status(out, section)
         return out
+
+    @staticmethod
+    def _reconcile_rows(rows: list, grp) -> None:
+        """The section-wide re-read at the end is a second, LATER read-back.
+        A row reported verified=True whose field reads EMPTY there was never
+        committed: live Capital One Workday reported School / Field of Study
+        `filled, verified:true` in the same result that listed school under
+        required_empty, while the page showed both boxes empty (search/prompt
+        widgets drop typed text that was not picked from their results).
+        Downgrade such rows so one result can never contradict itself.
+        Conversely a row left verified=null because its element was replaced
+        mid-verify (a re-render) is settled by this re-read: verified when
+        the field now holds the value, uncommitted when it is empty. The
+        field is found by its stable element id, else by a unique key/part
+        (a re-render drops the ids). Toggles are left alone."""
+        if not grp:
+            return
+        by_eid = {f.get("eid"): f for f in grp if f.get("eid") is not None}
+        for r in rows:
+            if r.get("verified") is False or r.get("rcb") is not None \
+                    or r.get("status") not in ("filled", "uncommitted"):
+                continue
+            f = by_eid.get(r.get("_eid"))
+            if f is None:
+                same = [g for g in grp if g.get("index") is not None
+                        and g.get("key") == r.get("key")
+                        and g.get("part") == r.get("part")]
+                if len(same) != 1:
+                    continue
+                f = same[0]
+            if f.get("kind") in ("checkbox", "radio"):
+                continue
+            if rep.has_value(f):
+                if r.get("verified") is None and _values_match(
+                        r.get("value") or "", f.get("current_value") or ""):
+                    r.pop("note", None)
+                    r.update(status="filled", verified=True,
+                             verified_by="section_reread")
+                continue
+            r.pop("committed_as", None)
+            r.update(status="uncommitted", verified=False, observed_value="",
+                     note="read back EMPTY when the section was re-read after "
+                          "filling: the widget dropped the value (a search/"
+                          "prompt field needs a pick from its results)")
 
     @classmethod
     def _rs_status(cls, out: dict, section: str) -> str:
