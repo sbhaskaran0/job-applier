@@ -4,11 +4,13 @@ An AI job-application agent that runs inside **Claude Code**. It finds high-qual
 product/strategy roles across a curated company watchlist and fills out their
 application forms — intelligently, and **never submitting without your
 say-so**. Applications run on Greenhouse, Lever and Ashby. Workday sourcing is
-**verified live**; the Workday **apply** path (Apply, sign-in, My Experience
-wizard, M1) is now **built but not yet verified against a live tenant**.
+**verified live**; the Workday **apply** path has completed one real
+application (Capital One, 2026-11-13), but only with a Chrome-extension
+fallback for the form widgets the built-in browser could not drive, so it is
+**partly verified, not yet routine**.
 
 Claude Code is the reasoner; a local **MCP server** gives it a real browser
-(Playwright, **43 tools**), your profile/history/knowledge base, and live jobs from company
+(Playwright, **44 tools**), your profile/history/knowledge base, and live jobs from company
 career boards. **No LLM API key or cost** in the core flow.
 
 ## Quick start
@@ -185,12 +187,19 @@ flowchart TD
     INC -- "no" --> RM["ingest trusts absence<br/>= removed, as normal"]
 ```
 
-### Workday apply (M1 — built, live verification pending)
+### Workday apply (built, first live run done, partly verified)
 
-Applying to a Workday job is built end to end but **has not yet run against a
-live tenant** (verified so far by synthetic DOM fixtures and standalone test
-suites only; sign-in, My Experience and the wizard each still need one real run).
-Also open: the D3 multi-select fix (`docs/handoff-workday-multiselect.md`).
+On 2026-11-13 the first Workday application was completed and submitted:
+Capital One, "Product Manager: Capital One Shopping". It took two browsers. The
+built-in browser got through entry, account creation, sign-in and the first
+form page, then stalled on the My Experience step (dates, School and Field of
+Study search boxes). The application was finished through the **Claude-in-Chrome
+extension** in the user's own Chrome, after the user signed in by hand there.
+Since then the tools were fixed to handle those widgets, a **Workday account
+registry** and a **"technical failure" flag** were added (below), but those
+fixes are checked by tests and simulated pages only. They have **not yet been
+run against a live tenant**. Also open: the Country Phone Code read-back fix
+(`docs/handoff-workday-multiselect.md`).
 
 Entry and sign-in come first. `start_application` clicks only entry controls
 (Apply, Apply Manually, "Sign in with email"); it never clicks Autofill with
@@ -204,23 +213,51 @@ fields), is masked in every read, and is dropped from `capture_submission` and
 per tenant per 24h plus a 60s resubmit guard, so a wrong password cannot lock the
 account.
 
+**Account registry.** Each Workday company has its own account system, so the
+tool keeps a small list of which companies already have an account for your
+email (`profiles/<id>/data/workday_accounts.json`; it never stores a password).
+`authenticate` reads it: a known working account is signed in to, an unknown
+company gets a new account, and a company that says "this account already
+exists" is **parked for you to sign in by hand** instead of guessing. The new
+read-only tool `list_workday_accounts` shows the list.
+
+**Two kinds of "stuck".** A field with no answer we trust is a **missing
+answer**: it comes to you for approval, exactly as before. A field the tool
+cannot physically operate (a date box, a search box, a dropdown) is a
+**technical failure**: results now carry `technical: true`. After one retry the
+agent saves the steps already completed, then hands the job to a **Chrome
+fallback lane** that fills the rest in your own Chrome (it never types or reads
+a password; if Chrome has not auto-filled the sign-in, it asks you to sign in
+there). Missing answers never go to that lane. For Greenhouse, Lever and Ashby
+the Chrome lane is only the very last fallback when bot detection blocks a
+submit, and is skipped when the company shows a recent application (a
+per-company application limit looks the same as a spam rejection).
+
 ```mermaid
 flowchart TD
     SA["start_application"] --> SS{"status?"}
     SS -- "form" --> WIZ
     SS -- "blocked (visible CAPTCHA)" --> USER["hand to the user"]
     SS -- "no_entry /<br/>already_in_application" --> PARK["park, or continue with<br/>advance_step / submit"]
-    SS -- "auth_required" --> AU["authenticate(mode)"]
+    SS -- "auth_required" --> AU["authenticate()<br/>reads the account registry"]
     AU --> AS{"status?"}
-    AS -- "unsupported_auth_flow<br/>(non-Workday host)" --> PARK2["park: user signs in by hand<br/>(also SSO-only tenants)"]
-    AS -- "no_credentials /<br/>bad_credentials_file" --> PARK3["park: user creates or fixes<br/>credentials.yaml"]
-    AS -- "bad_credentials" --> LED["ledger stop: no retry for 24h<br/>until the user asks clear_auth_ledger"]
+    AS -- "authenticated<br/>(signed in, or new account created)" --> WIZ["read_form → fill → advance_step loop"]
+    AS -- "account_exists<br/>(account exists, password unknown)" --> PARK2["park: user signs in by hand"]
+    AS -- "bad_credentials" --> LED["park: no retry for 24h<br/>until the user asks clear_auth_ledger"]
+    AS -- "create_rejected /<br/>no_credentials /<br/>bad_credentials_file" --> PARK3["park: user fixes<br/>credentials.yaml"]
+    AS -- "unsupported_auth_flow<br/>(SSO-only or non-Workday)" --> PARK4["park: user signs in by hand"]
     AS -- "email_verification_required" --> EV["Gmail: find the email →<br/>open_verification_link(url)<br/>or detect_verification_gate +<br/>fill_verification_code"]
     EV --> AU
-    AS -- "authenticated" --> WIZ["read_form → fill → advance_step loop"]
-    WIZ --> ME["My Experience step:<br/>fill_repeating_section(experience | education)<br/>from the profile's structured blocks"]
+    WIZ --> ME["My Experience step:<br/>fill_repeating_section(experience | education)<br/>dates and School / Field of Study handled"]
     ME --> WIZ
-    WIZ -- "is_submit_page" --> GATE["submit_application<br/><b>gated</b>: explicit user say-so"]
+    WIZ --> RES{"result on a field<br/>or advance_step?"}
+    RES -- "missing answer<br/>(no trusted answer)" --> ASK["ask the user<br/>(never the Chrome lane)"]
+    RES -- "technical: true<br/>after one retry" --> SAVE["advance as far as the page allows<br/>(completed steps are saved)"]
+    SAVE --> CH{"Chrome with the<br/>extension connected?"}
+    CH -- "no" --> PARK5["park the job"]
+    CH -- "yes" --> LANE["Chrome fallback lane:<br/>fill the rest from the hand-off packet,<br/>sign in only via the password manager"]
+    LANE --> GATE
+    WIZ -- "is_submit_page" --> GATE["submit_application / Submit<br/><b>gated</b>: explicit user say-so"]
 ```
 
 Past sign-in, the generic wizard loop below applies. A form with a
@@ -236,7 +273,7 @@ flowchart TD
     AD --> S{"status?"}
     S -->|"advanced"| NEW["next page + FRESH fields<br/>(every prior index is dead —<br/>use the returned `fields`)"]
     S -->|"blocked_validation"| ERR["errors[] — index may be null<br/>for a visually-hidden field<br/>(unmapped_error_count);<br/>match those by field_label"]
-    S -->|"no_change"| NC["clicked, nothing moved —<br/>swallowed click or a modal:<br/>screenshot, then park"]
+    S -->|"no_change"| NC["clicked, nothing moved —<br/>swallowed click or a modal:<br/>retry once, then a technical failure<br/>(Chrome lane, else park)"]
     S -->|"is_submit_page"| SUBMIT["only a Submit control here —<br/><b>nothing was clicked</b>"]
     S -->|"no_advance_button"| NAB["single-page form"]
     NEW --> CAP{"advance count<br/>&lt; ~6?"}
@@ -436,8 +473,10 @@ auto-locator scored any "cover" container 0, so a cover letter could overwrite t
 resume. `upload_resume(index, path, target="resume"|"cover")` now only puts a
 cover upload into a cover-labelled input, returns `no_cover_slot` otherwise, reads
 the filename back (`verified`, `observed_filename`), and reports an `error` dict
-if a cover letter landed in the resume slot. Live verification on a real
-Greenhouse form is still pending.
+if a cover letter landed in the resume slot. A first live check failed (the
+page removes the file input once a file is attached, so the read-back saw
+nothing); the read-back was fixed and verified live on Stripe and Tailscale
+forms on 2026-11-13.
 
 ## Batch prep — snapshot & routing (how `/apply-batch` stays cheap)
 

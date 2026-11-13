@@ -54,7 +54,7 @@ playwright install chromium          # the browser the agent drives
 
 Then, in Claude Code, **open this project and reload it** so it loads
 [.mcp.json](.mcp.json). Run `/mcp` — you should see the `job-applier` server with
-**43 tools**.
+**44 tools**.
 
 > Whenever you change code in `src/`, reload Claude Code so the MCP server
 > restarts with the new code.
@@ -503,7 +503,19 @@ So an autonomous run ends the same way a batch run does: **"N submitted · K
 awaiting your manual submit · M parked"**, with every unsubmittable job left
 filled for a one- or two-click finish.
 
-### Workday applications (built; live verification pending)
+### Workday applications (first live run done; fixes still to be re-checked)
+
+**Where this stands (2026-11-13).** The first Workday application was completed
+and submitted for real: Capital One, "Product Manager: Capital One Shopping".
+It needed two browsers. The agent's built-in browser handled entry, account
+creation, sign-in and the first form page, then stalled on My Experience (the
+date boxes and the School / Field of Study search boxes). The rest was finished
+through the Claude-in-Chrome extension in your own Chrome, after you signed in
+there by hand. Since then the tools were fixed for those boxes and an account
+list and a "technical failure" rule were added (described below). Those fixes
+are checked by tests and simulated pages only: they have **not yet been run
+against a live company**, so watch the next one. You also need to start a new
+Claude Code session before the agent picks up the new code.
 
 Workday needs an account per company tenant. One-time setup:
 
@@ -521,18 +533,72 @@ Workday needs an account per company tenant. One-time setup:
 
 What you will see: the agent clicks Apply (and Apply Manually), signs in or
 creates the account, handles the verification email through Gmail (opening the
-link or typing the code), fills each page, completes My Experience from your
-profile blocks, and **stops at the final page for your explicit go-ahead**; it
-never submits without it. If a sign-in fails with a wrong password it **stops
-and does not retry**: only one failed sign-in per tenant per 24h is allowed, to
-protect you from a lockout. After you fix the password, tell the agent ("I fixed
-my Workday password, try again") and it will clear the lockout record
-(`clear_auth_ledger`). Credentials are only ever typed on Workday hosts; on any
-other site it parks.
+link or typing the code) if the company sends one, fills each page, completes
+My Experience from your profile blocks (including the dates and the School and
+Field of Study pickers), and **stops at the final page for your explicit
+go-ahead**; it never submits without it. If a sign-in fails with a wrong
+password it **stops and does not retry**: only one failed sign-in per tenant per
+24h is allowed, to protect you from a lockout. After you fix the password, tell
+the agent ("I fixed my Workday password, try again") and it will clear the
+lockout record (`clear_auth_ledger`). Credentials are only ever typed on Workday
+hosts; on any other site it parks.
 
-Limits: not yet run against a live tenant (watch the first one); SSO-only tenants
-(a Google/LinkedIn-only sign-in such as Snap's) need you to sign in manually; the
-multi-select dropdown fix is pending.
+**The account list.** Each company's Workday has its own accounts. The agent now
+keeps a small list of which companies already have an account for your email
+(`profiles/<id>/data/workday_accounts.json`; it never contains a password, and
+you can ask the agent to show it with `list_workday_accounts`). If a company is
+on the list as working, it signs in. If the company is new, it creates the
+account. If the company says "an account with this email already exists", the
+agent **does not guess**: it parks that job and asks you to sign in by hand in
+the open window, then continue.
+
+**When the agent cannot operate a page widget.** There are two different kinds
+of "stuck":
+
+- **No answer it trusts** (a question your profile and past answers do not
+  cover, or a draft it is not sure of): it asks you, exactly as before.
+- **A technical failure**: it has the answer but cannot work the widget (a date
+  box, a search box, a dropdown, or a Next button that does nothing). It tries
+  once more, saves the steps already completed, and, if the Claude-in-Chrome
+  extension is connected to your Chrome, hands the rest of the application to
+  that browser. There it never types or reads a password: if Chrome has already
+  filled in the sign-in, it clicks Sign In; otherwise it asks you to sign in in
+  that Chrome window. Terms-and-conditions boxes and the final Submit still need
+  your go-ahead (unless you started the run in autonomous mode), and it never
+  solves a CAPTCHA. If no Chrome is connected, the job is parked with the stuck
+  field named.
+
+For Greenhouse, Lever and Ashby, the Chrome route is only the very last fallback
+when bot detection blocks the submit, and it is skipped if you applied to that
+company recently (a per-company application limit shows the same "We couldn't
+submit" message as a spam block, and a second browser would not help).
+
+```mermaid
+flowchart TD
+    A["Open the job page"] --> B["Start application"]
+    B --> C{"Account for this<br/>company on the list?"}
+    C -- "yes, working" --> D["Sign in"]
+    C -- "no" --> E["Create the account"]
+    C -- "exists, password unknown" --> P1["Park: you sign in by hand"]
+    E -- "company says it already exists" --> P1
+    D -- "wrong password" --> P2["Stop: no retry for 24 hours"]
+    D --> F["Fill each page,<br/>My Experience from your profile"]
+    E --> F
+    F --> G{"What got stuck?"}
+    G -- "nothing" --> H["Final page: wait for your go-ahead"]
+    G -- "no answer it trusts" --> I["Ask you"]
+    I --> F
+    G -- "a widget it cannot operate" --> J["Retry once, save completed steps"]
+    J --> K{"Chrome extension<br/>connected?"}
+    K -- "no" --> P3["Park, naming the stuck field"]
+    K -- "yes" --> L["Finish in your own Chrome<br/>(you sign in there if needed)"]
+    L --> H
+```
+
+Limits: the new account list, the sign-in handling and the date and search-box
+fixes have not yet run against a live company; SSO-only tenants (a
+Google/LinkedIn-only sign-in such as Snap's) need you to sign in manually; the
+Country Phone Code dropdown read-back fix (the multi-select item) is still open.
 
 ### Safety
 
@@ -708,7 +774,7 @@ Notes:
 
 ---
 
-## 8. The full tool set (43)
+## 8. The full tool set (44)
 
 **Browser / apply**
 
@@ -737,7 +803,9 @@ returns `status: "error"`.
 Experience / Education groups from your profile's `experience:` / `education:`
 blocks (fill-blanks only, safe to re-run). Statuses include `ok`,
 `already_present`, `partial`, `section_not_found`, `no_add_button`,
-`no_entries`.
+`no_entries`. It also fills the date boxes and the School / Field of Study search
+boxes. Tool results can carry `technical: true`, meaning the tool could not
+operate the page (as opposed to the agent lacking an answer).
 - `fill_credential(index, field, service)` — type your Workday email/password from
 `credentials.yaml` server-side; the value is never shown. `fill_field` /
 `fill_many` refuse password fields (`use_fill_credential`).
@@ -746,9 +814,15 @@ blocks (fill-blanks only, safe to re-run). Statuses include `ok`,
 Resume, Use My Last Application, SSO, or submit). Returns `form`,
 `auth_required`, `blocked`, `no_entry`, or `already_in_application`.
 - `authenticate([mode])` — sign in to or create the Workday tenant account using
-`credentials.yaml`. Statuses: `authenticated`, `email_verification_required`,
-`bad_credentials` (stop), `no_credentials`, `unsupported_auth_flow` (non-Workday
-host), `recently_submitted`, and more. Guarded by the auth-attempt ledger.
+`credentials.yaml`, deciding from the account list. Statuses: `authenticated`,
+`email_verification_required`, `account_exists` (an account exists whose password
+we do not know: park, you sign in by hand), `bad_credentials` (stop),
+`create_rejected` (the create form refused the values), `no_credentials`,
+`unsupported_auth_flow` (non-Workday host or SSO-only), `recently_submitted`, and
+more. Guarded by the auth-attempt ledger.
+- `list_workday_accounts()` — read-only: which Workday companies have an account
+for your email and whether the agent can sign in (`active`,
+`exists_unknown_password`, `sso_only`). Never shows a password.
 - `open_verification_link(url)` — open a Workday verification link from your
 email in a side tab, then reload the application tab (Workday hosts only).
 - `clear_auth_ledger([tenant])` — **only on your request**; lifts the
@@ -853,7 +927,7 @@ experience.
 ## 10. Known limits & tips
 
 - **Reload after code changes.** The MCP server caches code until Claude Code
-restarts. (New Workday and upload tools only appear after a restart.)
+restarts. (New Workday and upload tools, and the Workday account list, only appear after a restart.)
 - **Answer history hygiene:** `scripts/repair_history_markup.py` (dry-run by default) can repair tool-call markup that may have leaked into stored answer text. Run it if you notice markdown or function calls in your reused answers.
 - **Lever postings:** the base URL is the job description; the form is at
 `<url>/apply` (the skill handles this).
@@ -874,14 +948,16 @@ from the company is the ground truth that a submit landed.
 - **A stale `OPENAI_API_KEY`** may still sit in [.env](.env) from the old version;
 it's unused now and safe to delete.
 - **Workday boards:** Postings are discovered, ranked and deep-read like any other
-board. Applying (Apply, sign-in, My Experience, wizard) is **built but not yet
-verified live**: expect to watch the first real run. Known gaps: the multi-select
-fix (D3) is pending, and **SSO-only tenants** (for example Snap's Google/LinkedIn
+board. Applying (Apply, sign-in, My Experience, wizard) has completed one real
+application (Capital One, 2026-11-13), but only with the Chrome-extension
+fallback for the form widgets, and the fixes made since are **not yet verified
+live**: expect to watch the next run. Known gaps: the Country Phone Code
+read-back fix (the multi-select item, D3) is pending, and **SSO-only tenants** (for example Snap's Google/LinkedIn
 sign-in screen) cannot be signed in by the agent; it parks and you sign in by
 hand. Workday also **never exposes salary data** anywhere in its API, so every
 Workday row shows "salary not listed", which is the platform, not a missed
 extraction.
-- **Also pending live checks:** Greenhouse cover-letter upload and read-back.
+- **Greenhouse cover-letter upload and read-back** was verified live on 2026-11-13 (Stripe and Tailscale forms).
 
 ---
 
@@ -914,7 +990,8 @@ Job Applier/
 ├─ data/digest-latest.md         # refresh digest (gitignored, regenerated)
 ├─ data/near-misses-latest.md    # title-gate audit report (gitignored, regenerated; §5)
 ├─ data/prep/                    # batch-mode prep files/sheets (gitignored)
-├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows; logs to dataefresh.log)
+├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows; logs to data
+efresh.log)
 ├─ scripts/refresh_guard.py      # skip-if-succeeded-<12h pre-flight + log rotation
 ├─ scripts/setup_refresh_task.ps1 # register the wake-aware daily + at-logon task (idempotent)
 ├─ scripts/near_misses.py        # title-gate near-miss audit (python scripts/near_misses.py; §5)
@@ -924,7 +1001,7 @@ Job Applier/
 ├─ server/                       # FastAPI backend: /api/* + /ws/chat (Agent SDK bridge)
 ├─ frontend/                     # Applyer React SPA (Vite + TS; npm run build → dist/)
 ├─ src/
-│  ├─ mcp_server.py              # the 43 tools
+│  ├─ mcp_server.py              # the 44 tools
 │  ├─ profiles.py                # active-profile resolution (env → applyer.local.json → …)
 │  ├─ browser.py                 # ATS-agnostic form reading/filling + Workday entry/auth
 │  ├─ repeating.py               # repeating sections (Workday My Experience)

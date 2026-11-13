@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + taskman. Last updated 2026-10-03.
+per-session narrative lives in `git log` + taskman. Last updated 2026-11-13.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -9,7 +9,7 @@ code until Claude Code restarts.
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
-`python -m src.mcp_server`, **43 tools**) provides a live Playwright browser +
+`python -m src.mcp_server`, **44 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
 - **`/find-jobs <query>`** — roles across a curated 80-company watchlist
   (public Greenhouse/Lever/Ashby APIs, **+ Workday boards as of M0, 2026-09-09**),
@@ -70,9 +70,12 @@ User: **Siddharth Bhaskaran**, Los Angeles, ~5-yr PM targeting mid/senior
 own the discovery/data layer (the compounding asset); the earlier plan to lean
 on Cowork/Claude-in-Chrome for Workday wizards instead of building an executor
 is **reversed by explicit user decision** — Workday sourcing (M0, 2026-09-09)
-and the in-repo Workday apply path (M1, built 2026-10-03, **live verification
-pending**) are built (see Current state / Open items below). Cowork/Chrome remains the fallback
-for other hard executor cases (auth walls, combobox probe-typing, non-English
+and the in-repo Workday apply path (M1, built 2026-10-03; **first live
+application completed 2026-11-13, partly via the Chrome extension, see Current
+state**) are built (see Current state / Open items below). Cowork/Chrome is now
+a **documented fallback lane** in both apply skills (technical failures on
+Workday, last resort on bot-detection parks elsewhere), and remains the
+fallback for other hard executor cases (auth walls, combobox probe-typing, non-English
 aliases, JS-only dropzones).
 
 ## Architecture / key files
@@ -101,7 +104,7 @@ aliases, JS-only dropzones).
   `profiles/_template/`; legacy checkouts: `scripts/migrate_profile.py`.
   Multi-user roadmap (GCP data plane, auth, onboarding UI, per-user filtered
   postings): `docs/backlog-multiuser.md`.
-- `src/mcp_server.py` — **43 MCP tools** as of 2026-10-03 (2026-10 added `lint_text`, `fill_credential`, `fill_repeating_section`, `start_application`, `authenticate`, `open_verification_link`, `clear_auth_ledger`, and a `target` arg on `upload_resume`; mcp SDK 2.x `MCPServer`, migrated from
+- `src/mcp_server.py` — **44 MCP tools** as of 2026-11-13 (2026-11-13 added read-only `list_workday_accounts`; 2026-10 added `lint_text`, `fill_credential`, `fill_repeating_section`, `start_application`, `authenticate`, `open_verification_link`, `clear_auth_ledger`, and a `target` arg on `upload_resume`; mcp SDK 2.x `MCPServer`, migrated from
   `FastMCP` 2026-09-08 — same `@mcp.tool()`/`mcp.run()` surface, only the
   import + constructor changed); thin wrappers. `get_profile_paths`
   returns the active profile's resolved dirs (skills call it instead of
@@ -149,6 +152,19 @@ aliases, JS-only dropzones).
   not progress), prefers controls in an open `[role=dialog]`/`[aria-modal]`
   over the background Apply, waits for a late-rendering Apply, and is bounded
   at 4 clicks / ~30s per call; live probe reaches `auth_required` in one call.
+- `src/accounts.py` (**new, 2026-11-13**) — Workday tenant-account registry,
+  `profiles/<id>/data/workday_accounts.json`, keyed by tenant host:
+  `{email, status, created_at, last_sign_in_at, source}`, status `active` |
+  `exists_unknown_password` | `sso_only`. `record()` takes no secret and `load()`
+  drops any key outside the five fields, so a password cannot get in.
+  `authenticate(auto)` reads it (see the 2026-11-13 entry).
+- `src/technical.py` (**new, 2026-11-13**) — `technical: true` marking.
+  `TECHNICAL_STATUSES` is the per-tool table (fill / repeating / repeating_row /
+  advance_step / start_application / authenticate / upload_resume /
+  submit_application); `field_is_technical` and `_row_is_technical` hold the two
+  conditional rules (`uncommitted` without `options`, and `not_found` on an
+  identity / start / current key). `mcp_server.py` wraps the tool results with
+  `technical.mark`. No second status vocabulary.
 - `src/repeating.py` (**new, 2026-10**) — pure helpers + `SECTION_JS` for
   `fill_repeating_section` (Workday My Experience): locate a section by heading,
   split fields into per-entry groups, plan which existing/orphan/blank group each
@@ -397,6 +413,79 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-11-13 session — first completed Workday application; registry, sign-in
+  classification, date and search-box widgets, `technical` flag; skills gain a
+  Chrome fallback lane.** Branch `integrate/fixes-2026-10`, PR #14 open to
+  `main` (merge is the user's click); the job-applier MCP server needs a new
+  Claude Code session to load this code.
+  - **Live result.** Capital One, "Product Manager: Capital One Shopping
+    (Remote-Eligible)" (R246330) was submitted, confirmed, and logged in
+    `applications.json`. **Playwright lane (old code):** `start_application`
+    reached the auth page in one call; `authenticate` created the account and
+    signed in with no manual step and no email verification, but returned
+    `unconfirmed` both times; My Information filled and advanced; My Experience
+    failed on dates, on School / Field of Study (a false `verified:true` while the
+    box was empty), and the first `fill_repeating_section` pass dropped out after
+    title + company. **Chrome lane:** the user signed in by hand in their own
+    Chrome and the Claude-in-Chrome extension completed all six steps (date
+    spinbuttons: click Month, type MMYYYY; search boxes: type, Enter, pick the
+    result; dropdowns: click, first letter, Enter; resume upload) through Review
+    and Submit.
+  - **Account registry** (`src/accounts.py`, tool `list_workday_accounts`).
+    `authenticate(auto)`: `active` -> sign in; no entry -> create; create says the
+    account exists -> record `exists_unknown_password`, return `account_exists`,
+    no sign-in attempt (park for a manual sign-in); a create that lands silently
+    on a plain Sign In page -> ONE follow-up sign-in decides (success records
+    `active`; a rejection records `exists_unknown_password` and returns
+    `account_exists`); confirmed success records `active`; a rejection on an
+    `active` account returns `bad_credentials`, downgrades the row to
+    `exists_unknown_password`, and never triggers creation. New statuses
+    `create_rejected` (create-form validation, no lockout) and
+    `account_created_signin_required`. The old automatic create -> sign-in
+    switch on "already exists" is gone. Explicit `mode="sign_in"` /
+    `"create_account"` still overrides the registry. Lockout ledger: a positive
+    rejection or a password field still showing after a sign-in submit
+    (`still_auth`) counts as a failed sign-in; a redirect with unclear outcome
+    (`unknown`) does not.
+  - **Widgets.** Date parts (`role=spinbutton`, MM/YYYY and YYYY) are scanned and
+    filled. Search boxes (School, Field of Study) use search-and-pick with
+    verification on the selected chip, exact / same-name matches only, otherwise
+    `unmatched` with the visible results as `options`. New result keys:
+    `regrouped`, `verified_by: "section_reread"`, `other_chips`,
+    `blocked_form_submits`, `error: "focus_lost"`, and `verified: null` for a
+    search input with no results list. `fill_field` returns `status:"error"`
+    instead of raising on a Playwright exception; a `<select>` value that is not
+    an option returns `unmatched` with options.
+  - **`technical: true`** (`src/technical.py`): the tool could not operate the
+    page, as opposed to us lacking an answer. `submit_application` carries it
+    only for `no_submit_button`; `attempted` and `rejected_spam` do NOT.
+  - **`resolve_fields` aliases:** phone device type / country phone code / phone
+    extension no longer resolve to the phone number; "United States" in a
+    question no longer resolves to the state.
+  - **Skills.** `apply-to-job` and `apply-batch` now carry a branched Workday
+    workflow (registry-driven `authenticate`, route on `account_exists` /
+    `bad_credentials` / `create_rejected` / ..., technical vs missing-answer)
+    and a **Chrome fallback lane** (hand-off packet, sign-in rules: never type or
+    read a password through the extension, never read `credentials.yaml` for it,
+    click Sign In only if Chrome's password manager autofilled; widget recipes
+    above). For Ashby / Greenhouse / Lever it is the LAST fallback on a
+    bot-detection park, after a same-company check against `applications.json`
+    (a per-company limit shows the same "We couldn't submit" banner); `attempted`
+    is never routed there automatically. In `apply-batch` the lane is one shared
+    browser, so a serial pass after the main pass, listed in the Stage E report.
+  - **Greenhouse cover-letter upload:** the live check initially failed (the file
+    input unmounts on change, so the read-back found nothing); fixed and
+    re-verified live on Stripe and Tailscale embed forms (merge `426d31e`, see the
+    follow-up under the 2026-10-02/03 landings).
+  - **Verification status.** Registry, sign-in classification, widget and
+    `technical` changes are verified by unit suites (27) and DOM fixtures (DOM
+    harness 203/203) only. **NOT yet verified live:** the new sign-in
+    classification, the registry flow, dates and search boxes on the Playwright
+    lane, and the Chrome lane on Ashby / Greenhouse / Lever. Country Phone Code
+    read-back (the D3 multi-select item) is still unfixed.
+  - **Tracker.** taskman is reachable over HTTP; stories JOB-79..JOB-93 were filed
+    (these are real taskman keys; do not infer other `JOB-*` keys, see the
+    tracker gotcha below). `docs/tracker-pending.md` is now a short pointer.
 - **2026-10-01 session — degradation diagnosis + Phase 0 baseline.** Diagnosed
   five regressions (full plan: `~/.claude/plans/create-a-multi-step-glittery-thacker.md`):
   (1) Greenhouse cover letters can't attach — `upload_resume`'s auto-locator
@@ -484,10 +573,12 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   - **Security/hygiene:** the `probe*.py` scripts (agent-invented Workday
     password) were deleted and `probe*.py` is gitignored; `.claude/worktrees/`
     ignored; `credentials.yaml` under the template is ignored too.
-  - **Still NOT done:** D3 multi-select fix (`docs/handoff-workday-multiselect.md`)
-    and every live verification (Greenhouse cover upload, real Workday sign-in,
-    My Experience). Everything above is verified by standalone suites and
-    synthetic DOM fixtures (`tests/manual/`) only.
+  - **Still NOT done (as of 2026-10-03; see the 2026-11-13 entry for what a
+    live run has since covered):** D3 multi-select fix
+    (`docs/handoff-workday-multiselect.md`) and every live verification
+    (Greenhouse cover upload, real Workday sign-in, My Experience). Everything
+    above is verified by standalone suites and synthetic DOM fixtures
+    (`tests/manual/`) only.
 - **2026-09-16 session — Workday M0 wizard framework + verified fills + storage seam.**
   This session built the generic infrastructure for multi-page form wizards and
   verified fills, **not yet exercised against a live Workday application**.
@@ -897,23 +988,33 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
    - **Open the PR to `main`** (merge is the user's click); restart Claude Code
      and the webapp afterwards.
    - **D3 live:** the Workday multi-select fix, per
-     `docs/handoff-workday-multiselect.md`.
-   - **Live checks (all unverified):** a Greenhouse cover-letter upload with
-     read-back; a real Workday sign-in/account creation + email verification;
-     My Experience via `fill_repeating_section`; then the wizard to the gated
-     submit. SSO-only tenants (e.g. Snap) need a manual sign-in.
+     `docs/handoff-workday-multiselect.md`; Country Phone Code read-back is
+     still unfixed (2026-11-13).
+   - **Live checks (updated 2026-11-13):** the Greenhouse cover-letter upload is
+     now verified live (Stripe, Tailscale; `426d31e`). A first Workday
+     application completed on 2026-11-13, but only via the Chrome lane after
+     the Playwright lane stalled on My Experience. Still to verify live, on a
+     fresh Claude Code session with today's code: the new `authenticate`
+     classification and registry flow (including `account_exists` and
+     `create_rejected` paths), date spinbuttons and School / Field of Study
+     search boxes through `fill_repeating_section`, and the Chrome lane on
+     Ashby / Greenhouse / Lever. SSO-only tenants (e.g. Snap) need a manual
+     sign-in.
+   - **PR #14** (`integrate/fixes-2026-10` -> `main`) is open; merge is the
+     user's click; then restart Claude Code and the webapp.
    - **User actions:** rotate the Workday password an agent invented on
      2026-09-17 and delete the active profile's `data/ats-accounts.md`; create
      `profiles/<id>/secrets/credentials.yaml` (one shared password, never in
      chat); fill the profile's `zip`, `experience:`, `education:`; verify the
      2026-09-16 Stripe IAM submission (the cover letter may have replaced the
      resume).
-   - **Tracker filing:** the stories in `docs/tracker-pending.md` still need
-     filing once the taskman MCP connects.
+   - **Tracker filing:** done 2026-11-13 (stories JOB-79..JOB-93, epic "Hand-filed
+     session work (2026-10 fixes)"); `docs/tracker-pending.md` now only says so.
 
 ## Proposed backlog (not built — bring back for approval)
-- **Workday apply: M1 BUILT 2026-10-03 (live verification pending); M2 not
-  built.** Original plan, kept as history (see the "Strategy verdict" line near
+- **Workday apply: M1 BUILT 2026-10-03 (first live application completed
+  2026-11-13, partly via the Chrome lane; the 2026-11-13 fixes still need a live
+  re-check); M2 not built.** Original plan, kept as history (see the "Strategy verdict" line near
   the top, REVISED 2026-09-09). **M1 (apply wizard):** build an in-repo Workday executor — account
   creation/login with the user's one shared local-only password, the
   multi-page apply wizard, and structured `experience:`/`education:` profile
@@ -928,6 +1029,15 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
 - **Polish (P2):** screenshot downscaling · prompt-cache stable prefixes.
 
 ## Gotchas / environment
+- **Workday account registry (2026-11-13):** `profiles/<id>/data/
+  workday_accounts.json` (no passwords). `account_exists` means an account exists
+  whose password we do not know: park and ask the user to sign in by hand; do not
+  retry or guess. A `bad_credentials` on an `active` row downgrades it to
+  `exists_unknown_password`. `list_workday_accounts` shows the rows.
+- **Chrome lane never handles passwords (2026-11-13):** in the Claude-in-Chrome
+  lane never type a password, never read a password field's value, never read
+  `credentials.yaml`; click Sign In only if Chrome's password manager already
+  filled both fields, else ask the user to sign in in that window.
 - **Workday auth ledger (2026-10):** `profiles/<id>/runtime/auth_attempts.json`
   allows 1 failed sign-in per tenant per 24h; after `bad_credentials` every
   `authenticate` returns `bad_credentials` without submitting. Only the user's

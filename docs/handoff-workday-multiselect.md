@@ -1,5 +1,15 @@
 # Handoff: Workday multi-select misclassification (+ password capture leak)
 
+> **Status note, 2026-11-13.** Still open and still unfixed: Country Phone Code
+> read-back (the multi-select item this handoff is about). Since this was
+> written, a first Workday application was completed (Capital One, 2026-11-13,
+> via the Claude-in-Chrome extension after the Playwright lane stalled on My
+> Experience), and `fill_repeating_section` gained date-spinbutton and
+> search-box handling, a Workday account registry, and a `technical: true`
+> result flag (see `SESSION_HANDOFF.md`, 2026-11-13 entry). None of that
+> resolves the multi-select question below; the live DOM check in section 0
+> is still the first action.
+
 **Written:** 2026-09-17, by a terminating SDK session.
 **For:** a persistent interactive session with a live browser.
 **Status:** analysis complete and verified against the source; **no code written yet**.
