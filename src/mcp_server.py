@@ -197,8 +197,13 @@ async def upload_resume(index: int = -1, path: str = "",
     For a cover letter pass target="cover" AND path=cover_letter_path: only an
     input labelled "cover" is eligible and the resume slot is never used; with
     none the result is {status: "no_cover_slot"} (fall back to pasting
-    cover_letter_text). Always check `verified` (+ `observed_filename`) in the
-    result; status "error" means a cover upload landed in the resume slot."""
+    cover_letter_text). Call resume and cover SEQUENTIALLY, never in parallel.
+    Always check `verified` in the result: `readback` says what confirmed it
+    ("input" = files[0].name; "container" = the slot box shows the filename,
+    as on Greenhouse, which unmounts the input after an upload; "none").
+    `pending: true` = still uploading when read-back stopped waiting.
+    Status "error" means a cover upload landed in the resume slot, or the
+    wanted slot already holds a file (nothing was uploaded)."""
     return await browser.session.upload_resume(index if index >= 0 else None,
                                                path or None, target)
 

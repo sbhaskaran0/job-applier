@@ -316,6 +316,40 @@ async def run(headless=True):
               res.get("status") == "uploaded" and res.get("verified") is True
               and res.get("observed_filename") == "", res)
 
+        # --- live Greenhouse shape: the widget UNMOUNTS the input, shows a
+        # progressbar, then the filename in the role=group box. The old
+        # read-back keyed on the input's id and returned verified:false,
+        # container_text:"" for every upload (2026-11-13, Stripe/Tailscale).
+        await _goto(page, UPLOAD_FIXTURE + "#unmount")
+        await s.read_form()
+        res = await s.upload_resume(None, str(tmp / "resume_x.pdf"), "resume")
+        check("unmounting widget: resume verifies via the slot box",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and res.get("readback") == "container"
+              and "Resume/CV" in res.get("container_text", "")
+              and "resume_x.pdf" in res.get("container_text", ""), res)
+        res = await s.upload_resume(None, str(tmp / "cover_letter_x.pdf"),
+                                    "cover")
+        check("unmounting widget: cover verifies in the Cover Letter slot",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and "Cover Letter" in res.get("container_text", "")
+              and "cover_letter_x.pdf" in res.get("container_text", ""), res)
+        boxes = await page.evaluate(
+            "() => Array.from(document.querySelectorAll('[role=group]'))"
+            ".map(g => g.innerText.replace(/\\s+/g, ' ').trim())")
+        check("unmounting widget: each slot shows its own file",
+              boxes == ["Resume/CV* resume_x.pdf x",
+                        "Cover Letter cover_letter_x.pdf x"], boxes)
+        res = await s.upload_resume(None, str(tmp / "resume_x.pdf"), "resume")
+        boxes2 = await page.evaluate(
+            "() => Array.from(document.querySelectorAll('[role=group]'))"
+            ".map(g => g.innerText.replace(/\\s+/g, ' ').trim())")
+        check("unmounting widget: a 2nd resume upload with the resume slot "
+              "filled is refused and touches nothing",
+              res.get("status") == "error"
+              and "already holds a file" in res.get("error", "")
+              and boxes2 == boxes, (res, boxes2))
+
         await run_entry_auth(s)
         await run_experience(s)
     finally:

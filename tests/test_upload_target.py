@@ -30,6 +30,11 @@ from src import browser                 # noqa: E402
 
 choose = browser._choose_file_input
 
+# Read-back polls the slot until it verifies; keep the fakes fast.
+browser.BrowserSession._READBACK_POLL_S = 0.001
+browser.BrowserSession._READBACK_SETTLE_S = 0.02
+browser.BrowserSession._READBACK_MAX_S = 0.2
+
 
 def cand(i, text="", name="", id="", aria="", label="", file="", single=True):
     return {"i": i, "text": text, "name": name, "id": id, "aria": aria,
@@ -332,6 +337,187 @@ def test_cover_landed_helper_ignores_preexisting_filename():
     before = [{"frame": 0, "i": 0, "text": "Resume/CV cover_letter.pdf",
                "file": "", "id": "resume"}]
     assert not browser._cover_landed_in_resume(before, before, "cover_letter.pdf")
+
+
+# --------------------------------------------------------------------------
+# Unmounting widget (live Greenhouse, 2026-11-13). On change the widget
+# UNMOUNTS the <input type=file>, shows a [role=progressbar] while it POSTs
+# the file to storage (~1s), then renders "<filename> [Remove file]" in the
+# slot's role=group box. Probe evidence, Stripe embed form:
+#   before: group "Resume/CV* Attach Attach Dropbox Enter manually ..." with
+#           <input id=resume>; label[for=resume] = "Attach"
+#   +100ms: input gone; group = "Resume/CV*" + role=progressbar
+#   +1000ms: group = "Resume/CV* resume.pdf" + button "Remove file"
+# The old read-back re-matched the slot by the input's id, found nothing and
+# returned verified:false, container_text:"" for every upload.
+# --------------------------------------------------------------------------
+class Slot:
+    def __init__(self, n, label, id):
+        self.n, self.label, self.id = n, label, id
+        self.mounted, self.file, self.busy_left = True, "", 0
+        self.box = label + " Attach Attach Dropbox Enter manually"
+
+
+class UnmountFrame:
+    """A frame whose upload widget unmounts the input, like Greenhouse.
+    `busy_polls` = how many candidate scans show the progressbar first."""
+    def __init__(self, slots, busy_polls=0, redirect_to=None, sticky=None):
+        self.slots, self.busy_polls = slots, busy_polls
+        self.redirect_to, self.sticky = redirect_to, sticky
+        self.uploads, self.tag = [], None
+
+    def _present(self):
+        return [s for s in self.slots if s.mounted]
+
+    def locator(self, selector):
+        frame = self
+
+        class Loc:
+            first = None
+
+            async def set_input_files(self_, p):
+                s = frame._present()[frame.tag]
+                frame.uploads.append(s.n)
+                if frame.redirect_to is not None:
+                    s = frame.slots[frame.redirect_to]
+                name = p.replace("\\", "/").rsplit("/", 1)[-1]
+                s.mounted, s.busy_left = False, frame.busy_polls
+                s.box = s.label
+                s.pending_name = name
+        loc = Loc()
+        loc.first = loc
+        return loc
+
+    async def evaluate(self, js, arg=None):
+        if js is browser._FILE_CANDIDATES_JS:
+            out = []
+            for i, s in enumerate(self._present()):
+                out.append({"i": i, "present": True, "text": "Attach Attach",
+                            "single": True, "name": "", "id": s.id,
+                            "aria": "", "label": "Attach " + s.label,
+                            "slot": str(s.n), "slot_text": s.box,
+                            "busy": False, "file": ""})
+            for s in self.slots:
+                if s.mounted:
+                    continue
+                if s.busy_left > 0:
+                    s.busy_left -= 1
+                elif getattr(s, "pending_name", None) and self.sticky is not False:
+                    s.box = s.label + " " + s.pending_name
+                out.append({"i": -1, "present": False, "text": s.box,
+                            "single": True, "name": "", "id": "",
+                            "aria": "", "label": s.label, "slot": str(s.n),
+                            "slot_text": s.box, "busy": s.busy_left > 0,
+                            "file": ""})
+            return out
+        if js is browser._TAG_FILE_JS:
+            self.tag = arg
+        return None
+
+
+def gh_session(**kw):
+    frame = UnmountFrame([Slot(1, "Resume/CV*", "resume"),
+                          Slot(2, "Cover Letter", "cover_letter")], **kw)
+    s = browser.BrowserSession()
+    s.tabs[0] = {"page": FakePage(frame), "fields": {}, "company": "",
+                 "title": "", "url": ""}
+    s.active_id = 0
+    return s, frame
+
+
+def test_unmounting_widget_resume_then_cover_both_verify():
+    s, frame = gh_session(busy_polls=2)
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["status"] == "uploaded" and r["verified"] is True, r
+    assert r["readback"] == "container" and r["observed_filename"] == "", r
+    assert r["container_text"] == "Resume/CV* resume.pdf", r
+    c = up(s, "/x/cover_letter.pdf", "cover")
+    assert c["status"] == "uploaded" and c["verified"] is True, c
+    assert c["container_text"] == "Cover Letter cover_letter.pdf", c
+    assert frame.uploads == [1, 2], frame.uploads
+    assert frame.slots[0].box == "Resume/CV* resume.pdf", "resume untouched"
+
+
+def test_unmounting_widget_still_uploading_is_pending_not_verified():
+    s, frame = gh_session(busy_polls=10 ** 6)
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["verified"] is False and r.get("pending") is True, r
+    assert r["readback"] == "none", r
+
+
+def test_unmounting_widget_that_never_shows_the_file_is_not_verified():
+    s, frame = gh_session(sticky=False)
+    r = up(s, "/x/resume.pdf", "resume")
+    assert r["verified"] is False and not r.get("pending"), r
+
+
+def test_resume_never_goes_into_cover_slot_once_resume_slot_is_filled():
+    # After the resume upload only the cover <input> is still mounted. The
+    # old chooser picked it (score 0 was still the best score).
+    s, frame = gh_session()
+    up(s, "/x/resume.pdf", "resume")
+    r = up(s, "/x/resume_v2.pdf", "resume")
+    assert r["status"] == "error" and "already holds a file" in r["error"], r
+    assert frame.uploads == [1], "the cover slot must not receive the resume"
+    assert frame.slots[1].mounted
+
+
+def test_second_cover_upload_on_filled_cover_slot_is_error_not_no_cover_slot():
+    s, frame = gh_session()
+    up(s, "/x/cover_letter.pdf", "cover")
+    r = up(s, "/x/cover_letter.pdf", "cover")
+    assert r["status"] == "error" and "already holds a file" in r["error"], r
+    assert frame.uploads == [2]
+
+
+def test_cover_landing_in_unmounted_resume_slot_is_flagged():
+    s, frame = gh_session(redirect_to=0)
+    r = up(s, "/x/cover_letter.pdf", "cover")
+    assert r["status"] == "error", r
+    assert r["error"] == "cover upload landed in resume slot", r
+    assert r["verified"] is False
+
+
+def test_resume_not_put_in_other_attachment_slot_when_resume_slot_filled():
+    s, frame = gh_session()
+    frame.slots.append(Slot(3, "Additional documents", "other"))
+    up(s, "/x/resume.pdf", "resume")
+    r = up(s, "/x/resume_v2.pdf", "resume")
+    assert r["status"] == "error", r
+    assert frame.uploads == [1]
+
+
+def test_chooser_skips_unmounted_slots_and_counts_them_in_total():
+    gone = dict(cand(-1, text="Resume/CV* resume.pdf", label="Resume/CV*"),
+                present=False)
+    box_only = cand(0, text="Cover Letter Attach")
+    # container-only cover detection needs >= 2 slots; the filled one counts
+    assert choose([gone, box_only], "cover") == 0
+    assert choose([gone], "resume") is None
+    assert choose([gone], "cover") is None
+
+
+def test_resume_target_never_picks_a_cover_labelled_input():
+    assert choose([cand(0, **COVER)], "resume") is None
+    assert choose([cand(0, label="Cover Letter")], "resume") is None
+    # a lone input whose box merely mentions cover letters is still usable
+    assert choose([cand(0, text="Upload resume or cover letter")], "resume") == 0
+
+
+def test_slot_tag_is_the_primary_key_and_id_the_fallback():
+    assert browser._slot_key({"slot": "2", "id": "a", "frame": 1}) == \
+        ("slot", 1, "2")
+    ref = {"slot": "9", "id": "resume", "i": 0}
+    fresh = [{"slot": "4", "id": "resume", "i": 0, "file": "r.pdf"}]
+    assert browser._match_slot(fresh, ref) is fresh[0]
+    assert browser._match_slot([{"slot": "4", "id": "", "i": -1}], ref) is None
+
+
+def test_filename_must_appear_as_a_whole_token():
+    assert browser._shows({"slot_text": "Resume/CV* resume.pdf"}, "resume.pdf")
+    assert not browser._shows({"slot_text": "Resume/CV* my_resume.pdf"},
+                              "resume.pdf")
+    assert not browser._shows({"slot_text": "resume.pdf.bak"}, "resume.pdf")
 
 
 # Fix 6: errors are dicts ---------------------------------------------------

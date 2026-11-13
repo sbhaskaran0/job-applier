@@ -425,6 +425,16 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
     (`verified`, `observed_filename`), detects a cover letter that landed in the
     resume slot; errors are dicts. Review: index guard, own-attribute cover
     detection, fresh read-back.
+    **Follow-up 2026-11-13 (`fix/greenhouse-upload-readback`):** live GH
+    (job-boards.greenhouse.io embed) UNMOUNTS the `<input type=file>` on
+    change, shows a `[role=progressbar]` during the storage POST (~1s), then
+    renders the filename in the slot's `role=group` box. The read-back keyed
+    on the input id, so every live upload returned `verified:false,
+    container_text:""` although the file had attached. Read-back now keys on
+    a `data-jaslot` tag on the slot box (the input's ARIA group, else its tight
+    box), polls through the progressbar (`readback:"container"`, `pending`),
+    and a filled slot is still seen: resume never goes into the cover slot
+    and a 2nd upload into a filled slot is refused ("already holds a file").
   - **B: cover-letter pipeline** (merge `11daf6a`; `03a35b1`, `49bfc1e`,
     `befca93`, `5057961`, `54896e6`). Template, letterhead, `COVER_LINT_RULES`,
     `lint_text`, `save_cover_letter(force)`, Opus-pinned `answer-crafter`, web

@@ -150,14 +150,21 @@ issue any genuinely independent calls together in a single message.
    - **Cover letter (if tailored):** upload the resume FIRST. Then, when
      `get_job_artifacts` returns `has_cover_letter`, call
      `upload_resume(target="cover", path=<cover_letter_path>)` (no index —
-     Greenhouse hides both file inputs) and check `verified`. Status
+     Greenhouse hides both file inputs) and check `verified`. Make the two
+     calls one after the other, never in parallel. On Greenhouse `verified`
+     comes from the slot box (`readback: "container"`, `container_text` like
+     "Cover Letter cover_letter.pdf") because the widget unmounts the input;
+     `pending: true` means it was still uploading, so re-check with a
+     screenshot rather than re-uploading. An error saying the slot "already
+     holds a file" means nothing was uploaded: do not retry, flag it. Status
      `no_cover_slot` means the page has no cover-letter file input: paste
      `cover_letter_text` into a cover-letter textarea if one is listed, else
      flag it for the user (on Greenhouse an "Enter manually" button may reveal
      one; it can't be clicked via the tools, so it is a manual step). Never
      retry a cover upload without `target="cover"` — that overwrites the
      resume. Status `error` is returned (not raised): "landed in resume slot"
-     means re-upload the resume; any other error (e.g. "index is not a cover
+     means re-upload the resume (if that says the slot "already holds a
+     file", the user must remove it by hand: flag it); any other error (e.g. "index is not a cover
      slot") means flag it and do not retry. If no tailored cover letter exists, only fill a cover-letter
      field if the user asks.
 5. **Craft + gate the rest** — for `context` rows, `review`-confidence history

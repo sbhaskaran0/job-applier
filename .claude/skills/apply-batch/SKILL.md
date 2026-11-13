@@ -316,11 +316,15 @@ For each approved job, in order:
    job), `upload_resume(path=<resume_path>)`; else `upload_resume()` (no index,
    default resume); check `verified`. Resume FIRST, then when
    `has_cover_letter` call `upload_resume(target="cover", path=<cover_letter_path>)`
-   and check `verified`. On `no_cover_slot` paste `cover_letter_text` into a
+   and check `verified` (sequential calls, never parallel; on Greenhouse it is
+   confirmed via the slot box, `readback: "container"`; `pending: true` = still
+   uploading, do not re-upload). An error saying the slot "already holds a
+   file" uploaded nothing: park, do not retry. On `no_cover_slot` paste `cover_letter_text` into a
    cover-letter textarea if listed, else flag it as a manual step (Greenhouse
    "Enter manually" can't be clicked via the tools). Never retry a cover upload
    without `target="cover"` (it overwrites the resume); on `error` ("landed in
-   resume slot") re-upload the resume; any other `error` parks the job.
+   resume slot") re-upload the resume, and park the job if that reports the
+   slot "already holds a file"; any other `error` parks the job.
 5. Verify via `read_form(values_only=True)` — the lean payload
    (`{index, kind, label, current_value}`, no option lists) is all a
    verification pass needs; confirm every intended `current_value` is set.
