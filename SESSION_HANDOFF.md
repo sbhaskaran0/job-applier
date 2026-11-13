@@ -425,6 +425,28 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
     (`verified`, `observed_filename`), detects a cover letter that landed in the
     resume slot; errors are dicts. Review: index guard, own-attribute cover
     detection, fresh read-back.
+    **Follow-up 2026-11-13 (`fix/greenhouse-upload-readback`):** live GH
+    (job-boards.greenhouse.io embed) UNMOUNTS the `<input type=file>` on
+    change, shows a `[role=progressbar]` during the storage POST (~1s), then
+    renders the filename in the slot's `role=group` box. The read-back keyed
+    on the input id, so every live upload returned `verified:false,
+    container_text:""` although the file had attached. Read-back now keys on
+    a `data-jaslot` tag on the slot box (the input's ARIA group, else its tight
+    box), polls through the progressbar (`readback:"container"`, `pending`;
+    the settle window restarts on every busy scan), and never verifies while
+    the slot is busy or shows `role=alert`/`aria-invalid` (`slot_error`).
+    Filled slots stay visible (present:false), including an untagged
+    `role=group`/`fieldset` named resume/CV with no file input (filled before
+    the tool's first scan). Guarantees: the resume is refused for any input
+    whose own attributes say cover or whose single-input box says cover (not
+    resume/cv), auto-located or by explicit index, and for every non-resume
+    input while a resume slot has no free input; an input with no label
+    signal at all can still get the resume when no resume slot is
+    recognisable. A 2nd upload into a slot that shows a file (filename or
+    remove button) is refused ("already holds a file"); on GH a re-upload
+    after "landed in resume slot" therefore always fails, so the skills park.
+    The chosen input is tagged through its slot box and the upload aborts if
+    that resolves to anything but one input.
   - **B: cover-letter pipeline** (merge `11daf6a`; `03a35b1`, `49bfc1e`,
     `befca93`, `5057961`, `54896e6`). Template, letterhead, `COVER_LINT_RULES`,
     `lint_text`, `save_cover_letter(force)`, Opus-pinned `answer-crafter`, web

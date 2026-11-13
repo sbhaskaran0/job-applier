@@ -316,6 +316,42 @@ async def run(headless=True):
               res.get("status") == "uploaded" and res.get("verified") is True
               and res.get("observed_filename") == "", res)
 
+        # --- live Greenhouse shape: the widget UNMOUNTS the input, shows a
+        # progressbar, then the filename in the role=group box. The old
+        # read-back keyed on the input's id and returned verified:false,
+        # container_text:"" for every upload (2026-11-13, Stripe/Tailscale).
+        await _goto(page, UPLOAD_FIXTURE + "#unmount")
+        await s.read_form()
+        res = await s.upload_resume(None, str(tmp / "resume_x.pdf"), "resume")
+        check("unmounting widget: resume verifies via the slot box",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and res.get("readback") == "container"
+              and "Resume/CV" in res.get("container_text", "")
+              and "resume_x.pdf" in res.get("container_text", ""), res)
+        res = await s.upload_resume(None, str(tmp / "cover_letter_x.pdf"),
+                                    "cover")
+        check("unmounting widget: cover verifies in the Cover Letter slot",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and "Cover Letter" in res.get("container_text", "")
+              and "cover_letter_x.pdf" in res.get("container_text", ""), res)
+        boxes = await page.evaluate(
+            "() => Array.from(document.querySelectorAll('[role=group]'))"
+            ".map(g => g.innerText.replace(/\\s+/g, ' ').trim())")
+        check("unmounting widget: each slot shows its own file",
+              boxes == ["Resume/CV* resume_x.pdf x",
+                        "Cover Letter cover_letter_x.pdf x"], boxes)
+        res = await s.upload_resume(None, str(tmp / "resume_x.pdf"), "resume")
+        boxes2 = await page.evaluate(
+            "() => Array.from(document.querySelectorAll('[role=group]'))"
+            ".map(g => g.innerText.replace(/\\s+/g, ' ').trim())")
+        check("unmounting widget: a 2nd resume upload with the resume slot "
+              "filled is refused and touches nothing",
+              res.get("status") == "error"
+              and "already holds a file" in res.get("error", "")
+              and boxes2 == boxes, (res, boxes2))
+
+        await run_upload_variants(s, tmp)
+
         await run_entry_auth(s)
         await run_experience(s)
     finally:
@@ -324,6 +360,89 @@ async def run(headless=True):
         except Exception:
             pass
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+_GROUPS_JS = ("() => Array.from(document.querySelectorAll('[role=group]'))"
+              ".map(g => g.innerText.replace(/\\s+/g, ' ').trim())")
+_FILES_JS = ("() => Array.from(document.querySelectorAll('input[type=file]'))"
+             ".map(e => e.id + ':' + ((e.files[0] || {}).name || ''))")
+
+
+async def run_upload_variants(s, tmp):
+    """The review follow-ups, against the REAL upload JS (groupOf, slotOf,
+    slot tagging, present:false enumeration) -- the unit suite fakes it."""
+    page = s.page
+    resume, cover = str(tmp / "resume_x.pdf"), str(tmp / "cover_letter_x.pdf")
+
+    # "Enter manually": the cover input is swapped for a textarea AFTER the
+    # slots were tagged. That is not a filled slot: no_cover_slot.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount")
+    await s.read_form()
+    await s.upload_resume(None, resume, "resume")
+    await page.click('button.manual[data-for="cover_letter"]')   # test setup
+    res = await s.upload_resume(None, cover, "cover")
+    groups = await page.evaluate(_GROUPS_JS)
+    check("Enter manually: cover is no_cover_slot, not 'already holds a file'",
+          res.get("status") == "no_cover_slot"
+          and groups[0] == "Resume/CV* resume_x.pdf x", (res, groups))
+
+    # busy + filename at once: must wait until the progressbar is gone.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount-busyname")
+    await s.read_form()
+    res = await s.upload_resume(None, resume, "resume")
+    busy = await page.evaluate(
+        "() => !!document.querySelector('[role=progressbar]')")
+    check("filename shown while busy: verified only after the progressbar",
+          res.get("verified") is True and not busy
+          and res.get("container_text") == "Resume/CV* resume_x.pdf x",
+          (res, busy))
+
+    # filename + role=alert "Upload failed": never verified.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount-fail")
+    await s.read_form()
+    res = await s.upload_resume(None, resume, "resume")
+    check("filename next to an upload error is NOT verified",
+          res.get("verified") is False
+          and "Upload failed" in res.get("slot_error", ""), res)
+
+    # Resume slot filled before the tool ever scanned (never tagged), with a
+    # Portfolio slot free: the resume must not go to Portfolio.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount-prefilled")
+    await s.read_form()
+    res = await s.upload_resume(None, resume, "resume")
+    files = await page.evaluate(_FILES_JS)
+    check("pre-filled untagged resume slot: resume refused, Portfolio and "
+          "Cover untouched",
+          res.get("status") == "error"
+          and "already holds a file" in res.get("error", "")
+          and files == ["cover_letter:", "portfolio:"], (res, files))
+    res = await s.upload_resume(None, cover, "cover")
+    groups = await page.evaluate(_GROUPS_JS)
+    check("pre-filled page: cover still lands in the Cover Letter slot",
+          res.get("verified") is True and groups[:2] == [
+              "Resume/CV* old_resume.pdf x",
+              "Cover Letter cover_letter_x.pdf x"]
+          and groups[2].startswith("Portfolio") and ".pdf" not in groups[2],
+          (res, groups))
+
+    # Explicit index: read_form lists VISIBLE file inputs; pointing the
+    # resume at the cover input's index must be refused.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount-visible")
+    fields = await s.read_form()
+    ids = {}
+    for f in fields:
+        if f.get("kind") == "file":
+            loc, _ = s._locator(f["index"])
+            ids[await loc.evaluate("e => e.id")] = f["index"]
+    res = await s.upload_resume(ids.get("cover_letter", -1), resume, "resume")
+    files = await page.evaluate(_FILES_JS)
+    check("explicit index: resume into the cover input is refused",
+          res.get("status") == "error" and "cover-letter slot" in
+          res.get("error", "") and files == ["resume:", "cover_letter:"],
+          (ids, res, files))
+    res = await s.upload_resume(ids.get("resume", -1), resume, "resume")
+    check("explicit index: resume into the resume input verifies",
+          res.get("verified") is True, res)
 
 
 FAKE_EMAIL = "harness@example.test"
