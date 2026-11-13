@@ -707,18 +707,19 @@ _PILL_FN = r"""
     }
     return wrap;
   };
-  const pillOf = (el) => {
+  // Each committed chip's text, separately (a name may contain ", ").
+  const pillsOf = (el) => {
     const pclean = (t) => (t || '').replace(/\s+/g, ' ').trim();
     const pvis = (n) => { const r = n.getBoundingClientRect();
       const s = window.getComputedStyle(n);
       return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 1 && r.height > 1; };
     const tag = el.tagName.toLowerCase();
     const it = (el.getAttribute('type') || '').toLowerCase();
-    if (tag !== 'input' || ['checkbox', 'radio', 'file', 'password'].includes(it)) return '';
+    if (tag !== 'input' || ['checkbox', 'radio', 'file', 'password'].includes(it)) return [];
     const popId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
     const pop = popId ? document.getElementById(popId) : null;
     const wrap = pillWrap(el);
-    if (!wrap) return '';
+    if (!wrap) return [];
     const textOf = (n) => {
       let t = pclean(n.innerText || n.textContent);
       n.querySelectorAll('button,[role=button]').forEach(b => {
@@ -740,8 +741,9 @@ _PILL_FN = r"""
       if (!t || /^\d+ items? selected$/i.test(t) || seen.includes(t)) continue;
       seen.push(t);
     }
-    return seen.join(', ');
+    return seen;
   };
+  const pillOf = (el) => pillsOf(el).join(', ');
 """
 
 # JS: the pill text for the field at data-jaidx=idx ('' when none).

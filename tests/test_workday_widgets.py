@@ -49,6 +49,8 @@ class Widget:
         self.results, self.enters, self.clicks = [], 0, 0
         self.expanded, self.click_opens = expanded, click_opens
         self.options, self.picked = list(options), []
+        self.focusable, self.is_input, self.stale_chips = True, False, []
+        self.read_override = None
 
 
 class Loc:
@@ -76,7 +78,15 @@ class Loc:
     async def focus(self):
         return None
 
+    async def press(self, key):
+        self.w.pressed.append("loc:" + key)
+        if key == "Space" and self.w.expanded is False:
+            self.w.expanded = True
+
     async def fill(self, value):
+        if self.w.is_input and value == "":
+            self.w.value = ""                  # clearing an <input> is fine
+            return
         raise AssertionError("a spinbutton / searchbox must never be .fill()ed")
 
 
@@ -87,7 +97,15 @@ class Frame:
     async def evaluate(self, js, arg=None):
         w = self.w
         if js in (B._FIELD_VALUE_JS, B._COMBO_VALUE_JS, B._LISTBOX_VALUE_JS):
-            return w.value
+            return w.read_override if w.read_override is not None else w.value
+        if js is getattr(B, "_FOCUSED_JS", object()):
+            return w.focusable
+        if js is getattr(B, "_IS_INPUT_JS", object()):
+            return w.is_input
+        if js is getattr(B, "_CHIPS_JS", object()):
+            return list(w.stale_chips) + ([w.value] if w.value else [])
+        if js is getattr(B, "_SUBMIT_GUARD_JS", object()):
+            return 0
         if js is B._RESULTS_JS:
             return list(w.results)
         if js is B._EXPANDED_JS:
@@ -131,15 +149,13 @@ class Keyboard:
         w = self.w
         w.typed += text
         if w.kind == "spin":
-            w.value = str(int(text))            # aria-valuetext drops the 0
+            w.value = str(int(w.value + text if w.is_input else text))
 
     async def press(self, key):
         w = self.w
         w.pressed.append(key)
         if key == "Control+A":
             w.typed = ""
-        elif key == "Space" and w.expanded is False:
-            w.expanded = True
         elif key == "Enter" and w.kind == "search":
             w.enters += 1
             q = w.typed.strip().lower()
@@ -230,11 +246,12 @@ def test_results_with_the_school_in_tenant_spelling_are_picked():
 
 
 def test_typed_text_is_never_verified_without_a_chip():
-    # no results and no chip: the typed text alone proves nothing
+    # no results and no chip: the typed text alone proves nothing, and it is
+    # LEFT in place (a plain search input must stay usable; review #8)
     w = Widget("search", results_by_query={})
     res = fill(session(w, "searchbox"), "Example U")
-    assert res["status"] == "uncommitted" and res["verified"] is False, res
-    assert not res.get("options"), res
+    assert res["verified"] is None and res["status"] == "filled", res
+    assert w.typed == "Example U" and "Backspace" not in w.pressed, w.pressed
 
 
 def test_no_confident_result_is_unmatched_with_the_options():
@@ -262,7 +279,8 @@ def test_listbox_that_only_focuses_on_click_opens_on_space():
                options=[("Yes", None), ("No, I have never worked here", None)])
     res = fill(session(w, "listbox", kind="combobox"),
                "No, I have never worked here")
-    assert "Space" in w.pressed, w.pressed
+    # pressed ON the button (loc.press), never on whatever has focus
+    assert "loc:Space" in w.pressed and "Space" not in w.pressed, w.pressed
     assert res["verified"] is True and w.value.startswith("No, I have"), res
 
 
@@ -271,6 +289,67 @@ def test_option_with_an_empty_accessible_name_is_picked_by_text():
                options=[("Yes", None), ("No", "")])     # "No" has name ""
     res = fill(session(w, "listbox", kind="combobox"), "No")
     assert res["verified"] is True and w.value == "No", res
+
+
+# --------------------------------------------------------------------------
+# independent review, 2026-11-13
+# --------------------------------------------------------------------------
+def test_search_picks_only_the_same_name():
+    pick = B._pick_result
+    assert pick("Economics", ["Agricultural Economics"]) is None
+    assert pick("Economics", ["Economics and Finance", "Economics"]) == "Economics"
+    assert pick("Economics", ["Economics and Finance",
+                              "Agricultural Economics"]) is None
+    assert pick("University of Michigan", [
+        "University of Michigan - Dearborn",
+        "University of Michigan - Ann Arbor"]) is None
+    assert pick("C++", ["C", "C#"]) is None and pick("C++", ["C", "C++"]) == "C++"
+    assert pick("University of California, Los Angeles", [UCLA]) == UCLA
+    assert pick("University of California, Los Angeles", [UCLA],
+                exact_only=True) is None
+
+
+def test_a_containing_result_is_unmatched_not_picked():
+    w = Widget("search", results_by_query={"economics": ["Agricultural Economics"]})
+    res = fill(session(w, "searchbox"), "Economics")
+    assert res["status"] == "unmatched" and w.value == "", res
+    assert res["options"] == ["Agricultural Economics"], res
+
+
+def test_chips_are_compared_one_by_one():
+    # a stale "Agricultural Economics" chip must not verify "Economics"
+    w = Widget("search", results_by_query={"economics": ["Economics"]})
+    w.stale_chips = ["Agricultural Economics"]
+    res = fill(session(w, "searchbox"), "Economics")
+    assert res["verified"] is True and res["value"] == "Economics", res
+    assert res["other_chips"] == ["Agricultural Economics"], res
+    w = Widget("search", results_by_query={"economics": ["Agricultural Economics"]})
+    w.stale_chips = ["Agricultural Economics"]
+    res = fill(session(w, "searchbox"), "Economics")
+    assert res["verified"] is not True, res
+
+
+def test_no_keystrokes_without_focus():
+    for widget, kind in (("searchbox", "search"), ("spinbutton", "spin")):
+        w = Widget(kind)
+        w.focusable = False
+        res = fill(session(w, widget), "04")
+        assert res["status"] == "error" and res["error"] == "focus_lost", res
+        assert w.typed == "" and w.pressed == [], (w.typed, w.pressed)
+
+
+def test_spinbutton_verifies_numerically_and_clears_an_input_first():
+    w = Widget("spin")
+    w.read_override = "1"                    # typed "10", the part kept "1"
+    res = fill(session(w, "spinbutton"), "10")
+    assert res["status"] == "uncommitted" and res["verified"] is False, res
+    w = Widget("spin")
+    w.is_input, w.value = True, "5"          # an <input> already holding 5
+    res = fill(session(w, "spinbutton"), "05")
+    # without the clear, typing appends: "5" + "05" -> 505
+    assert res["verified"] is True and w.value == "5", (res, w.value)
+    assert B._digits_equal("04", "4") and not B._digits_equal("10", "1") \
+        and not B._digits_equal("2021", "202")
 
 
 if __name__ == "__main__":

@@ -79,14 +79,6 @@ ALIAS_EXCLUDE: dict[str, list[str]] = {
     "location": ["remote", "sponsor", "relocat", "work permit",
                  "anticipate working", "authorized"],
     "city": ["remote", "sponsor", "work permit"],
-    # Phone METADATA pickers sit beside the number on Workday-style forms
-    # ("Phone Device Type*", "Country Phone Code*", "Phone Extension"). They
-    # contain "phone" but are not the number: resolving them to it at
-    # confidence "exact" types "310-..." into a device-type/country picker.
-    # "Country Phone Code" then falls through to `country`, the value its
-    # options are named by ("United States of America (+1)").
-    "phone": ["device type", "phone type", "type of phone", "phone code",
-              "country code", "dialing code", "calling code", "extension"],
     # "state" is a substring of "statement" / "estate"; a question that
     # names the country is handled by ALIAS_MASK below.
     "state": ["statement", "estate"],
@@ -101,6 +93,26 @@ ALIAS_EXCLUDE: dict[str, list[str]] = {
 ALIAS_MASK: dict[str, list[str]] = {
     "state": ["united states"],
 }
+
+# Labels that ARE a key's metadata field, not the field itself: matched
+# against the WHOLE normalized label (an optional "required" tail allowed),
+# so only the bare metadata label is excluded. Phone pickers sit beside the
+# number on Workday-style forms ("Phone Device Type*", "Country Phone
+# Code*", "Phone Extension"); resolving them to the number at confidence
+# "exact" typed "310-..." into a device-type / country picker. A NUMBER
+# label that merely mentions them ("Phone number (with country code)",
+# "Phone Number (include extension)") still resolves to `phone`. "Country
+# Phone Code" falls through to `country`, the value its options are named
+# by ("United States of America (+1)").
+ALIAS_EXCLUDE_LABEL: dict[str, "re.Pattern"] = {
+    "phone": re.compile(
+        r"(country )?(phone |telephone |mobile )?(device )?type( of phone)?"
+        r"|type of (phone|telephone|device)"
+        r"|(country )?(phone |telephone |mobile )?(country |dialing |calling )?code"
+        r"|(phone |telephone |mobile )?extension|ext"
+        r"|(country |dialing |calling )(phone )?code"),
+}
+_LABEL_TAIL_RE = re.compile(r"(\s+required)+$")
 
 
 def _normalize(text: str) -> str:
@@ -215,6 +227,10 @@ def get_profile_field(question_or_key: str) -> dict:
         if key not in profile or _is_structured(profile.get(key)):
             continue
         if any(x in norm for x in ALIAS_EXCLUDE.get(key, ())):
+            continue
+        whole = ALIAS_EXCLUDE_LABEL.get(key)
+        if whole is not None and whole.fullmatch(
+                _LABEL_TAIL_RE.sub("", " ".join(norm.split()))):
             continue
         text = norm
         for m in ALIAS_MASK.get(key, ()):

@@ -333,6 +333,7 @@ class FakeSite:
         if self.page == "signedin":
             # signed-in chrome only: the header shows the account email
             return {**st, "body": "Search for Jobs  %s  Candidate Home" % FAKE_EMAIL,
+                    "chrome": "Search for Jobs  %s" % FAKE_EMAIL,
                     "fields": [lang], "headings": ["PM"],
                     "controls": [ctl(0, "Apply", after=False, chrome=False)]}
         if self.page == "loginlink":

@@ -30,7 +30,11 @@ TECHNICAL_STATUSES = {
     "authenticate": ("blocked", "unconfirmed", "error", "toggle_failed",
                      "no_auth_submit", "unsupported_auth_flow"),
     "upload_resume": ("error",),
-    "submit_application": ("no_submit_button", "attempted", "rejected_spam"),
+    # only "no submit control found". "attempted" includes likely-successful
+    # submits and required-field validation, and "rejected_spam" shares its
+    # banner with per-company application limits: the skill routes those
+    # explicitly, not through this flag.
+    "submit_application": ("no_submit_button",),
 }
 
 
@@ -40,8 +44,12 @@ def field_is_technical(res: dict) -> bool:
     if st in TECHNICAL_STATUSES["fill"]:
         return True
     # uncommitted WITH options = "pick one of these" (an answer problem);
-    # without options the widget itself could not be operated
-    return st == "uncommitted" and not res.get("options")
+    # without options a WIDGET (toggle, dropdown, search box, spinbutton)
+    # could not be operated. A plain text field that reads back empty was
+    # most likely cleared by the site's validator: an answer problem.
+    if st != "uncommitted" or res.get("options"):
+        return False
+    return res.get("kind") != "text" or bool(res.get("widget"))
 
 
 def _row_is_technical(row: dict, section: str) -> bool:

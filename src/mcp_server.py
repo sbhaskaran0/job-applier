@@ -102,7 +102,9 @@ async def fill_field(index: int, value: str) -> dict:
     (no_change), start_application (no_entry / blocked), authenticate
     (blocked / unconfirmed / error / toggle_failed / no_auth_submit /
     unsupported_auth_flow), upload_resume (error), submit_application
-    (no_submit_button / attempted / rejected_spam), fill_repeating_section."""
+    (no_submit_button only), fill_repeating_section. A plain text field
+    read back empty (a validator cleared it) and a <select> value that is
+    not an option (status "unmatched" with `options`) are NOT technical."""
     try:
         res = await browser.session.fill_field(index, value)
     except ValueError:
@@ -344,7 +346,9 @@ async def start_application() -> dict:
         password_index, confirm_index, consent_indexes, submit_label}. Call
         authenticate() next; never type a password yourself.
       - "blocked" — a visible CAPTCHA (`signals`); hand to the user.
-      - "no_entry" — nothing to click (dead posting or unknown layout).
+      - "no_entry" — nothing to click (unknown layout, OR a closed /
+        dead posting: it carries technical: true either way, so check the
+        page before routing it to a fallback browser).
       - "already_in_application" — the tab was already filled, or shows a
         Back control / step indicator; an "Apply" there may be the FINAL
         submit, so nothing was clicked. Use advance_step / submit_application."""
@@ -370,12 +374,19 @@ async def authenticate(mode: str = "auto") -> dict:
     Returns {status, url, message_excerpt, account_created?} (message_excerpt
     is visible page notice text, <= 200 chars, credentials redacted;
     account_created: true when this call created the account). Statuses:
-      - "authenticated" — the application form (or signed-in chrome) is
-        visible; read_form next. A create that redirects to a plain Sign In
-        page is followed by the sign-in in the same call.
-      - "account_created_signin_required" — the account was created but the
-        follow-up sign-in could not run in this call; call authenticate()
-        again (the registry now says active, so it signs in).
+      - "authenticated" — the application form (or the account email in the
+        page header) is visible; read_form next. A create that lands on a
+        plain Sign In page with no message is followed by ONE sign-in in the
+        same call: success records the account active; a rejected sign-in
+        means it most likely already existed (some tenants hide "already
+        exists"), so it is recorded exists_unknown_password and the call
+        returns "account_exists".
+      - "account_created_signin_required" — a create landed on a Sign In
+        page but no submit was left to confirm it; unconfirmed, nothing
+        recorded. Park or retry later.
+      - "create_rejected" — the create-account form refused the values
+        (e.g. a password policy, an invalid email: see message_excerpt).
+        Not a lockout; the user must fix credentials.yaml.
       - "email_verification_required" — fetch the email from the inbox, then
         open_verification_link(url) for a link, or detect_verification_gate /
         fill_verification_code for a code; then authenticate() again.
@@ -384,7 +395,10 @@ async def authenticate(mode: str = "auto") -> dict:
         user to sign in by hand.
       - "no_account" — sign-in said no such user (in auto, after a registry
         sign-in, it creates the account once instead).
-      - "bad_credentials" — wrong password. STOP and park; do not retry.
+      - "bad_credentials" — wrong password (also when the page already shows
+        a rejection, or one rendered after an earlier call stopped waiting).
+        STOP and park; do not retry. An `active` registry row is downgraded
+        to exists_unknown_password, so later auto calls park.
       - "no_credentials" / "bad_credentials_file" — the user must create or fix
         profiles/<id>/secrets/credentials.yaml; the page was not touched.
       - "blocked" — visible CAPTCHA. "unconfirmed" — submitted but the
@@ -398,8 +412,9 @@ async def authenticate(mode: str = "auto") -> dict:
         the page was only classified. Wait, then call again.
     Lockout budget: a per-tenant ledger (profiles/<id>/runtime/
     auth_attempts.json, timestamps + outcomes only) allows at most one failed
-    sign-in per tenant per 24h (only a site-reported wrong password /
-    wrong email-or-password counts; an unclassified outcome does not);
+    sign-in per tenant per 24h (a site-reported rejection, or a password
+    field still showing after the wait, counts; a redirect with no password
+    field ("unknown") does not);
     after bad_credentials every call for that
     tenant returns bad_credentials without submitting until 24h pass or the
     USER asks for clear_auth_ledger."""

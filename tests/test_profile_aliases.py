@@ -43,8 +43,19 @@ def test_country_phone_code_is_not_the_phone_number():
 
 def test_other_phone_metadata_labels():
     for label in ("Phone Extension", "Phone Type", "Country Code",
-                  "Phone Number Country Code"):
+                  "Phone Device Type (required)", "Dialing Code"):
         assert key(label) != "phone", label
+
+
+def test_number_labels_that_mention_code_or_extension_stay_phone():
+    # review #6: a substring exclusion turned these into `country` / nothing
+    for label in ("Phone number (with country code)",
+                  "Mobile phone incl. country code",
+                  "Telephone number including country code",
+                  "Phone Number (include extension)"):
+        r = data.get_profile_field(label)
+        assert r["matched_key"] == "phone" and r["value"] == PROFILE["phone"], \
+            (label, r)
 
 
 def test_real_phone_labels_still_resolve():

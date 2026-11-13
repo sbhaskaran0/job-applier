@@ -24,7 +24,13 @@ mark = technical.mark
 
 def test_fill_results():
     assert mark("fill", {"status": "error"})["technical"] is True
-    assert mark("fill", {"status": "uncommitted"})["technical"] is True
+    # a widget that could not be operated is technical ...
+    assert mark("fill", {"status": "uncommitted", "kind": "combobox"})["technical"]
+    assert mark("fill", {"status": "uncommitted", "kind": "text",
+                         "widget": "searchbox"})["technical"]
+    # ... a plain text field emptied by the site's validator is not (#10)
+    assert "technical" not in mark("fill", {"status": "uncommitted",
+                                            "kind": "text"})
     assert "technical" not in mark("fill", {"status": "uncommitted",
                                             "options": ["A", "B"]})
     for st in ("filled", "unmatched", "use_fill_credential"):
@@ -38,6 +44,7 @@ def test_repeating_rows_and_top_level():
            "filled": [{"entry": 0, "fields": [
                {"key": "title", "status": "filled", "verified": True},
                {"key": "location", "status": "error", "error": "group_vanished"},
+               {"key": "gpa", "status": "uncommitted", "kind": "text"},
                {"key": "start", "status": "unsupported_date_widget"},
                {"key": "company", "status": "not_found"},
                {"key": "employment_type", "status": "not_found"},
@@ -48,7 +55,7 @@ def test_repeating_rows_and_top_level():
     assert res["technical"] is True
     for k in ("location", "start", "company"):
         assert rows[k].get("technical") is True, k
-    for k in ("title", "employment_type", "description"):
+    for k in ("title", "employment_type", "description", "gpa"):
         assert "technical" not in rows[k], k
     # an answer gap only (required_empty, unmatched degree): not technical
     gap = {"section": "education", "status": "partial", "errors": [],
@@ -81,8 +88,8 @@ def test_page_level_tools():
                           "no_credentials", "email_verification_required",
                           "recently_submitted", "account_created_signin_required")),
         "upload_resume": (("error",), ("uploaded", "no_cover_slot")),
-        "submit_application": (("no_submit_button", "attempted", "rejected_spam"),
-                               ("submitted",)),
+        "submit_application": (("no_submit_button",),
+                               ("submitted", "attempted", "rejected_spam")),
     }
     for tool, (tech, fine) in table.items():
         for st in tech:

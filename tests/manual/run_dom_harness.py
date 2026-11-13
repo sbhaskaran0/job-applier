@@ -1057,11 +1057,35 @@ async def run_widgets(s):
         fields = await s.read_form()
         idx = idx_by_label(fields, "Field of Study")
         res = await s.fill_field(idx, "Underwater Basket Weaving")
-        check("widgets: no matching result -> unmatched/uncommitted, not verified",
-              res.get("status") in ("unmatched", "uncommitted")
+        check("widgets: zero results in the box's own popup -> unmatched, "
+              "options [], typed text cleared",
+              res.get("status") == "unmatched" and res.get("options") == []
               and res.get("verified") is False
               and await js("() => document.getElementById('ed1-fos').value") == "",
               res)
+        await js("() => { document.getElementById('ed1-school-chips').innerHTML = ''; }")
+        fields = await s.read_form()
+        idx = idx_by_label(fields, "School or University")
+        res = await s.fill_field(idx, "Nowhere Polytechnic")
+        check("widgets: no list / chip at all (unlinked popup) -> left as "
+              "typed, verified null, never true",
+              res.get("status") == "filled" and res.get("verified") is None,
+              res)
+        res = await s.fill_field(idx_by_label(fields, "Field of Study"),
+                                 "Agricultural")
+        check("widgets: a containing result is never picked",
+              res.get("status") == "unmatched" and await text("#ed1-fos-chips") == "",
+              res)
+
+        # Enter inside a <form>: the search runs, the form is NOT submitted
+        await _goto(page, WIDGETS_FIXTURE + "#formsubmit")
+        res = await s.fill_repeating_section("education")
+        subs = await js("() => window.__formSubmits")
+        chips = await text("#ed1-school-chips") or ""
+        check("widgets: Enter in a search box inside a <form> never submits it",
+              subs == 0 and "University of California-Los Angeles" in chips,
+              (subs, chips, res.get("status")))
+        await _goto(page, WIDGETS_FIXTURE)
 
         # listbox quirks
         fields = await s.read_form()
@@ -1081,6 +1105,10 @@ async def run_widgets(s):
 
 
 def main():
+    try:   # a Windows console cannot print every glyph a check detail holds
+        sys.stdout.reconfigure(errors="backslashreplace")
+    except Exception:
+        pass
     headless = "--headed" not in sys.argv
     asyncio.run(run(headless=headless))
     failed = [n for n, ok, _ in _results if not ok]

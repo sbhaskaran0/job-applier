@@ -27,6 +27,11 @@
       option of "Are you 18 or older?" has an EMPTY accessible name (its
       text is aria-hidden), so it can only be matched by text content.
 
+  #formsubmit: Education sits inside a <form> with a submit button, and the
+  search box does NOT cancel Enter, so a bare Enter would SUBMIT the form
+  (implicit submission). window.__formSubmits counts submits that got
+  through; it must stay 0.
+
   Counters: window.__adds (Add clicks), window.__searches (Enter presses).
 -->
 <style>
@@ -103,6 +108,19 @@
 <script>
   window.__adds = {we: 0, ed: 0};
   window.__searches = 0;
+  window.__formSubmits = 0;
+  var FORMSUBMIT = location.hash.indexOf('formsubmit') !== -1;
+  if (FORMSUBMIT) {
+    var sec = document.querySelector('section[aria-labelledby=ed-h]');
+    var form = document.createElement('form');
+    sec.parentNode.insertBefore(form, sec);
+    form.appendChild(sec);
+    var sb = document.createElement('button');
+    sb.type = 'submit'; sb.textContent = 'Submit Application';
+    form.appendChild(sb);
+    form.addEventListener('submit', function (e) {
+      e.preventDefault(); window.__formSubmits += 1; });
+  }
   document.getElementById('we-add').onclick = function () { window.__adds.we += 1; };
   document.getElementById('ed-add').onclick = function () { window.__adds.ed += 1; };
 
@@ -153,11 +171,12 @@
   var popup = document.getElementById('popup');
   var active = null;
 
-  function searchBox(id, label, list, autoCommitUnique, firstUnfiltered) {
+  function searchBox(id, label, list, autoCommitUnique, firstUnfiltered, linked) {
     var f = document.getElementById(id + '-f');
     f.innerHTML = '<label for="' + id + '">' + label + '</label>' +
       '<div class="chips" id="' + id + '-chips"></div>' +
-      '<input type="text" role="searchbox" id="' + id + '" placeholder="Search" autocomplete="off">' +
+      '<input type="text" role="searchbox" id="' + id + '" placeholder="Search" autocomplete="off"' +
+      (linked ? ' aria-controls="popup"' : '') + '>' +
       ' <span aria-hidden="true">&#9776;</span>';
     var inp = document.getElementById(id);
     var enters = 0;
@@ -170,7 +189,7 @@
     }
     inp.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter') return;
-      e.preventDefault();
+      if (!FORMSUBMIT) e.preventDefault();
       window.__searches += 1;
       enters += 1;
       var q = words(inp.value);
@@ -199,7 +218,8 @@
     if (e.key === 'Escape') { popup.hidden = true; }
   });
   searchBox('ed1-school', 'School or University*', SCHOOLS, true, false);
-  searchBox('ed1-fos', 'Field of Study', FIELDS, false, true);
+  // Field of Study names its popup (aria-controls); School does not.
+  searchBox('ed1-fos', 'Field of Study', FIELDS, false, true, true);
 
   // ---- listbox buttons ---------------------------------------------------
   function listbox(btnId, options, focusFirst) {

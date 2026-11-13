@@ -77,10 +77,31 @@ def test_pure_classifier_signed_in_and_loading():
                "headings": []}
     assert browser._classify_auth_outcome(loading) == "unknown"
     assert not browser._auth_settled(loading, [], "sign_in", T.FAKE_EMAIL)
-    hdr = dict(loading, body="Candidate Home  %s" % T.FAKE_EMAIL)
+    hdr = dict(loading, body="Candidate Home  %s" % T.FAKE_EMAIL,
+               chrome="Candidate Home  %s" % T.FAKE_EMAIL)
     assert browser._classify_auth_outcome(hdr, "sign_in", T.FAKE_EMAIL) == \
         "authenticated"
     assert browser._auth_settled(hdr, [], "sign_in", T.FAKE_EMAIL)
+
+
+def test_email_outside_chrome_or_after_create_is_not_signed_in():
+    # review #3a: the email anywhere in the BODY proved nothing
+    for body in ("We could not create an account for %s. Contact support.",
+                 "Account created for %s. Please sign in.",
+                 "Signing in as %s ..."):
+        st = {"fields": [], "notices": [], "body": body % T.FAKE_EMAIL,
+              "controls": [], "headings": [], "chrome": ""}
+        for want in ("create_account", "sign_in"):
+            assert browser._classify_auth_outcome(st, want, T.FAKE_EMAIL) \
+                == "unknown", (body, want)
+            assert not browser._auth_settled(st, [], want, T.FAKE_EMAIL)
+    chrome = {"fields": [], "notices": [], "body": "", "controls": [],
+              "headings": [], "chrome": "Hi %s" % T.FAKE_EMAIL}
+    assert browser._classify_auth_outcome(chrome, "create_account",
+                                          T.FAKE_EMAIL) == "unknown"
+    noticed = dict(chrome, notices=["Something went wrong"])
+    assert browser._classify_auth_outcome(noticed, "sign_in",
+                                          T.FAKE_EMAIL) == "unknown"
 
 
 # --------------------------------------------------------------------------
@@ -130,7 +151,9 @@ def _seeded(outcome, ago):
 
 
 def test_unknown_sign_in_does_not_lock_the_tenant():
-    for outcome in ("unknown", "still_auth", "no_account"):
+    # only "unknown" (a redirect with no password field: the live Capital One
+    # success) and no_account are exempt; still_auth counts (review #1)
+    for outcome in ("unknown", "no_account"):
         site = T.FakeSite(mode="sign_in", exists=True)
         s = PollingSession(site, registry=T.ACTIVE)
         s._ledger = _seeded(outcome, 600)
@@ -141,7 +164,7 @@ def test_unknown_sign_in_does_not_lock_the_tenant():
 
 
 def test_positive_bad_password_still_locks():
-    for outcome in ("bad_password", "combined"):
+    for outcome in ("bad_password", "combined", "still_auth"):
         site = T.FakeSite(mode="sign_in", exists=True)
         s = PollingSession(site, registry=T.ACTIVE)
         s._ledger = _seeded(outcome, 600)
@@ -253,6 +276,133 @@ def test_load_drops_unknown_keys_and_bad_statuses():
         assert False, "bad status accepted"
     except ValueError:
         pass
+
+
+# --------------------------------------------------------------------------
+# independent review, 2026-11-13 (repro: scratchpad/repro_auth.py)
+# --------------------------------------------------------------------------
+def _age(s, secs=61):
+    for e in s._ledger.get(HOST, []):
+        e["t"] -= secs
+
+
+class OddRejection(T.FakeSite):
+    """A rejection whose wording no regex knows: the password stays."""
+    WORDING = "Something unexpected happened. Please try again."
+
+    def click(self, c):
+        if self.page == "auth" and self.mode == "sign_in" and \
+                c["label"] == "Sign In" and c["type"] == "submit":
+            self.submits.append("sign_in")
+            self.notice = self.WORDING
+            return
+        return super().click(c)
+
+
+def test_unrecognised_rejection_is_one_submit_not_one_per_call():
+    site = OddRejection(mode="sign_in", exists=True)
+    s = PollingSession(site, registry=T.ACTIVE)
+    for _ in range(5):
+        site.notice = ""
+        T.with_creds(lambda: asyncio.run(s.authenticate("auto")))
+        _age(s)
+    assert site.submits == ["sign_in"], site.submits
+
+
+def test_review_rejection_wordings_are_recognised():
+    for text in ("Sign in failed. Please try again.",
+                 "The username or password you entered is incorrect"):
+        st = {"fields": [], "notices": [text], "body": "", "controls": [],
+              "headings": []}
+        assert browser._classify_auth_outcome(st, "sign_in") == "combined", text
+
+
+class LateNotice(T.FakeSite):
+    pending = False
+
+    def click(self, c):
+        if self.page == "auth" and self.mode == "sign_in" and \
+                c["label"] == "Sign In" and c["type"] == "submit":
+            self.submits.append("sign_in")
+            self.pending = True
+            return
+        return super().click(c)
+
+
+def test_late_rejection_notice_is_recorded_and_never_resubmitted():
+    site = LateNotice(mode="sign_in", exists=True)
+    s = PollingSession(site, registry=T.ACTIVE)
+    s._AUTH_WAIT_S = 0.0
+    T.with_creds(lambda: asyncio.run(s.authenticate("auto")))
+    site.notice = "Incorrect password. Please try again."   # renders late
+    r = T.with_creds(lambda: asyncio.run(s.authenticate("auto")))   # < 60s
+    assert r["status"] == "bad_credentials", r
+    _age(s)
+    r = T.with_creds(lambda: asyncio.run(s.authenticate("sign_in")))
+    assert r["status"] == "bad_credentials" and site.submits == ["sign_in"], \
+        (r, site.submits)
+    assert s._registry[HOST]["status"] == "exists_unknown_password"
+
+
+def test_rejection_already_on_the_page_is_never_submitted_onto():
+    site = T.FakeSite(mode="sign_in", exists=True)
+    site.notice = "Incorrect password. Please try again."
+    s = PollingSession(site, registry=T.ACTIVE)
+    r = T.with_creds(lambda: asyncio.run(s.authenticate("sign_in")))
+    assert r["status"] == "bad_credentials" and site.submits == [], r
+    assert site.filled == {}, site.filled
+
+
+class SilentExisting(T.FakeSite):
+    """Anti-enumeration tenant: create on an EXISTING account shows no
+    message and lands on Sign In; the stored password is wrong."""
+
+    def click(self, c):
+        if self.page == "auth" and self.mode == "create_account" and \
+                c["label"] == "Create Account" and c["after_password"] and \
+                c["type"] != "submit":
+            self.submits.append("create")
+            self.mode = "sign_in"
+            return
+        return super().click(c)
+
+
+def test_silent_create_on_an_existing_account_parks_not_active():
+    site = SilentExisting(mode="create_account", exists=True, pw_ok=False)
+    r, s = auth(site)
+    assert r["status"] == "account_exists", r
+    assert site.submits == ["create", "sign_in"], site.submits
+    assert s._registry[HOST]["status"] == "exists_unknown_password", s._registry
+    assert "account_created" not in r, r
+
+
+def test_bad_credentials_downgrades_an_active_row():
+    site = T.FakeSite(mode="sign_in", exists=True, pw_ok=False)
+    r, s = auth(site, registry=T.ACTIVE)
+    assert r["status"] == "bad_credentials", r
+    assert s._registry[HOST]["status"] == "exists_unknown_password"
+    _age(s, 25 * 3600)                      # a day later: auto parks
+    r = T.with_creds(lambda: asyncio.run(s.authenticate("auto")))
+    assert r["status"] == "account_exists" and site.submits == ["sign_in"], r
+
+
+class CreateValidation(T.FakeSite):
+    def click(self, c):
+        if self.page == "auth" and self.mode == "create_account" and \
+                c["label"] == "Create Account" and c["after_password"] and \
+                c["type"] != "submit":
+            self.submits.append("create")
+            self.notice = "Invalid password: must contain a special character."
+            return
+        return super().click(c)
+
+
+def test_create_form_validation_is_not_a_lockout():
+    site = CreateValidation(mode="create_account")
+    r, s = auth(site)
+    assert r["status"] == "create_rejected", r
+    assert not s._ledger_blocked(HOST) and not s._ledger_failed_sign_in(HOST)
+    assert HOST not in s._registry
 
 
 if __name__ == "__main__":
