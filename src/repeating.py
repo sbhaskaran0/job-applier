@@ -696,6 +696,17 @@ def plan_groups(groups: list, entries: list, section: str) -> dict:
 # other scanned field), skipping the field's own aria-controls popup. Matched
 # by ARIA role and structure only.
 _PILL_FN = r"""
+  // The field's own wrapper: the widest ancestor (up to 4 levels) holding no
+  // OTHER tagged field and no heading.
+  const pillWrap = (el) => {
+    let wrap = null, node = el.parentElement;
+    for (let d = 0; node && d < 4; d++, node = node.parentElement) {
+      if (Array.from(node.querySelectorAll('[data-jaidx]')).some(x => x !== el)) break;
+      if (/^(H[1-6])$/.test(node.tagName)) break;
+      wrap = node;
+    }
+    return wrap;
+  };
   const pillOf = (el) => {
     const pclean = (t) => (t || '').replace(/\s+/g, ' ').trim();
     const pvis = (n) => { const r = n.getBoundingClientRect();
@@ -706,12 +717,7 @@ _PILL_FN = r"""
     if (tag !== 'input' || ['checkbox', 'radio', 'file', 'password'].includes(it)) return '';
     const popId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
     const pop = popId ? document.getElementById(popId) : null;
-    let wrap = null, node = el.parentElement;
-    for (let d = 0; node && d < 4; d++, node = node.parentElement) {
-      if (Array.from(node.querySelectorAll('[data-jaidx]')).some(x => x !== el)) break;
-      if (/^(H[1-6])$/.test(node.tagName)) break;
-      wrap = node;
-    }
+    const wrap = pillWrap(el);
     if (!wrap) return '';
     const textOf = (n) => {
       let t = pclean(n.innerText || n.textContent);

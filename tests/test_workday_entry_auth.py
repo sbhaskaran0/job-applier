@@ -285,9 +285,19 @@ class FakeSite:
         self.notice = ""
         self.submits, self.clicks, self.filled = [], [], {}
         self.reads = 0
+        # live Capital One: a successful create redirects to a plain Sign In
+        # page with no message; a successful sign-in shows a blank page for
+        # a few reads (the redirect) before the form renders.
+        self.create_lands_signin = False
+        self.loading_reads = 0
 
     def state(self):
         self.reads += 1
+        if self.page == "loading":
+            if self.loading_reads > 0:
+                self.loading_reads -= 1
+            else:
+                self.page = "form"
         url = "https://%s/x/job/1" % self.host
         st = {"url": url, "blocked": False, "signals": [], "body": self.body,
               "has_step": False, "field_pos": {},
@@ -318,8 +328,13 @@ class FakeSite:
                                  ctl(1, "Sign in with Google", "button", False),
                                  ctl(2, "Sign in with LinkedIn", "button", False),
                                  ctl(3, "Sign in with email", after=False)]}
-        if self.page == "empty":
+        if self.page in ("empty", "loading"):
             return {**st, "fields": [], "headings": [], "controls": []}
+        if self.page == "signedin":
+            # signed-in chrome only: the header shows the account email
+            return {**st, "body": "Search for Jobs  %s  Candidate Home" % FAKE_EMAIL,
+                    "fields": [lang], "headings": ["PM"],
+                    "controls": [ctl(0, "Apply", after=False, chrome=False)]}
         if self.page == "loginlink":
             # an ordinary page: an email field plus a header "Log in" link
             return {**st, "headings": ["Join our talent network"],
@@ -388,6 +403,8 @@ class FakeSite:
                                "account to continue." % FAKE_EMAIL
                                if self.echo_email else
                                "Please verify your account: check your email.")
+            elif self.create_lands_signin:
+                self.mode, self.exists = "sign_in", True
             else:
                 self.page = "form"
             return
@@ -402,13 +419,15 @@ class FakeSite:
                                if getattr(self, "combined_on_bad_pw", False)
                                else "Incorrect password. Please try again.")
             else:
-                self.page = "form"
+                self.page = getattr(self, "after_sign_in", "form")
 
 
 class SiteSession(browser.BrowserSession):
-    def __init__(self, site, ledger_path=False):
+    def __init__(self, site, ledger_path=False, registry=None):
         super().__init__()
         self.site = site
+        self._registry_path = False           # in-memory registry
+        self._registry = {h: dict(r) for h, r in (registry or {}).items()}
         self.tabs[0] = {"page": FakePage(FakeFrame(),
                                          url="https://%s/x/job/1" % site.host),
                         "fields": {}, "company": "", "title": "", "url": ""}
@@ -459,8 +478,13 @@ def with_creds(fn, email=FAKE_EMAIL, password=FAKE_PW, err=None):
         config.credential = real
 
 
-def run_auth(site, mode="auto", **kw):
-    s = SiteSession(site)
+ACTIVE = {"acme.wd5.myworkdayjobs.com": {
+    "email": FAKE_EMAIL, "status": "active", "created_at": None,
+    "last_sign_in_at": None, "source": "test"}}
+
+
+def run_auth(site, mode="auto", registry=None, **kw):
+    s = SiteSession(site, registry=registry)
     return with_creds(lambda: asyncio.run(s.authenticate(mode)), **kw), s
 
 
@@ -515,7 +539,7 @@ def test_start_application_no_entry():
 
 
 def test_sign_in_success():
-    res, s = run_auth(FakeSite(mode="sign_in", exists=True))
+    res, s = run_auth(FakeSite(mode="sign_in", exists=True), registry=ACTIVE)
     assert res["status"] == "authenticated", res
     assert s.site.submits == ["sign_in"], s.site.submits
     assert s.site.filled == {0: FAKE_EMAIL, 1: FAKE_PW}, "email/password slots"
@@ -531,8 +555,9 @@ def test_create_account_success_ticks_consent_and_confirm():
 
 
 def test_no_account_switches_to_create_once():
+    # registry says active but the tenant has no such user: create once
     res, s = run_auth(FakeSite(mode="sign_in", exists=False,
-                               signin_error="no_account"))
+                               signin_error="no_account"), registry=ACTIVE)
     assert res["status"] == "authenticated", res
     assert s.site.submits == ["sign_in", "create"], s.site.submits
 
@@ -543,38 +568,40 @@ def test_no_account_in_explicit_sign_in_mode_stops():
     assert res["status"] == "no_account" and s.site.submits == ["sign_in"], res
 
 
-def test_account_exists_switches_to_sign_in():
+def test_account_exists_parks_without_a_sign_in():
+    # the user's rule: an existing account whose password we never
+    # confirmed is parked for a manual sign-in, never tried
     res, s = run_auth(FakeSite(mode="create_account", exists=True))
-    assert res["status"] == "authenticated", res
-    assert s.site.submits == ["create", "sign_in"], s.site.submits
+    assert res["status"] == "account_exists", res
+    assert s.site.submits == ["create"], s.site.submits
+    row = s._registry["acme.wd5.myworkdayjobs.com"]
+    assert row["status"] == "exists_unknown_password", row
+    assert row["email"] == FAKE_EMAIL and FAKE_PW not in repr(row), row
 
 
 def test_bad_password_stops_after_one_submit():
-    res, s = run_auth(FakeSite(mode="sign_in", exists=True, pw_ok=False))
+    res, s = run_auth(FakeSite(mode="sign_in", exists=True, pw_ok=False),
+                      registry=ACTIVE)
     assert res["status"] == "bad_credentials", res
     assert s.site.submits == ["sign_in"], s.site.submits
     assert "Incorrect password" in res["message_excerpt"], res
 
 
-def test_bad_password_after_exists_never_exceeds_two_submits():
+def test_existing_account_is_never_signed_into_after_create():
+    # even with a wrong password on file: one create submit, then park
     res, s = run_auth(FakeSite(mode="create_account", exists=True, pw_ok=False))
-    assert res["status"] == "bad_credentials", res
-    assert s.site.submits == ["create", "sign_in"], s.site.submits
+    assert res["status"] == "account_exists", res
+    assert s.site.submits == ["create"], s.site.submits
 
 
-def test_ambiguous_signin_error_gets_one_create_attempt():
-    # "Wrong email address or password" and no account: create succeeds.
-    res, s = run_auth(FakeSite(mode="sign_in", exists=False,
-                               signin_error="combined"))
-    assert res["status"] == "authenticated", res
-    assert s.site.submits == ["sign_in", "create"], s.site.submits
-    # Same message but the account exists (so the password was wrong):
-    # create says "already exists" -> bad_credentials, 2 submits, no 3rd.
+def test_wrong_email_or_password_on_a_known_account_is_bad_credentials():
+    # the registry knows the account exists, so "Wrong email address or
+    # password" means the password: no create attempt
     site = FakeSite(mode="sign_in", exists=True, pw_ok=False)
     site.combined_on_bad_pw = True
-    res, s = run_auth(site)
+    res, s = run_auth(site, registry=ACTIVE)
     assert res["status"] == "bad_credentials", res
-    assert s.site.submits == ["sign_in", "create"], s.site.submits
+    assert s.site.submits == ["sign_in"], s.site.submits
 
 
 def test_email_verification_required_and_excerpt_redacted():
@@ -651,12 +678,14 @@ def test_host_change_before_fill_or_submit_stops():
 
 
 def test_toggle_that_navigates_away_aborts():
-    site = FakeSite(mode="create_account", exists=True)
+    # no registry entry -> create; the page is in sign-in mode, and its
+    # Create Account toggle navigates off the tenant
+    site = FakeSite(mode="sign_in")
     site.toggle_navigates = True
     res, s = run_auth(site)
     assert res["status"] == "toggle_failed", res
-    assert site.submits == ["create"], site.submits
-    assert set(site.filled) <= {0, 1, 2, 3}, "nothing typed after the toggle"
+    assert site.submits == [], site.submits
+    assert site.filled == {}, "nothing typed after the toggle"
 
 
 def test_header_log_in_plus_email_is_not_an_auth_page():
@@ -724,20 +753,21 @@ def test_ledger_persists_bad_credentials_across_sessions():
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / "auth_attempts.json"
         site = FakeSite(mode="sign_in", exists=True, pw_ok=False)
-        s = SiteSession(site, ledger_path=path)
+        s = SiteSession(site, ledger_path=path, registry=ACTIVE)
         res = with_creds(lambda: asyncio.run(s.authenticate()))
         assert res["status"] == "bad_credentials" and site.submits == ["sign_in"]
         blob = path.read_text(encoding="utf-8")
         assert FAKE_PW not in blob and FAKE_EMAIL not in blob, blob
         # a NEW session (new process) on the same tenant: short-circuit
         site2 = FakeSite(mode="sign_in", exists=True, pw_ok=True)
-        s2 = SiteSession(site2, ledger_path=path)
+        s2 = SiteSession(site2, ledger_path=path, registry=ACTIVE)
         res = with_creds(lambda: asyncio.run(s2.authenticate()))
         assert res["status"] == "bad_credentials", res
         assert site2.submits == [] and site2.reads == 0 and site2.filled == {}
         # the user fixed the password and asked: clear, then it signs in
         assert s2.clear_auth_ledger("acme.wd5.myworkdayjobs.com")["tenants"]
-        s3 = SiteSession(FakeSite(mode="sign_in", exists=True), ledger_path=path)
+        s3 = SiteSession(FakeSite(mode="sign_in", exists=True), ledger_path=path,
+                         registry=ACTIVE)
         res = with_creds(lambda: asyncio.run(s3.authenticate()))
         assert res["status"] == "authenticated", res
 

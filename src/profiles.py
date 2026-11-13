@@ -103,6 +103,11 @@ class ActiveProfile:
         return self.data_dir / "applications.json"
 
     @property
+    def workday_accounts_json(self) -> Path:
+        # tenant host -> {email, status, timestamps}; never a password
+        return self.data_dir / "workday_accounts.json"
+
+    @property
     def prep_dir(self) -> Path:
         return self.data_dir / "prep"
 

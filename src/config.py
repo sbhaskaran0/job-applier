@@ -39,6 +39,7 @@ _PROFILE_ATTRS = {
     "CONTEXT_DIR": lambda p: p.context_dir,
     "HISTORY_PATH": lambda p: p.history_json,
     "APPLICATIONS_PATH": lambda p: p.applications_json,
+    "WORKDAY_ACCOUNTS_PATH": lambda p: p.workday_accounts_json,
     "PREP_DIR": lambda p: p.prep_dir,
     "RESUMES_DIR": lambda p: p.resumes_dir,
     "RESUME_TEXT_PATH": lambda p: p.resume_txt,

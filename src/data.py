@@ -87,6 +87,19 @@ ALIAS_EXCLUDE: dict[str, list[str]] = {
     # options are named by ("United States of America (+1)").
     "phone": ["device type", "phone type", "type of phone", "phone code",
               "country code", "dialing code", "calling code", "extension"],
+    # "state" is a substring of "statement" / "estate"; a question that
+    # names the country is handled by ALIAS_MASK below.
+    "state": ["statement", "estate"],
+}
+
+# Text removed from the normalized question BEFORE a key's phrases are
+# matched (the question can still match on its other words). "Armed Forces
+# of the United States of America" and the military-spouse question used to
+# resolve to `state` ("California") at confidence exact, purely because
+# "united states" contains "state"; "What state do you live in (United
+# States only)?" must still resolve to `state`.
+ALIAS_MASK: dict[str, list[str]] = {
+    "state": ["united states"],
 }
 
 
@@ -203,8 +216,11 @@ def get_profile_field(question_or_key: str) -> dict:
             continue
         if any(x in norm for x in ALIAS_EXCLUDE.get(key, ())):
             continue
+        text = norm
+        for m in ALIAS_MASK.get(key, ()):
+            text = text.replace(m, " ")
         for phrase in phrases:
-            if phrase in norm:
+            if phrase in text:
                 val, eeo = _unwrap_profile_value(profile.get(key))
                 return {"matched_key": key, "value": val,
                         "confidence": "exact" if val else "empty", "eeo": eeo}

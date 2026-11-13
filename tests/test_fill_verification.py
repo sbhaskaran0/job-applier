@@ -365,7 +365,7 @@ def test_read_form_and_the_verifier_share_the_listbox_cascade():
 
 def test_scanner_sees_listbox_buttons_as_comboboxes():
     assert 'button[aria-haspopup="listbox"]' in browser._SCAN_JS
-    assert "widget: isListbox ? 'listbox' : undefined" in browser._SCAN_JS
+    assert "widget: isListbox ? 'listbox' :" in browser._SCAN_JS
 
 
 def test_listbox_reading_back_the_placeholder_is_uncommitted():

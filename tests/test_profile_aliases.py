@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src import config, data             # noqa: E402
 
 PROFILE = {"phone": "310-555-0100", "country": "United States",
-           "email": "someone@example.com"}
+           "email": "someone@example.com", "state": "California"}
 config.load_user_profile = lambda: PROFILE
 
 
@@ -53,6 +53,27 @@ def test_real_phone_labels_still_resolve():
         r = data.get_profile_field(label)
         assert r["matched_key"] == "phone" and r["value"] == PROFILE["phone"], \
             (label, r)
+
+
+ARMED = ("Are you currently serving, or have you served in the Armed Forces "
+         "of the United States of America?*")
+SPOUSE = ("Are you the spouse or domestic partner of a member of the Armed "
+          "Forces of the United States of America?")
+
+
+def test_united_states_in_a_military_question_is_not_the_state():
+    # live Capital One resolve_fields: both mapped to state = "California"
+    for label in (ARMED, SPOUSE, "Are you authorized to work in the United States?"):
+        r = data.get_profile_field(label)
+        assert r["matched_key"] != "state" and r["value"] != "California", (label, r)
+
+
+def test_state_labels_still_resolve():
+    for label in ("State*", "State/Province", "What state do you live in "
+                  "(United States only)?", "State of residence"):
+        assert key(label) == "state", label
+    for label in ("Personal statement", "Real estate experience"):
+        assert key(label) != "state", label
 
 
 if __name__ == "__main__":

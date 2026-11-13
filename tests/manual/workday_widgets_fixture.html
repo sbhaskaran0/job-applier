@@ -1,0 +1,235 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Workday-shaped widgets fixture</title>
+<!--
+  Widget shapes observed on live Capital One Workday pages on 2026-11-13
+  through ANOTHER browser (accessibility tree + behaviour, NOT raw HTML), so
+  every attribute beyond what is listed here is this fixture's assumption:
+
+    * Experience From / To: a group named "From*" / "To*" holding
+      role=spinbutton "Month", role=spinbutton "Year" and a button
+      "Calendar". Clicking Month and typing digits fills it; focus
+      auto-advances to Year. Read back via aria-valuetext ("4", "2023").
+      Modelled here as NON-<input> spinbuttons, the shape the old scanner
+      could not see at all.
+    * Education From / To (Actual or Expected): a group holding ONE
+      role=spinbutton "Year".
+    * School or University / Field of Study: role=searchbox, placeholder
+      "Search". Enter runs a search; results appear a beat later in a popup
+      ("Search Results (N)") outside the field. School: a unique hit
+      commits a chip at once, in the TENANT's spelling ("University of
+      California-Los Angeles"). Field of Study: the FIRST Enter shows the
+      unfiltered list (virtualised: only the first few rows exist), the
+      second Enter filters; clicking a result commits a chip. Typed text
+      that was never picked is dropped on blur.
+    * Listbox buttons (aria-haspopup=listbox): the first click on
+      "Have you worked at Acme?" only FOCUSES it; Space opens it. The "No"
+      option of "Are you 18 or older?" has an EMPTY accessible name (its
+      text is aria-hidden), so it can only be matched by text content.
+
+  Counters: window.__adds (Add clicks), window.__searches (Enter presses).
+-->
+<style>
+  body { font: 14px system-ui; padding: 24px; max-width: 760px; }
+  .field { margin: 10px 0; }
+  label, .lbl { display: block; font-weight: 600; margin-bottom: 4px; }
+  input[type=text], textarea { width: 100%; padding: 6px; box-sizing: border-box; }
+  .grp { border: 1px solid #ccc; padding: 8px 12px; margin: 10px 0; }
+  .date { display: inline-flex; gap: 4px; align-items: center; border: 1px solid #999; padding: 4px 6px; }
+  [role=spinbutton] { min-width: 34px; padding: 2px 4px; display: inline-block; }
+  [role=spinbutton]:focus { outline: 2px solid #36c; }
+  .chips { margin: 4px 0; }
+  .chip { display: inline-block; background: #e6eefc; padding: 2px 8px; }
+  button[aria-haspopup=listbox] { width: 100%; text-align: left; padding: 8px; background: #fff; border: 1px solid #999; }
+  [role=listbox] { border: 1px solid #999; background: #fff; }
+  [role=option] { padding: 6px 8px; cursor: pointer; }
+  #popup { position: absolute; left: 30px; top: 30px; width: 500px; background: #fff;
+           border: 2px solid #333; padding: 6px; z-index: 5; }
+  [hidden] { display: none !important; }
+</style>
+
+<h2>My Experience</h2>
+
+<section aria-labelledby="we-h">
+  <h3 id="we-h">Work Experience</h3>
+  <div class="grp" role="group" aria-labelledby="we1-h">
+    <h4 id="we1-h">Work Experience 1</h4>
+    <button type="button">Delete</button>
+    <div class="field"><label for="we1-title">Job Title*</label><input type="text" id="we1-title" required></div>
+    <div class="field"><label for="we1-company">Company*</label><input type="text" id="we1-company" required></div>
+    <div class="field"><label for="we1-loc">Location</label><input type="text" id="we1-loc"></div>
+    <div class="field"><input type="checkbox" id="we1-cur"><label for="we1-cur" style="display:inline">I currently work here</label></div>
+    <div class="field" id="we1-from"></div>
+    <div class="field" id="we1-to"></div>
+    <div class="field"><label for="we1-desc">Role Description</label><textarea id="we1-desc"></textarea></div>
+  </div>
+  <button type="button" id="we-add">Add Another</button>
+</section>
+
+<section aria-labelledby="ed-h">
+  <h3 id="ed-h">Education</h3>
+  <div class="grp" role="group" aria-labelledby="ed1-h">
+    <h4 id="ed1-h">Education 1</h4>
+    <button type="button">Delete</button>
+    <div class="field" id="ed1-school-f"></div>
+    <div class="field"><span class="lbl" id="ed1-deg-l">Degree*</span>
+      <button type="button" id="ed1-deg" aria-haspopup="listbox" aria-expanded="false"
+              aria-controls="ed1-deg-lb" aria-labelledby="ed1-deg-l">Select One</button>
+      <div role="listbox" id="ed1-deg-lb" hidden></div></div>
+    <div class="field" id="ed1-fos-f"></div>
+    <div class="field" id="ed1-from"></div>
+    <div class="field" id="ed1-to"></div>
+  </div>
+  <button type="button" id="ed-add">Add Another</button>
+</section>
+
+<section aria-labelledby="q-h">
+  <h3 id="q-h">Application Questions</h3>
+  <div class="field"><span class="lbl" id="q1-l">Have you worked at Acme?*</span>
+    <button type="button" id="q1" aria-haspopup="listbox" aria-expanded="false"
+            aria-controls="q1-lb" aria-labelledby="q1-l">Select One</button>
+    <div role="listbox" id="q1-lb" hidden></div></div>
+  <div class="field"><span class="lbl" id="q2-l">Are you 18 or older?*</span>
+    <button type="button" id="q2" aria-haspopup="listbox" aria-expanded="false"
+            aria-controls="q2-lb" aria-labelledby="q2-l">Select One</button>
+    <div role="listbox" id="q2-lb" hidden></div></div>
+</section>
+
+<button type="button">Back</button>
+<button type="submit">Save and Continue</button>
+
+<div id="popup" hidden></div>
+
+<script>
+  window.__adds = {we: 0, ed: 0};
+  window.__searches = 0;
+  document.getElementById('we-add').onclick = function () { window.__adds.we += 1; };
+  document.getElementById('ed-add').onclick = function () { window.__adds.ed += 1; };
+
+  // ---- segmented date: non-<input> spinbuttons --------------------------
+  function dateGroup(id, label, parts) {
+    var html = '<div role="group" aria-labelledby="' + id + '-l"><span class="lbl" id="' +
+      id + '-l">' + label + '</span><div class="date">';
+    parts.forEach(function (p, i) {
+      html += (i ? ' / ' : '') + '<div role="spinbutton" tabindex="0" id="' + id + '-' + p[0] +
+        '" aria-label="' + p[1] + '" aria-valuemin="' + p[2] + '" aria-valuemax="' + p[3] +
+        '">' + p[4] + '</div>';
+    });
+    html += ' <button type="button" aria-label="Calendar">&#128197;</button></div></div>';
+    document.getElementById(id).innerHTML = html;
+    var els = parts.map(function (p) { return document.getElementById(id + '-' + p[0]); });
+    els.forEach(function (el, i) {
+      var p = parts[i], len = p[0] === 'm' ? 2 : 4, buf = '';
+      el.addEventListener('focus', function () { buf = ''; });
+      el.addEventListener('keydown', function (e) {
+        if (!/^\d$/.test(e.key)) return;
+        e.preventDefault();
+        buf += e.key;
+        var done = buf.length >= len || (len === 2 && parseInt(buf, 10) > 1);
+        if (!done) return;
+        var n = parseInt(buf, 10);
+        buf = '';
+        if (n < p[2] || n > p[3]) return;             // invalid: keep empty
+        el.setAttribute('aria-valuenow', String(n));
+        el.setAttribute('aria-valuetext', String(n));
+        el.textContent = len === 2 ? ('0' + n).slice(-2) : String(n);
+        if (els[i + 1]) els[i + 1].focus();             // auto-advance
+      });
+    });
+  }
+  var MY = [['m', 'Month', 1, 12, 'MM'], ['y', 'Year', 1900, 2100, 'YYYY']];
+  var Y = [['y', 'Year', 1900, 2100, 'YYYY']];
+  dateGroup('we1-from', 'From*', MY);
+  dateGroup('we1-to', 'To*', MY);
+  dateGroup('ed1-from', 'From', Y);
+  dateGroup('ed1-to', 'To (Actual or Expected)*', Y);
+
+  // ---- search-and-pick boxes ---------------------------------------------
+  var SCHOOLS = ['University of California-Los Angeles', 'University of California-Berkeley',
+                 'University of Southern California', 'Stanford University'];
+  var FIELDS = ['Accounting', 'Agricultural Economics', 'Anthropology', 'Art History', 'Biology',
+                'Chemistry', 'Computer Science', 'Economics', 'History', 'Mathematics'].sort();
+  var words = function (s) { return (s.toLowerCase().match(/[a-z0-9]+/g) || []).join(' '); };
+  var popup = document.getElementById('popup');
+  var active = null;
+
+  function searchBox(id, label, list, autoCommitUnique, firstUnfiltered) {
+    var f = document.getElementById(id + '-f');
+    f.innerHTML = '<label for="' + id + '">' + label + '</label>' +
+      '<div class="chips" id="' + id + '-chips"></div>' +
+      '<input type="text" role="searchbox" id="' + id + '" placeholder="Search" autocomplete="off">' +
+      ' <span aria-hidden="true">&#9776;</span>';
+    var inp = document.getElementById(id);
+    var enters = 0;
+    function commit(text) {
+      document.getElementById(id + '-chips').innerHTML =
+        '<div class="chip" role="option" aria-selected="true">' + text +
+        ' <button type="button" aria-label="Remove">&times;</button></div>';
+      inp.value = '';
+      popup.hidden = true; popup.innerHTML = ''; active = null;
+    }
+    inp.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      window.__searches += 1;
+      enters += 1;
+      var q = words(inp.value);
+      setTimeout(function () {
+        var hits;
+        if (firstUnfiltered && enters === 1) hits = list.slice(0, 5);   // virtualised
+        else hits = list.filter(function (o) { return words(o).indexOf(q) !== -1; });
+        if (autoCommitUnique && hits.length === 1) { commit(hits[0]); return; }
+        popup.innerHTML = '<div>Search Results (' + hits.length + ')</div>' +
+          hits.map(function (h) {
+            return '<div role="option" aria-selected="false"><span aria-hidden="true">&#9675; </span>' + h + '</div>';
+          }).join('');
+        popup.hidden = false;
+        active = {commit: commit};
+      }, 700);
+    });
+    inp.addEventListener('blur', function () {
+      setTimeout(function () { inp.value = ''; }, 0);    // unpicked text is dropped
+    });
+  }
+  popup.addEventListener('click', function (e) {
+    var o = e.target.closest('[role=option]');
+    if (o && active) active.commit(o.textContent.replace('○', '').trim());
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { popup.hidden = true; }
+  });
+  searchBox('ed1-school', 'School or University*', SCHOOLS, true, false);
+  searchBox('ed1-fos', 'Field of Study', FIELDS, false, true);
+
+  // ---- listbox buttons ---------------------------------------------------
+  function listbox(btnId, options, focusFirst) {
+    var btn = document.getElementById(btnId);
+    var lb = document.getElementById(btnId + '-lb');
+    lb.innerHTML = options.map(function (o) {
+      return o.hidden
+        ? '<div role="option"><span aria-hidden="true">' + o.text + '</span></div>'
+        : '<div role="option">' + o.text + '</div>';
+    }).join('');
+    var focusedOnce = false;
+    btn.addEventListener('click', function (e) {
+      // the live quirk: a mouse click (detail > 0) the first time only
+      // focuses; Space (a keyboard click, detail 0) opens
+      if (focusFirst && !focusedOnce && e.detail > 0) { focusedOnce = true; btn.focus(); return; }
+      var open = !lb.hidden;
+      lb.hidden = open;
+      btn.setAttribute('aria-expanded', String(!open));
+    });
+    lb.addEventListener('click', function (e) {
+      var o = e.target.closest('[role=option]');
+      if (!o) return;
+      btn.innerHTML = '<span>' + o.textContent.trim() + '</span>';
+      lb.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+    });
+  }
+  listbox('ed1-deg', [{text: 'Bachelor of Arts (BA)'}, {text: 'Bachelor of Science (BS)'},
+                      {text: 'Master of Arts (MA)'}, {text: 'Master of Science (MS)'}], false);
+  listbox('q1', [{text: 'Yes, I currently work at Acme'},
+                 {text: 'No, I have never worked at Acme or a company acquired by Acme'}], true);
+  listbox('q2', [{text: 'Yes'}, {text: 'No', hidden: true}], false);
+</script>

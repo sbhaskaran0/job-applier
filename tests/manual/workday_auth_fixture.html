@@ -33,6 +33,13 @@
              submit block (fresh overlay + button nodes), so any control tag
              or index taken before the fill is stale. window.__eye counts
              clicks on the eye; it must stay 0.
+    redirect live Capital One (2026-11-13): a SUCCESSFUL create shows no
+             message and lands on a plain Sign In page (fields empty); the
+             account now exists, so a sign-in succeeds
+    slow     after a successful auth the page is BLANK for ~2.5s (the
+             redirect) before the form renders
+    hdronly  a successful auth shows only signed-in chrome: the header
+             reads the account email, no form fields
   Errors are shown in a [role=alert] banner. window.__submits records each
   credential submit ("create" / "sign_in"); window.__hdr counts header clicks.
 -->
@@ -74,6 +81,7 @@
   <button id="forgot">Forgot your password?</button>
 </div>
 
+<p id="who" class="hide"></p>
 <div id="form" class="hide">
   <h2>My Information</h2>
   <label for="fn">First Name*</label><input id="fn" type="text">
@@ -106,7 +114,14 @@
   }
   function done() {
     $('auth').classList.add('hide');
-    $('form').classList.remove('hide');
+    var email = $('email').value;
+    if (has('hdronly')) {
+      $('who').innerText = 'Signed in as ' + email;
+      $('who').classList.remove('hide');
+      return;
+    }
+    setTimeout(function () { $('form').classList.remove('hide'); },
+               has('slow') ? 2500 : 0);
   }
   function submit() {
     var email = $('email').value, pw = $('pw').value;
@@ -121,12 +136,18 @@
           created = true;
           banner('We sent a verification email to ' + email +
                  '. Verify your account before signing in.');
+        } else if (has('redirect')) {
+          created = true;
+          mode = 'sign_in';
+          $('email').value = ''; $('pw').value = ''; $('pw2').value = '';
+          banner('');
+          render();
         } else { done(); }
       }, 300);
     } else {
       window.__submits.push('sign_in');
       setTimeout(function () {
-        var exists = has('exists') || has('badpw');
+        var exists = has('exists') || has('badpw') || created;
         if (!exists || has('badpw')) banner('Wrong email address or password.');
         else done();
       }, 300);

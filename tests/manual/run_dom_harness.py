@@ -48,9 +48,11 @@ FAKE_TENANT = "https://acme.wd5.myworkdayjobs.com/fixture/"
 ENTRY_FIXTURE = FAKE_TENANT + "entry"
 AUTH_FIXTURE = FAKE_TENANT + "auth"
 EXPERIENCE_FIXTURE = FAKE_TENANT + "experience"
+WIDGETS_FIXTURE = FAKE_TENANT + "widgets"
 _FIXTURE_FILES = {"entry": "workday_entry_fixture.html",
                   "auth": "workday_auth_fixture.html",
-                  "experience": "workday_experience_fixture.html"}
+                  "experience": "workday_experience_fixture.html",
+                  "widgets": "workday_widgets_fixture.html"}
 AUTH_FILE_URI = (Path(__file__).resolve().parent
                  / "workday_auth_fixture.html").as_uri()
 
@@ -354,6 +356,7 @@ async def run(headless=True):
 
         await run_entry_auth(s)
         await run_experience(s)
+        await run_widgets(s)
     finally:
         try:
             await s.close()
@@ -463,6 +466,8 @@ async def run_entry_auth(s):
     page = s.page
     s._ledger_path = False           # never write the real profile's ledger
     s._ledger = None
+    s._registry_path = False         # nor its Workday account registry
+    s._registry = {}
 
     async def serve(route):
         name = route.request.url.split("/fixture/", 1)[1].split("#")[0].split("?")[0]
@@ -553,19 +558,33 @@ async def run_entry_auth(s):
               (res.get("status"), subs))
 
         # --- authenticate scenarios --------------------------------------
+        # (flags, registry status for the tenant or None, want, submits).
+        # No registry entry -> create; create says "exists" -> park
+        # (account_exists, no sign-in); registry active -> sign in.
+        ACTIVE = "active"
         scenarios = [
-            ("ok", "authenticated", ["create"]),
-            ("exists", "authenticated", ["create", "sign_in"]),
-            ("badpw", "bad_credentials", ["create", "sign_in"]),
-            ("verify", "email_verification_required", ["create"]),
-            ("signin", "authenticated", ["sign_in", "create"]),
-            ("signin,exists", "authenticated", ["sign_in"]),
+            ("ok", None, "authenticated", ["create"]),
+            ("exists", None, "account_exists", ["create"]),
+            ("badpw", ACTIVE, "bad_credentials", ["sign_in"]),
+            ("verify", None, "email_verification_required", ["create"]),
+            ("signin", None, "authenticated", ["create"]),
+            ("signin,exists", ACTIVE, "authenticated", ["sign_in"]),
             # filling the password inserts a show-password eye before the
             # submit and re-renders the overlay + button (live Capital One)
-            ("eye", "authenticated", ["create"]),
+            ("eye", None, "authenticated", ["create"]),
+            # live Capital One 2026-11-13: create -> plain Sign In page ->
+            # sign in, in ONE call; a blank redirect before the form; a
+            # signed-in header with no form fields
+            ("redirect", None, "authenticated", ["create", "sign_in"]),
+            ("redirect,slow", None, "authenticated", ["create", "sign_in"]),
+            ("signin,exists,slow", ACTIVE, "authenticated", ["sign_in"]),
+            ("signin,exists,hdronly", ACTIVE, "authenticated", ["sign_in"]),
         ]
-        for flags, want, want_subs in scenarios:
+        tenant = browser_mod._host_of(FAKE_TENANT)
+        for flags, reg, want, want_subs in scenarios:
             s.clear_auth_ledger()    # each scenario is a fresh tenant history
+            s._registry = ({tenant: {"email": FAKE_EMAIL, "status": reg}}
+                           if reg else {})
             await _goto(page, AUTH_FIXTURE + "#" + flags)
             res = await s.authenticate()
             subs = await page.evaluate("() => window.__submits")
@@ -586,6 +605,24 @@ async def run_entry_auth(s):
                     "() => document.getElementById('promo').checked")
                 check("create-account left the marketing opt-in unticked",
                       promo is False, promo)
+            if "hdronly" in flags:
+                rf = await s.read_form()
+                check("a hidden auth panel's buttons are not a phantom radio "
+                      "group (the old scanner saw a 'form' on a blank page)",
+                      not [f for f in rf if f.get("kind") == "radio"],
+                      [(f["kind"], f["label"]) for f in rf])
+            if flags == "exists":
+                row = s._registry.get(tenant) or {}
+                check("authenticate #exists records exists_unknown_password",
+                      row.get("status") == "exists_unknown_password", row)
+            if flags.startswith("redirect"):
+                row = s._registry.get(tenant) or {}
+                check("authenticate #%s: account_created, registry active "
+                      "with both timestamps" % flags,
+                      res.get("account_created") is True
+                      and row.get("status") == "active"
+                      and row.get("created_at") and row.get("last_sign_in_at"),
+                      (res, row))
             if flags == "eye":
                 eye = await page.evaluate("() => window.__eye")
                 check("authenticate #eye never clicks the show-password eye",
@@ -598,6 +635,7 @@ async def run_entry_auth(s):
 
         # --- the ledger: bad_credentials short-circuits the next call ------
         s.clear_auth_ledger()
+        s._registry = {tenant: {"email": FAKE_EMAIL, "status": "active"}}
         await _goto(page, AUTH_FIXTURE + "#badpw")
         first = await s.authenticate()
         check("ledger: first bad-password run ends bad_credentials",
@@ -910,6 +948,134 @@ async def run_experience(s):
         res = await s.fill_repeating_section("education")
         check("no Education heading -> section_not_found",
               res.get("status") == "section_not_found", res)
+    finally:
+        browser_mod.config.load_user_profile = real_profile
+
+
+WIDGET_PROFILE = {
+    "gpa_policy": "never",
+    "experience": [
+        {"company": "Initech", "title": "Product Manager", "location": "Remote",
+         "start": "2023-04", "end": "2025-10", "current": False,
+         "description": "Shipped the thing."},
+    ],
+    "education": [
+        {"school": "University of California, Los Angeles",
+         "degree": "Master of Science", "field_of_study": "Economics",
+         "start": "2018-09", "end": "2020-06"},
+    ],
+}
+
+
+async def run_widgets(s):
+    """Segmented-date spinbuttons, search-and-pick boxes and listbox quirks,
+    modelled on the live Capital One accessibility tree (2026-11-13)."""
+    page = s.page
+    real_profile = browser_mod.config.load_user_profile
+    browser_mod.config.load_user_profile = lambda: WIDGET_PROFILE
+
+    async def aria(sel, attr="aria-valuetext"):
+        return await page.evaluate(
+            "([s, a]) => { const e = document.querySelector(s);"
+            " return e ? e.getAttribute(a) : null; }", [sel, attr])
+
+    async def text(sel):
+        return await page.evaluate(
+            "(s) => { const e = document.querySelector(s);"
+            " return e ? e.innerText.replace(/\\s+/g, ' ').replace('\u00d7', '').trim()"
+            " : null; }", sel)
+
+    async def js(expr):
+        return await page.evaluate(expr)
+
+    def rows(res):
+        return {(f.get("key"), f.get("part")): f
+                for e in res.get("filled") or [] for f in e.get("fields", [])}
+    try:
+        await _goto(page, WIDGETS_FIXTURE)
+        fields = await s.read_form()
+        spins = [f for f in fields if f.get("widget") == "spinbutton"]
+        check("widgets: read_form lists the date spinbuttons (2+2+1+1)",
+              len(spins) == 6 and {f["label"] for f in spins} == {"Month", "Year"},
+              [(f["label"], f.get("current_value")) for f in spins])
+        boxes = [f for f in fields if f.get("widget") == "searchbox"]
+        check("widgets: read_form tags School / Field of Study as searchbox",
+              len(boxes) == 2 and all(f.get("current_value") == "" for f in boxes),
+              boxes)
+
+        res = await s.fill_repeating_section("experience")
+        r = rows(res)
+        check("widgets: experience status ok, no Add click",
+              res.get("status") == "ok"
+              and await js("() => window.__adds.we") == 0, res)
+        got = [await aria(x) for x in ("#we1-from-m", "#we1-from-y",
+                                       "#we1-to-m", "#we1-to-y")]
+        check("widgets: From = 4 / 2023 and To = 10 / 2025 in the page",
+              got == ["4", "2023", "10", "2025"], got)
+        check("widgets: every date part verified",
+              all(r.get((k, p), {}).get("verified") is True
+                  for k in ("start", "end") for p in ("month", "year")),
+              {k: v for k, v in r.items() if k[0] in ("start", "end")})
+
+        res = await s.fill_repeating_section("education")
+        r = rows(res)
+        check("widgets: education status ok", res.get("status") == "ok", res)
+        sch = r.get(("school", None), {})
+        chips = await text("#ed1-school-chips") or ""
+        check("widgets: School committed as the tenant's chip, verified",
+              "University of California-Los Angeles" in chips
+              and sch.get("verified") is True and sch.get("committed_as") == "pill",
+              (sch, chips))
+        fos = r.get(("field_of_study", None), {})
+        chips = await text("#ed1-fos-chips") or ""
+        n = await js("() => window.__searches")
+        check("widgets: Field of Study picked from the 2nd (filtered) search",
+              chips.startswith("Economics") and fos.get("verified") is True
+              and n == 3, (fos, chips, n))
+        check("widgets: results popup closed after the picks",
+              await js("() => document.getElementById('popup').hidden"))
+        got = (await aria("#ed1-from-y"), await aria("#ed1-to-y"))
+        check("widgets: education From / To years in the page",
+              got == ("2018", "2020"), got)
+        check("widgets: degree picked",
+              await text("#ed1-deg") == "Master of Science (MS)",
+              await text("#ed1-deg"))
+
+        fields = await s.read_form(values_only=True)
+        by = {f["label"]: f for f in fields}
+        check("widgets: read_form reads the chips back, not typed text",
+              by.get("School or University*", {}).get("current_value")
+              == "University of California-Los Angeles"
+              and by.get("Field of Study", {}).get("current_value") == "Economics",
+              (by.get("School or University*"), by.get("Field of Study")))
+        res = await s.fill_repeating_section("education")
+        check("widgets: education re-run is already_present",
+              res.get("status") == "already_present", res.get("status"))
+
+        # no matching result: never verified, nothing typed left behind
+        await js("() => { document.getElementById('ed1-fos-chips').innerHTML = ''; }")
+        fields = await s.read_form()
+        idx = idx_by_label(fields, "Field of Study")
+        res = await s.fill_field(idx, "Underwater Basket Weaving")
+        check("widgets: no matching result -> unmatched/uncommitted, not verified",
+              res.get("status") in ("unmatched", "uncommitted")
+              and res.get("verified") is False
+              and await js("() => document.getElementById('ed1-fos').value") == "",
+              res)
+
+        # listbox quirks
+        fields = await s.read_form()
+        q1 = idx_by_label(fields, "Have you worked at Acme")
+        res = await s.fill_field(q1, "No, I have never worked at Acme or a "
+                                     "company acquired by Acme")
+        check("widgets: a listbox whose first click only focuses opens on Space",
+              res.get("verified") is True
+              and (await text("#q1") or "").startswith("No, I have never"), res)
+        fields = await s.read_form()
+        q2 = idx_by_label(fields, "Are you 18 or older")
+        res = await s.fill_field(q2, "No")
+        check("widgets: an option with an EMPTY accessible name is picked by text",
+              res.get("verified") is True and await text("#q2") == "No", res)
     finally:
         browser_mod.config.load_user_profile = real_profile
 
