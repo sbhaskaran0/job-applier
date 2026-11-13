@@ -433,6 +433,46 @@ def find_group(groups: list, anchor_id):
     return None
 
 
+def refind_group(groups: list, entry: dict, section: str, pos=None):
+    """Re-identify `entry`'s group once its anchor element is gone, or None.
+
+    A framework re-render can REPLACE a group's elements wholesale, which
+    drops the stable ids SECTION_JS stamped on them (live Capital One
+    Workday, first pass: every newly added group "vanished" right after
+    Job Title + Company were typed, and a second call then completed it by
+    content). So: by content first, the group that holds this entry
+    (match_score, ties broken by distance from the last known position
+    `pos`); then, when nothing identifying has been written yet, the group
+    still at `pos` if it is blank or consistent with the entry. Never a group
+    that holds some other entry."""
+    scored = []
+    for j, g in enumerate(groups):
+        s = match_score(g, entry, section)
+        if s is not None:
+            scored.append((-s, abs(j - pos) if pos is not None else 0, j))
+    if scored:
+        return groups[min(scored)[2]]
+    if pos is not None and 0 <= pos < len(groups):
+        g = groups[pos]
+        if not group_has_identity(g, section) and (
+                group_is_blank(g) or consistent(g, entry, section)):
+            return g
+    return None
+
+
+def locate_group(groups: list, anchor_id, entry: dict, section: str, pos=None):
+    """(group, its position, re-found?) for an entry's group: by anchor
+    element when it still exists, else by refind_group. (None, None, False)
+    when neither finds it."""
+    for j, g in enumerate(groups):
+        if any(f.get("eid") == anchor_id for f in g):
+            return g, j, False
+    g = refind_group(groups, entry, section, pos)
+    if g is None:
+        return None, None, False
+    return g, next(j for j, x in enumerate(groups) if x is g), True
+
+
 def _cmp(text) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).split())
 
@@ -656,23 +696,30 @@ def plan_groups(groups: list, entries: list, section: str) -> dict:
 # other scanned field), skipping the field's own aria-controls popup. Matched
 # by ARIA role and structure only.
 _PILL_FN = r"""
-  const pillOf = (el) => {
-    const pclean = (t) => (t || '').replace(/\s+/g, ' ').trim();
-    const pvis = (n) => { const r = n.getBoundingClientRect();
-      const s = window.getComputedStyle(n);
-      return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 1 && r.height > 1; };
-    const tag = el.tagName.toLowerCase();
-    const it = (el.getAttribute('type') || '').toLowerCase();
-    if (tag !== 'input' || ['checkbox', 'radio', 'file', 'password'].includes(it)) return '';
-    const popId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-    const pop = popId ? document.getElementById(popId) : null;
+  // The field's own wrapper: the widest ancestor (up to 4 levels) holding no
+  // OTHER tagged field and no heading.
+  const pillWrap = (el) => {
     let wrap = null, node = el.parentElement;
     for (let d = 0; node && d < 4; d++, node = node.parentElement) {
       if (Array.from(node.querySelectorAll('[data-jaidx]')).some(x => x !== el)) break;
       if (/^(H[1-6])$/.test(node.tagName)) break;
       wrap = node;
     }
-    if (!wrap) return '';
+    return wrap;
+  };
+  // Each committed chip's text, separately (a name may contain ", ").
+  const pillsOf = (el) => {
+    const pclean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+    const pvis = (n) => { const r = n.getBoundingClientRect();
+      const s = window.getComputedStyle(n);
+      return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 1 && r.height > 1; };
+    const tag = el.tagName.toLowerCase();
+    const it = (el.getAttribute('type') || '').toLowerCase();
+    if (tag !== 'input' || ['checkbox', 'radio', 'file', 'password'].includes(it)) return [];
+    const popId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+    const pop = popId ? document.getElementById(popId) : null;
+    const wrap = pillWrap(el);
+    if (!wrap) return [];
     const textOf = (n) => {
       let t = pclean(n.innerText || n.textContent);
       n.querySelectorAll('button,[role=button]').forEach(b => {
@@ -694,8 +741,9 @@ _PILL_FN = r"""
       if (!t || /^\d+ items? selected$/i.test(t) || seen.includes(t)) continue;
       seen.push(t);
     }
-    return seen.join(', ');
+    return seen;
   };
+  const pillOf = (el) => pillsOf(el).join(', ');
 """
 
 # JS: the pill text for the field at data-jaidx=idx ('' when none).

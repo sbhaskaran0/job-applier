@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
 
-from . import config, data
+from . import accounts, config, data
 from . import repeating as rep
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -71,6 +71,44 @@ _LISTBOX_VALUE_FN = r"""
   };
 """
 
+# Shared JS: the ARIA widget shapes read_form and the fill-time verifier must
+# read IDENTICALLY (embedded verbatim in _SCAN_JS and _FIELD_VALUE_JS, the
+# same one-source-of-truth rule as _LISTBOX_VALUE_FN):
+#   * role=spinbutton (segmented date parts: "Month" / "Year" inside a group
+#     named "From"): an <input> holds its value; any other element publishes
+#     it as aria-valuetext / aria-valuenow. A part with no digit in it is a
+#     placeholder ("MM", "YYYY") and reads as "".
+#   * a search box (role=searchbox, or input type=search) used as a picker:
+#     what it holds is the COMMITTED chip (pillOf), never the typed search
+#     text. Reading the typed text is how School / Field of Study reported
+#     verified:true over empty boxes on live Workday.
+_WIDGET_VALUE_FN = r"""
+  const isSpin = (el) => el.getAttribute('role') === 'spinbutton';
+  // A search input that is the filter box of an ARIA autocomplete combobox
+  // (aria-autocomplete list/both controlling a role=listbox: Select2's
+  // dropdown search field) is NOT a search-and-pick box: it filters as you
+  // type and needs no Enter, so it keeps the ordinary path.
+  const isAutocompleteFilter = (el) => {
+    const ac = (el.getAttribute('aria-autocomplete') || '').toLowerCase();
+    if (ac !== 'list' && ac !== 'both') return false;
+    const id = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+    const pop = id ? document.getElementById(id) : null;
+    return !!(pop && pop.getAttribute('role') === 'listbox');
+  };
+  const isSearchbox = (el) => (el.getAttribute('role') === 'searchbox' ||
+    (el.tagName.toLowerCase() === 'input' &&
+     (el.getAttribute('type') || '').toLowerCase() === 'search')) &&
+    !isAutocompleteFilter(el);
+  const spinValue = (el) => {
+    const tg = el.tagName.toLowerCase();
+    if (tg === 'input' || tg === 'textarea') return (el.value || '').trim();
+    const vt = (el.getAttribute('aria-valuetext') || '').trim();
+    if (/\d/.test(vt)) return vt;
+    const vn = (el.getAttribute('aria-valuenow') || '').trim();
+    return /\d/.test(vn) ? vn : '';
+  };
+""" + rep._PILL_FN
+
 
 # JS run inside each frame: tags every fillable element with data-jaidx and
 # returns a descriptor for each. Label resolution walks the standard
@@ -78,12 +116,19 @@ _LISTBOX_VALUE_FN = r"""
 # their group `name` so Claude can pick the right option.
 _SCAN_JS = r"""
 (startIndex) => {
-  const isVisible = (el) => {
+  const isVisible0 = (el) => {
     const s = window.getComputedStyle(el);
     if (s.display === 'none' || s.visibility === 'hidden') return false;
     const r = el.getBoundingClientRect();
     return r.width > 1 && r.height > 1;
   };
+  // A spinbutton part may be collapsed to a sliver inside a segmented date
+  // control that IS on screen: judge it by its own box, else its parent's.
+  const isVisible = (el) => isVisible0(el) ||
+    (el.getAttribute('role') === 'spinbutton' && el.parentElement &&
+     window.getComputedStyle(el).display !== 'none' &&
+     window.getComputedStyle(el).visibility !== 'hidden' &&
+     isVisible0(el.parentElement));
   const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
   const labelFor = (el) => {
     if (el.id) {
@@ -114,15 +159,20 @@ _SCAN_JS = r"""
   document.querySelectorAll('[data-jaidx]').forEach(e => e.removeAttribute('data-jaidx'));
 
   __LISTBOX_VALUE_FN__
+  __WIDGET_VALUE_FN__
 
   // button[aria-haspopup=listbox] is the Workday dropdown (step 2 of a Snap
   // Workday application is nothing but these) and also Oracle/SuccessFactors/
   // Radix/MUI menus. Without it the scanner reported those pages as having no
   // dropdowns at all. It is an ARIA contract, not a per-site selector, so the
   // module's no-per-site-selectors invariant holds.
-  const sel = 'input, textarea, select, [role=textbox], [role=combobox], [contenteditable=true], button[aria-haspopup="listbox"]';
+  // role=spinbutton (segmented date parts) and role=searchbox (search-and-
+  // pick prompts) are ARIA contracts too; a non-<input> one would otherwise
+  // never be seen (live Workday's From/To dates were absent from read_form).
+  const sel = 'input, textarea, select, [role=textbox], [role=combobox], [contenteditable=true], button[aria-haspopup="listbox"], [role=spinbutton], [role=searchbox]';
   const els = Array.from(document.querySelectorAll(sel));
   const out = [];
+  const searchboxes = [];
   let idx = startIndex;
   for (const el of els) {
     const tag = el.tagName.toLowerCase();
@@ -139,6 +189,8 @@ _SCAN_JS = r"""
     // kind, so the whole pipeline works with no edit anywhere else. `widget`
     // carries the physical shape so fill_field can dispatch on the WIDGET.
     const isListbox = (tag === 'button' && el.getAttribute('aria-haspopup') === 'listbox');
+    const spin = isSpin(el);
+    const search = !spin && isSearchbox(el);
 
     let kind;
     if (isListbox) kind = 'combobox';
@@ -158,6 +210,8 @@ _SCAN_JS = r"""
     let value = '';
     if (isListbox) value = listboxValue(el);
     else if (kind === 'checkbox' || kind === 'radio') value = el.checked ? 'checked' : '';
+    else if (spin) value = spinValue(el);
+    else if (search) value = '';          // the chip, read after tagging below
     else value = el.value || '';
     // Passwords are NEVER echoed: the field stays fillable (fill_credential),
     // but its value is masked here and flagged `sensitive` for every consumer.
@@ -194,14 +248,19 @@ _SCAN_JS = r"""
 
     el.setAttribute('data-jaidx', String(idx));
     out.push({
-      index: idx, kind, widget: isListbox ? 'listbox' : undefined,
+      index: idx, kind,
+      widget: isListbox ? 'listbox' : spin ? 'spinbutton' : search ? 'searchbox' : undefined,
       label: labelFor(el), multiline,
       group: (kind === 'radio' || kind === 'checkbox') ? clean(el.getAttribute('name')) : undefined,
       option_value: (kind === 'radio' || kind === 'checkbox') ? (el.value || '') : undefined,
       options, required, current_value: value, sensitive,
     });
+    if (search) searchboxes.push([out[out.length - 1], el]);
     idx++;
   }
+  // A search box's value is its committed chip. Read only now: pillOf bounds
+  // its wrapper by OTHER tagged fields, so every field must be tagged first.
+  for (const [d, e] of searchboxes) d.current_value = pillOf(e);
 
   // --- Second pass: button-group choice controls (e.g. Ashby Yes/No booleans
   // and segmented pickers). These render as a group of sibling <button> (or
@@ -228,8 +287,12 @@ _SCAN_JS = r"""
     if (b.getAttribute('aria-haspopup') === 'listbox') continue;
     const parent = b.parentElement;
     if (!parent || seenParents.has(parent)) continue;
+    // Visible options only: a HIDDEN panel's buttons (a sign-in form hidden
+    // after a successful auth) were reported as a phantom radio group, which
+    // made a blank redirect page look like a form.
     const sibs = Array.from(parent.children).filter(c =>
       (c.tagName === 'BUTTON' || c.getAttribute('role') === 'radio') &&
+      isVisible0(c) &&
       c.getAttribute('aria-haspopup') !== 'listbox' &&
       clean(c.innerText).length > 0 && clean(c.innerText).length <= 40 &&
       (c.getAttribute('type') || '').toLowerCase() !== 'submit');
@@ -269,7 +332,7 @@ _SCAN_JS = r"""
   }
   return out;
 }
-""".replace("__LISTBOX_VALUE_FN__", _LISTBOX_VALUE_FN)
+""".replace("__LISTBOX_VALUE_FN__", _LISTBOX_VALUE_FN)     .replace("__WIDGET_VALUE_FN__", _WIDGET_VALUE_FN)
 
 
 # JS: enumerate the options of the listbox controlled by the combobox at
@@ -380,9 +443,197 @@ _FIELD_VALUE_JS = r"""
                /(selected|active|checked)/i.test(el.className || '');
     return on ? 'checked' : '';
   }
+  __WIDGET_VALUE_FN__
+  if (isSpin(el)) return spinValue(el);
+  if (isSearchbox(el)) return pillOf(el);
   if (el.isContentEditable) return clean(el.innerText);
   if (typeof el.value === 'string') return clean(el.value);
   return null;
+}
+""".replace("__WIDGET_VALUE_FN__", _WIDGET_VALUE_FN)
+
+# Search-and-pick results (a search box: type, Enter, results appear, click
+# one, it commits as a chip). Results are option-like ARIA nodes that became
+# visible AFTER the baseline taken before typing, inside the box's own
+# aria-controls popup when it names one, and never inside the field's own
+# wrapper (that is where its committed chips live).
+_RESULT_SEL = ("[role=option], [role=radio], input[type=radio], "
+               "[role=menuitemradio], [role=treeitem]")
+
+_RESULTS_BASELINE_JS = r"""
+() => {
+  document.querySelectorAll('[data-jabase]').forEach(e => e.removeAttribute('data-jabase'));
+  document.querySelectorAll('[data-jaresult]').forEach(e => e.removeAttribute('data-jaresult'));
+  const vis = (n) => { const r = n.getBoundingClientRect(); return r.width > 1 && r.height > 1; };
+  document.querySelectorAll('__SEL__').forEach(n => { if (vis(n)) n.setAttribute('data-jabase', '1'); });
+  return true;
+}
+""".replace("__SEL__", _RESULT_SEL)
+
+# -> visible result texts, in order; the CLICKABLE node of result i is tagged
+# data-jaresult=i (a native radio's label / wrapper, since the input itself is
+# often hidden).
+_RESULTS_JS = r"""
+(idx) => {
+  __PILL_FN__
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  const vis = (n) => { const r = n.getBoundingClientRect(); const s = getComputedStyle(n);
+    return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 1 && r.height > 1; };
+  document.querySelectorAll('[data-jaresult]').forEach(e => e.removeAttribute('data-jaresult'));
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  if (!el) return [];
+  const popId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+  const pop = popId ? document.getElementById(popId) : null;
+  const wrap = pillWrap(el);
+  const scope = pop || document;
+  const out = [];
+  for (const n of Array.from(scope.querySelectorAll('__SEL__'))) {
+    if (n.hasAttribute('data-jabase') || n.hasAttribute('data-jaidx')) continue;
+    if (wrap && wrap.contains(n) && !(pop && pop.contains(n))) continue;
+    const isInput = n.tagName === 'INPUT';
+    let click = n, text = '';
+    if (isInput) {
+      const lab = (n.id && document.querySelector('label[for="' + CSS.escape(n.id) + '"]'))
+        || n.closest('label') || n.parentElement;
+      click = lab || n;
+      text = clean(lab ? (lab.innerText || lab.textContent) : n.value);
+    } else {
+      // the accessible text: decorative aria-hidden parts (a radio glyph)
+      // are not part of the option's name
+      const c = n.cloneNode(true);
+      c.querySelectorAll('[aria-hidden="true"]').forEach(h => h.remove());
+      text = clean(c.textContent);
+    }
+    if (!text || !vis(click)) continue;
+    click.setAttribute('data-jaresult', String(out.length));
+    out.push(text);
+  }
+  return out;
+}
+""".replace("__PILL_FN__", rep._PILL_FN).replace("__SEL__", _RESULT_SEL)
+
+# JS: each committed chip of the search box at data-jaidx=idx, separately.
+_CHIPS_JS = r"""
+(idx) => {
+  __PILL_FN__
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  return el ? pillsOf(el) : [];
+}
+""".replace("__PILL_FN__", rep._PILL_FN)
+
+# JS: does the element at data-jaidx=idx (or something inside it) hold focus?
+# Typing is only ever sent after this is true: page.keyboard types into
+# WHATEVER has focus.
+_FOCUSED_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  const a = document.activeElement;
+  return !!(el && a && (a === el || el.contains(a)));
+}
+"""
+
+# JS: is the element at data-jaidx=idx a real text <input>/<textarea>?
+_IS_INPUT_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  return !!el && ['input', 'textarea'].includes(el.tagName.toLowerCase());
+}
+"""
+
+# JS: the visible popup named by the search box's aria-controls / aria-owns
+# (true / false), or null when it names none.
+_POPUP_OPEN_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  const id = el && (el.getAttribute('aria-controls') || el.getAttribute('aria-owns'));
+  const pop = id ? document.getElementById(id) : null;
+  if (!pop) return null;
+  const r = pop.getBoundingClientRect(); const s = getComputedStyle(pop);
+  return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 1 && r.height > 1;
+}
+"""
+
+# JS: a one-shot guard so the Enter that runs a search can NEVER submit the
+# field's <form> (implicit submission: the browser clicks the default submit
+# button, then fires submit). args [idx, on]: on=true installs capturing
+# window listeners that cancel a submit of that form and a click on its
+# submit buttons; on=false removes them and returns how many were blocked.
+_SUBMIT_GUARD_JS = r"""
+(args) => {
+  const [idx, on] = args;
+  const g = window.__jaSubmitGuard;
+  if (g) {
+    window.removeEventListener('submit', g.s, true);
+    window.removeEventListener('click', g.c, true);
+    window.__jaSubmitGuard = null;
+  }
+  if (!on) return g ? g.blocked : 0;
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  const form = el && (el.form || el.closest('form'));
+  if (!form) return 0;
+  const st = {blocked: 0};
+  st.s = (e) => { if (e.target === form) {
+    e.preventDefault(); e.stopImmediatePropagation(); st.blocked++; } };
+  st.c = (e) => {
+    const b = e.target && e.target.closest &&
+      e.target.closest('button, input[type=submit], input[type=image]');
+    if (b && b.form === form && (b.type === 'submit' || b.type === 'image')) {
+      e.preventDefault(); e.stopImmediatePropagation(); st.blocked++; } };
+  window.addEventListener('submit', st.s, true);
+  window.addEventListener('click', st.c, true);
+  window.__jaSubmitGuard = st;
+  return 0;
+}
+"""
+
+# JS: the option labels of the native <select> at data-jaidx=idx.
+_SELECT_OPTIONS_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  return el && el.options ? Array.from(el.options).map(o =>
+    (o.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean) : [];
+}
+"""
+
+_RESULTS_CLEAR_JS = r"""
+() => {
+  document.querySelectorAll('[data-jabase], [data-jaresult]').forEach(e => {
+    e.removeAttribute('data-jabase'); e.removeAttribute('data-jaresult'); });
+  return true;
+}
+"""
+
+# JS: tag (data-japick) the option of the listbox at data-jaidx=idx whose
+# TEXT CONTENT equals `name`, scoped like _COMBO_OPTIONS_JS. Clicking by text
+# rather than by accessible name: live Capital One had a "No" option whose
+# accessible name was EMPTY, which get_by_role(name=...) can never find.
+_TAG_OPTION_JS = r"""
+(args) => {
+  const [idx, name] = args;
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  document.querySelectorAll('[data-japick]').forEach(e => e.removeAttribute('data-japick'));
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  const lbId = el && (el.getAttribute('aria-controls') || el.getAttribute('aria-owns'));
+  const root = lbId ? document.getElementById(lbId) : null;
+  let opts = root ? Array.from(root.querySelectorAll('[role=option]')) :
+    Array.from(document.querySelectorAll('[role=option]')).filter(o => {
+      const r = o.getBoundingClientRect(); return r.width > 1 && r.height > 1; });
+  const hit = opts.find(o => clean(o.textContent) === name);
+  if (!hit) return false;
+  hit.setAttribute('data-japick', '1');
+  return true;
+}
+"""
+
+# JS: blur the element at data-jaidx=idx when it (or something inside it) has
+# focus. Returns whether a blur happened.
+_BLUR_JS = r"""
+(idx) => {
+  const el = document.querySelector('[data-jaidx="' + idx + '"]');
+  const a = document.activeElement;
+  if (!el || !a || !(a === el || el.contains(a))) return false;
+  a.blur();
+  return true;
 }
 """
 
@@ -1240,6 +1491,14 @@ _MARKETING_LABEL_RE = re.compile(
 # is its name, "languageSelectorButton").
 _CHROME_LABEL_RE = re.compile(r"\bsearch\b|^language|languageselector", re.I)
 
+# JS: visible text of page chrome (header / banner / nav), where a signed-in
+# tenant shows the account email. ARIA landmarks + their HTML equivalents.
+_CHROME_TEXT_JS = r"""
+() => Array.from(document.querySelectorAll('header, [role=banner], nav, [role=navigation]'))
+  .filter(n => { const r = n.getBoundingClientRect(); return r.width > 1 && r.height > 1; })
+  .map(n => (n.innerText || '').replace(/\s+/g, ' ').trim()).join(' ').slice(0, 2000)
+"""
+
 # Auth outcome texts, checked against notices + body text after an auth
 # submit. Specific on purpose: Workday's create-account page itself reads
 # "Verify New Password" and "By activating your account", which must not
@@ -1260,7 +1519,12 @@ _NO_ACCOUNT_TEXT_RE = re.compile(
 # password, so in auto mode it earns one create-account attempt.
 _COMBINED_TEXT_RE = re.compile(
     r"(wrong|invalid|incorrect) (e-?mail( address)?|user ?name|login"
-    r"|credentials)( (and|or) password)?", re.I)
+    r"|credentials)( (and|or) password)?"
+    # "The username or password you entered is incorrect"
+    r"|(e-?mail( address)?|user ?name|login|credentials) (and|or) password"
+    r"( (you )?entered)? (is|are|was|were) (incorrect|invalid|wrong|not valid)"
+    # "Sign in failed. Please try again."
+    r"|(sign|log)[- ]?in (failed|was unsuccessful|unsuccessful)", re.I)
 _BAD_PW_TEXT_RE = re.compile(
     r"(wrong|invalid|incorrect) password|password (is |was )?(wrong|invalid"
     r"|incorrect)|account (is |has been )?locked|too many (failed |unsuccessful )?"
@@ -1443,10 +1707,33 @@ def _pick_auth_controls(controls: list[dict], mode: str, submit: bool,
     return sorted(cands, key=lambda c: 0 if c.get("after_password") else 1)
 
 
-def _classify_auth_outcome(state: dict) -> str:
+def _signed_in(state: dict, email: str | None, want: str | None = None) -> bool:
+    """Signed-in chrome: no password field, no visible notice, and the
+    account's email shown INSIDE page chrome (header / [role=banner] / nav:
+    `state["chrome"]`), where Workday renders it once signed in. Anywhere
+    else in the body it proves nothing ("We could not create an account for
+    me@...", "Account created for me@... Please sign in."). Never accepted
+    right after a create-account submit: a create is confirmed by the form,
+    a verification notice, or the follow-up sign-in, not by an echo."""
+    if not email or want == "create_account" or state.get("notices"):
+        return False
+    if any(f.get("sensitive") for f in state.get("fields") or []):
+        return False
+    return email.strip().lower() in (state.get("chrome") or "").lower()
+
+
+def _classify_auth_outcome(state: dict, want: str | None = None,
+                           email: str | None = None) -> str:
     """Pure: what an auth submit led to. One of blocked, verification,
-    exists, no_account, combined, bad_password, authenticated, still_auth,
-    unknown."""
+    exists, no_account, combined, bad_password, authenticated,
+    created_signin_required, still_auth, unknown.
+
+    `want` is the mode that was submitted. A create-account submit that
+    lands on a SIGN-IN page with no error is created_signin_required: live
+    Capital One (2026-11-13) answered a successful create with a redirect to
+    a plain Sign In page and no message. `email` lets signed-in chrome (the
+    header showing the account's email) count as authenticated even before
+    the form's fields render."""
     if state.get("blocked"):
         return "blocked"
     text = " ".join(state.get("notices") or []) + " " + (state.get("body") or "")
@@ -1462,26 +1749,42 @@ def _classify_auth_outcome(state: dict) -> str:
         return "bad_password"
     fields = state.get("fields") or []
     if any(f.get("sensitive") for f in fields):
+        if want == "create_account" and not state.get("notices"):
+            lay = _auth_layout(fields, state.get("controls"),
+                               state.get("headings"))
+            if lay["mode"] == "sign_in":
+                return "created_signin_required"
         return "still_auth"
-    if form_fields(fields):
+    if form_fields(fields) or _signed_in(state, email, want):
         return "authenticated"
     return "unknown"
 
 
-def _auth_settled(state: dict, before_notices: list) -> bool:
-    """Has an auth submit produced a result worth classifying? The password
-    fields are gone, a new notice/error appeared, a verification message
-    shows, or a CAPTCHA appeared. Mere DOM stability is not enough: a
-    spinner holds still too, and classifying it as "unconfirmed" would waste
-    one of the two allowed submits."""
+def _auth_settled(state: dict, before_notices: list, want: str | None = None,
+                  email: str | None = None) -> bool:
+    """Has an auth submit produced a result worth classifying? A CAPTCHA, a
+    new notice/error, a verification message; the application form or
+    signed-in chrome; or an auth page in a DIFFERENT mode than the one
+    submitted (create -> sign-in). A page with no password field and no
+    form is NOT settled: that is the redirect still loading (live Capital
+    One: a successful sign-in classified mid-redirect as "unknown", then
+    the form rendered seconds later). Mere DOM stability is not enough
+    either: a spinner holds still too."""
     if state.get("blocked"):
-        return True
-    if not any(f.get("sensitive") for f in state.get("fields") or []):
         return True
     notices = list(state.get("notices") or [])
     if notices and notices != list(before_notices or []):
         return True
-    return bool(_VERIFY_TEXT_RE.search(state.get("body") or ""))
+    if _VERIFY_TEXT_RE.search(state.get("body") or ""):
+        return True
+    fields = state.get("fields") or []
+    if not any(f.get("sensitive") for f in fields):
+        return bool(form_fields(fields)) or _signed_in(state, email, want)
+    if want:
+        mode = _auth_layout(fields, state.get("controls"),
+                            state.get("headings"))["mode"]
+        return mode not in ("unknown", want)
+    return False
 
 
 def _redact(text: str, secrets) -> str:
@@ -1539,6 +1842,44 @@ _INITIALS_STOPWORDS = {"of", "the", "and", "at", "in", "for", "a", "an", "de", "
 # either holds the option or it doesn't), so it is reported as "uncommitted"
 # rather than as a filled-but-unverified value.
 _CLOSED_FILL_KINDS = {"select", "radio", "checkbox", "combobox"}
+
+
+def _digits_equal(expected, observed) -> bool:
+    """A numeric date part landed: same number, leading zeros ignored
+    ("04" == "4"), never containment ("1" != "10", "202" != "2021")."""
+    a = re.sub(r"\D", "", str(expected or ""))
+    b = re.sub(r"\D", "", str(observed or ""))
+    return bool(a) and bool(b) and a.lstrip("0") == b.lstrip("0")
+
+
+def _name_key(s) -> str:
+    """A picker name with punctuation folded to spaces but SYMBOLS kept
+    ("C++" != "C", "C#" != "C"): "University of California, Los Angeles"
+    and the tenant's "University of California-Los Angeles" agree."""
+    t = re.sub(r"[^a-z0-9+#&]+", " ", str(s or "").lower())
+    return " ".join(t.split())
+
+
+def _same_name(a, b) -> bool:
+    ka, kb = _name_key(a), _name_key(b)
+    return bool(ka) and ka == kb
+
+
+def _pick_result(value: str, results: list, exact_only: bool = False):
+    """The search result that IS `value`: exact text (case / whitespace
+    ignored), then, unless `exact_only`, the same name with punctuation
+    folded. Never a prefix, a containing name, or "the only result": that
+    is how "Economics" became "Agricultural Economics"."""
+    norm = " ".join(str(value or "").lower().split())
+    for r in results:
+        if norm and " ".join(r.lower().split()) == norm:
+            return r
+    if exact_only:
+        return None
+    for r in results:
+        if _same_name(value, r):
+            return r
+    return None
 
 
 def _values_match(expected: str, observed: str) -> bool:
@@ -1629,6 +1970,9 @@ class BrowserSession:
         # profile's runtime dir; `_ledger_path = False` keeps it in memory.
         self._ledger: dict | None = None
         self._ledger_path = None
+        # Workday account registry: same lazy pattern (`False` = memory only).
+        self._registry: dict | None = None
+        self._registry_path = None
 
     @property
     def filled(self) -> bool:
@@ -1905,15 +2249,309 @@ class BrowserSession:
             return await self._fill_combobox(index, loc, value)
         if kind in ("radio", "checkbox"):
             return await self._fill_toggle(index, loc, kind, value)
+        if meta.get("widget") == "searchbox":
+            return await self._fill_searchbox(index, loc, value)
+        if meta.get("widget") == "spinbutton":
+            return await self._fill_spinbutton(index, loc, kind, value)
         if kind == "select":
             try:
                 await loc.select_option(label=value)
             except Exception:
-                await loc.select_option(value=value)
+                try:
+                    await loc.select_option(value=value)
+                except Exception:
+                    # Not one of its options: an ANSWER problem, reported
+                    # with the real options (never an exception).
+                    frame = self.fields[index]["frame"]
+                    try:
+                        opts = await frame.evaluate(_SELECT_OPTIONS_JS, index)
+                    except Exception:
+                        opts = []
+                    return {"index": index, "kind": "select",
+                            "status": "unmatched", "value": value,
+                            "verified": False, "options": (opts or [])[:80],
+                            "note": "no option has this label or value; "
+                                    "call again with one of `options`"}
         else:  # text / textarea / contenteditable
             await loc.fill(value)
+            # Verify what SURVIVES leaving the field, not the keystrokes: a
+            # search/prompt typeahead that renders as a plain <input> holds
+            # the typed text until blur and then drops it unless a result
+            # was picked. Reading before blur is how live Workday School /
+            # Field of Study came back verified:true over empty boxes.
+            await self._blur(index)
         observed = await self._read_back(index)
-        return _fill_result(index, kind, value, observed)
+        res = _fill_result(index, kind, value, observed)
+        if kind == "text" and observed == "" and value:
+            res["note"] = ("the typed value did not survive leaving the field: "
+                           "a search/prompt widget that needs a pick from its "
+                           "results, or a validator rejected it")
+        return res
+
+    async def _focus(self, loc, index: int) -> bool:
+        """Click to focus (a control too small / overlaid for a real click
+        gets a programmatic focus), then CONFIRM the element (or something
+        inside it) holds focus. Callers type with page.keyboard, which goes
+        to whatever has focus, so they must not type when this is False."""
+        frame = (self.fields.get(index) or {}).get("frame")
+
+        async def focused():
+            try:
+                return bool(await frame.evaluate(_FOCUSED_JS, index))
+            except Exception:
+                return False
+        try:
+            await loc.click(timeout=2000)
+        except Exception:
+            pass
+        if await focused():
+            return True
+        try:
+            await loc.focus()
+        except Exception:
+            return False
+        return await focused()
+
+    @staticmethod
+    def _focus_lost(index: int, kind: str, value: str, widget: str) -> dict:
+        return {"index": index, "kind": kind, "widget": widget,
+                "status": "error", "value": value, "verified": False,
+                "error": "focus_lost",
+                "note": "could not put focus in the field; nothing was typed"}
+
+    async def _fill_spinbutton(self, index: int, loc, kind: str,
+                               value: str) -> dict:
+        """A segmented date part (role=spinbutton): click it and TYPE (the
+        live Workday contract: typing into Month auto-advances to Year;
+        .fill() cannot set a non-<input> spinbutton at all). An <input>
+        spinbutton is cleared first so digits replace instead of append.
+        Verified NUMERICALLY ("4" == "04", never "1" for "10")."""
+        frame = self.fields[index]["frame"]
+        if not await self._focus(loc, index):
+            return self._focus_lost(index, kind, value, "spinbutton")
+        try:
+            is_input = bool(await frame.evaluate(_IS_INPUT_JS, index))
+        except Exception:
+            is_input = False
+        if is_input:
+            try:
+                await loc.fill("")
+            except Exception:
+                pass
+            if not await self._focus(loc, index):
+                return self._focus_lost(index, kind, value, "spinbutton")
+        await self.page.keyboard.type(value, delay=60)
+        await self.page.wait_for_timeout(150)
+        await self._blur(index)
+        observed = await self._read_back(index)
+        if observed is None:
+            res = _fill_result(index, kind, value, None)
+        elif _digits_equal(value, observed):
+            res = {"index": index, "kind": kind, "status": "filled",
+                   "value": value, "verified": True}
+        else:
+            res = {"index": index, "kind": kind, "status": "uncommitted",
+                   "value": value, "verified": False,
+                   "observed_value": observed}
+        res["widget"] = "spinbutton"
+        return res
+
+    async def _chips(self, index: int) -> list:
+        frame = self.fields[index]["frame"]
+        try:
+            return list(await frame.evaluate(_CHIPS_JS, index) or [])
+        except Exception:
+            return []
+
+    async def _search_round(self, index: int, loc, value: str, before: list,
+                            prev=None):
+        """Type `value`, press Enter (with the form-submit guard on), and
+        wait (bounded, ~6s: live results took ~3s) for a NEW chip naming
+        `value` or a result list different from `prev`. -> (chips, results,
+        blocked_submits), or None when focus could not be confirmed."""
+        frame = self.fields[index]["frame"]
+        if not await self._focus(loc, index):
+            return None
+        await self.page.keyboard.press("Control+A")
+        await self.page.keyboard.type(value, delay=30)
+        if not await self._focus(loc, index):
+            return None
+        try:
+            await frame.evaluate(_SUBMIT_GUARD_JS, [index, True])
+        except Exception:
+            pass
+        try:
+            await self.page.keyboard.press("Enter")
+            await self.page.wait_for_timeout(300)
+        finally:
+            try:
+                blocked = int(await frame.evaluate(_SUBMIT_GUARD_JS,
+                                                   [index, False]) or 0)
+            except Exception:
+                blocked = 0
+        chips, results = list(before), []
+        for _ in range(int(self._SEARCH_WAIT_S / 0.3)):
+            await self.page.wait_for_timeout(300)
+            chips = await self._chips(index)
+            try:
+                results = await frame.evaluate(_RESULTS_JS, index) or []
+            except Exception:
+                results = []
+            if any(_same_name(value, c) for c in chips if c not in before):
+                break
+            if results and results != prev:
+                await self.page.wait_for_timeout(300)   # let the list finish
+                try:
+                    results = await frame.evaluate(_RESULTS_JS, index) or []
+                except Exception:
+                    pass
+                break
+        return chips, results, blocked
+
+    _SEARCH_WAIT_S = 6.0
+
+    async def _clear_search(self, index: int, loc) -> None:
+        if await self._focus(loc, index):
+            await self.page.keyboard.press("Control+A")
+            await self.page.keyboard.press("Backspace")
+            await self.page.keyboard.press("Escape")
+
+    async def _fill_searchbox(self, index: int, loc, value: str) -> dict:
+        """Search-and-pick (`widget` == "searchbox": role=searchbox / input
+        type=search used as a picker, e.g. Workday School / Field of Study).
+        Contract observed live on Capital One: type, Enter, results appear
+        ~3s later; a unique hit may commit a chip by itself; otherwise click
+        the matching result and it commits as a chip. The first search can
+        return the full unfiltered list, so a second search runs when the
+        first list holds no EXACT match.
+
+        Strict on purpose (pickers are often multi-select, and a wrong pick
+        is worse than none): a result is chosen only when its text is
+        exactly the value (round 1) or the same name with punctuation
+        folded (round 2; symbols stay significant, "C++" != "C"); never a
+        prefix, a containing name or "the only result". Verified only on a
+        NEW chip that is that same name, compared chip by chip; other chips
+        are reported in `other_chips`. The Enter can never submit the form
+        (_SUBMIT_GUARD_JS). No confident result -> "unmatched" with the
+        visible results (options [] when the box's own popup opened empty).
+        When no result list or chip ever appears this may be a plain search
+        input: the typed text is LEFT and reported unverified."""
+        frame = self.fields[index]["frame"]
+        res = {"index": index, "kind": "text", "widget": "searchbox",
+               "value": value}
+        before = await self._chips(index)
+        held = next((c for c in before if _same_name(value, c)), None)
+        if held is not None:
+            res.update(status="filled", verified=True, value=held,
+                       committed_as="pill", note="already held this value")
+            return res
+        try:
+            await frame.evaluate(_RESULTS_BASELINE_JS)
+        except Exception:
+            pass
+        target, results, chips, blocked = None, [], before, 0
+        try:
+            for rnd in (1, 2):
+                got = await self._search_round(index, loc, value, before,
+                                               prev=results or None)
+                if got is None:
+                    return self._focus_lost(index, "text", value, "searchbox")
+                chips, results, b = got
+                blocked += b
+                new = [c for c in chips if c not in before]
+                hit = next((c for c in new if _same_name(value, c)), None)
+                if hit is not None:
+                    res.update(status="filled", verified=True, value=hit,
+                               committed_as="pill")
+                    break
+                target = _pick_result(value, results, exact_only=rnd == 1)
+                if target is not None or not results:
+                    break
+            if res.get("status"):
+                pass
+            elif target is None:
+                try:
+                    popup = await frame.evaluate(_POPUP_OPEN_JS, index)
+                except Exception:
+                    popup = None
+                if results or popup:
+                    await self._clear_search(index, loc)
+                    res.update(status="unmatched", verified=False,
+                               observed_value=", ".join(chips),
+                               options=results[:80],
+                               note=("no search result is exactly this "
+                                     "value; call fill_field again with one "
+                                     "of `options` verbatim") if results else
+                                    "the search returned no results")
+                else:
+                    # No list and no chip ever appeared: maybe a plain
+                    # search input, maybe a picker that found nothing.
+                    # Leave the typed text; claim nothing.
+                    res.update(status="filled", verified=None,
+                               note="typed and searched; no result list or "
+                                    "chip appeared, so nothing could be "
+                                    "verified (a plain search box, or a "
+                                    "picker whose search found nothing)")
+            else:
+                i = results.index(target)
+                try:
+                    await frame.locator('[data-jaresult="%d"]' % i).first.click(
+                        timeout=3000)
+                except Exception:
+                    pass
+                hit = None
+                for _ in range(10):
+                    await self.page.wait_for_timeout(300)
+                    chips = await self._chips(index)
+                    hit = next((c for c in chips if c not in before
+                                and _same_name(target, c)), None)
+                    if hit is not None:
+                        break
+                try:
+                    still_open = bool(await frame.evaluate(_RESULTS_JS, index))
+                except Exception:
+                    still_open = False
+                if still_open and await self._focus(loc, index):
+                    # A multi-select list stays open after a pick: close it
+                    # so the next field is not typed into it.
+                    await self.page.keyboard.press("Escape")
+                    await self.page.wait_for_timeout(200)
+                if hit is not None:
+                    res.update(status="filled", verified=True, value=hit,
+                               committed_as="pill", matched_option=target)
+                else:
+                    res.update(status="uncommitted", verified=False,
+                               observed_value=", ".join(chips),
+                               matched_option=target,
+                               note="clicked the matching result but no chip "
+                                    "committed")
+            if res.get("verified"):
+                others = [c for c in await self._chips(index)
+                          if c != res["value"]]
+                if others:
+                    res["other_chips"] = others[:20]
+            if blocked:
+                res["blocked_form_submits"] = blocked
+            return res
+        finally:
+            try:
+                await frame.evaluate(_RESULTS_CLEAR_JS)
+            except Exception:
+                pass
+
+    async def _blur(self, index: int) -> None:
+        """Blur the field at `index` if it holds focus (focusout fires, so
+        framework commit/validate-on-blur handlers run), then let it settle.
+        Uses el.blur(), not Tab: Tab would focus, and possibly open, the NEXT
+        widget."""
+        frame = (self.fields.get(index) or {}).get("frame")
+        if frame is None:
+            return
+        try:
+            await frame.evaluate(_BLUR_JS, index)
+            await self.page.wait_for_timeout(150)
+        except Exception:
+            pass
 
     async def fill_sensitive(self, index: int, value: str,
                              require_password: bool = False,
@@ -2052,6 +2690,12 @@ class BrowserSession:
             for o in options:
                 if o.strip().lower() == low:
                     return o
+
+        for _, low in pairs:                    # tier 1b: same name, any
+            for o in options:                   # punctuation ("California-Los
+                if _same_name(low, o):          # Angeles" == "California, Los
+                    return o                    # Angeles"); symbols kept, so
+                                                # "C++" != "C"
         for _, low in pairs:                                   # tier 2: prefix
             for o in options:
                 if o.strip().lower().startswith(low):
@@ -2144,8 +2788,8 @@ class BrowserSession:
                 options = []
             target = self._match_option(value, options)
             if target is not None:
-                clicked = False
-                for exact in (True, False):
+                clicked = await self._click_option_by_text(frame, index, target)
+                for exact in (() if clicked else (True, False)):
                     try:
                         await frame.get_by_role("option", name=target,
                                                 exact=exact).first \
@@ -2198,6 +2842,17 @@ class BrowserSession:
                 "`options` verbatim when they are listed, then flag for the user")
         return res
 
+    async def _click_option_by_text(self, frame, index: int, target: str) -> bool:
+        """Click the option whose text content is `target` (see
+        _TAG_OPTION_JS: an option may have an EMPTY accessible name)."""
+        try:
+            if not await frame.evaluate(_TAG_OPTION_JS, [index, target]):
+                return False
+            await frame.locator('[data-japick="1"]').first.click(timeout=2000)
+            return True
+        except Exception:
+            return False
+
     async def _open_listbox(self, index: int, loc):
         """Make sure a listbox popup is OPEN, and report whether it is:
         True (open), False (still closed), None (the widget doesn't publish
@@ -2227,6 +2882,16 @@ class BrowserSession:
         after = await state()
         if after is None:
             return None
+        if after is False:
+            # Live Capital One: a click sometimes only FOCUSED the button and
+            # Space (the ARIA keyboard contract for a listbox button) opened
+            # it. Try that before a second click.
+            try:
+                await loc.press("Space")      # on THE button, not "focus"
+            except Exception:
+                pass
+            await self.page.wait_for_timeout(400)
+            after = await state()
         if after is False:
             # The click may have closed a popup whose open state we couldn't
             # see. One bounded retry: a menu toggle holds no answer, so
@@ -2403,7 +3068,7 @@ class BrowserSession:
                      "error": type(e).__name__}
             if (r.get("verified") is not True and r.get("status") != "unmatched"
                     and f.get("kind") in ("text", "combobox")
-                    and f.get("widget") != "listbox"):
+                    and f.get("widget") not in ("listbox", "searchbox")):
                 pill = await self._pill(f["index"])
                 if pill and _values_match(value, pill):
                     r = {k: v for k, v in r.items()
@@ -2412,7 +3077,10 @@ class BrowserSession:
                              committed_as="pill")
         out = {"key": key, "label": rep.clip(f.get("label")),
                "index": f.get("index"), "status": r.get("status"),
-               "verified": r.get("verified")}
+               "verified": r.get("verified"), "kind": f.get("kind"),
+               "_eid": f.get("eid")}       # internal; popped before returning
+        if f.get("widget"):
+            out["widget"] = f["widget"]
         for k in ("part", "rcb"):
             if f.get(k) is not None:
                 out[k] = f[k]
@@ -2452,18 +3120,23 @@ class BrowserSession:
             sent.append((row, f, v))
         if not sent:
             return out
-        try:
-            await self.page.keyboard.press("Tab")
-            await self.page.wait_for_timeout(250)
-        except Exception:
-            pass
+        # fill_field already blurs a text part; this covers any part that
+        # kept focus. A targeted blur, not Tab: with focus already gone, Tab
+        # would land on the page's first focusable element.
+        for _, f, _ in sent:
+            if f.get("index") is not None:
+                await self._blur(f["index"])
+        await self.page.wait_for_timeout(100)
         for row, f, v in sent:
             if f.get("index") is None or row.get("status") == "error":
                 continue
             obs = await self._read_back(f["index"])
             if obs is None:
                 continue
-            if _values_match(v, obs):
+            # Numerically, not by containment: a spinbutton reads "4" for
+            # "04" (live Workday), and containment would accept "1" for "10".
+            if _digits_equal(v, obs) if re.search(r"\d", v) \
+                    else _values_match(v, obs):
                 row.pop("observed_value", None)
                 row.update(status="filled", verified=True)
             else:
@@ -2472,19 +3145,43 @@ class BrowserSession:
                            note="value did not survive leaving the field")
         return out
 
-    async def _fill_group(self, section: str, anchor_id, entry: dict,
+    async def _locate(self, section: str, entry: dict, track: dict):
+        """Fresh layout + this entry's group. By its anchor element first;
+        when that element is gone (a re-render replaced the group's DOM),
+        re-found by content / last position (repeating.refind_group) and
+        `track` re-anchored. One short wait and re-read before giving up,
+        since a re-render can be caught mid-flight."""
+        lay = None
+        for attempt in range(2):
+            lay = await self._section_layout(section)
+            if lay is not None:
+                grp, pos, refound = rep.locate_group(
+                    lay["groups"], track["anchor"], entry, section,
+                    track.get("pos"))
+                if grp is not None:
+                    track["pos"] = pos
+                    if refound:
+                        track["anchor"] = rep.anchor(grp)
+                        track["regrouped"] = track.get("regrouped", 0) + 1
+                    return lay, grp
+            if attempt == 0:
+                await self.page.wait_for_timeout(600)
+        return lay, None
+
+    async def _fill_group(self, section: str, track: dict, entry: dict,
                           gpa_policy: str) -> list:
         """Fill-blanks for one group from one profile entry, key by key in
         SECTIONS order. The layout is re-read before EVERY key (toggling "I
         currently work here" removes To; a listbox commit can re-render), and
-        the group is re-found by its anchor element, never by position."""
+        the group is re-found by its anchor element, never by position alone
+        (see _locate for the re-render case). `track` carries the anchor and
+        is updated in place when the group had to be re-found."""
         spec = rep.SECTIONS[section]
         current = section == "experience" and rep.truthy(entry.get("current"))
         has_box = False
         out: list = []
         for key in spec["order"]:
-            lay = await self._section_layout(section)
-            grp = rep.find_group(lay["groups"], anchor_id) if lay else None
+            lay, grp = await self._locate(section, entry, track)
             if grp is None:
                 out.append({"key": key, "status": "error",
                             "error": "group_vanished"})
@@ -2643,8 +3340,9 @@ class BrowserSession:
                 out["added"] += 1
                 target, mode = new[0], "added"
                 blanks.extend(new[1:])
-            rows = await self._fill_group(section, target, entry, policy)
-            touched.append((pos, target))
+            track = {"anchor": target}
+            rows = await self._fill_group(section, track, entry, policy)
+            touched.append((pos, entry, track, rows))
             acted = [r for r in rows if r.get("status") not in ("skipped",
                                                                 "not_found")]
             if mode == "existing":
@@ -2653,18 +3351,28 @@ class BrowserSession:
                                            "reason": "already_present"})
                     continue
                 mode = "completed_blanks"
-            out["filled"].append({"entry": pos, "result": mode, "fields": rows})
+            res = {"entry": pos, "result": mode, "fields": rows}
+            if track.get("regrouped"):
+                res["regrouped"] = track["regrouped"]
+            out["filled"].append(res)
 
         final = await self._section_layout(section)
         req_empty = []
         keyed = set(rep.SECTIONS[section]["order"]) | {"overall_result"}
-        for pos, anc in touched:
-            grp = rep.find_group(final["groups"], anc) if final else None
+        for pos, entry, track, rows in touched:
+            grp = None
+            if final:
+                grp, _, _ = rep.locate_group(final["groups"], track["anchor"],
+                                             entry, section, track.get("pos"))
+            self._reconcile_rows(rows, grp)
             for f in grp or []:
                 if (f.get("key") in keyed and f.get("key") != "current"
                         and rep.is_required(f) and not rep.has_value(f)):
                     req_empty.append({"entry": pos, "key": f["key"],
                                       "label": rep.clip(f.get("label"))})
+        for _, _, _, rows in touched:
+            for r in rows:
+                r.pop("_eid", None)
         if req_empty:
             out["required_empty"] = req_empty
         if final is not None:
@@ -2674,6 +3382,50 @@ class BrowserSession:
             del out["warnings"]
         out["status"] = self._rs_status(out, section)
         return out
+
+    @staticmethod
+    def _reconcile_rows(rows: list, grp) -> None:
+        """The section-wide re-read at the end is a second, LATER read-back.
+        A row reported verified=True whose field reads EMPTY there was never
+        committed: live Capital One Workday reported School / Field of Study
+        `filled, verified:true` in the same result that listed school under
+        required_empty, while the page showed both boxes empty (search/prompt
+        widgets drop typed text that was not picked from their results).
+        Downgrade such rows so one result can never contradict itself.
+        Conversely a row left verified=null because its element was replaced
+        mid-verify (a re-render) is settled by this re-read: verified when
+        the field now holds the value, uncommitted when it is empty. The
+        field is found by its stable element id, else by a unique key/part
+        (a re-render drops the ids). Toggles are left alone."""
+        if not grp:
+            return
+        by_eid = {f.get("eid"): f for f in grp if f.get("eid") is not None}
+        for r in rows:
+            if r.get("verified") is False or r.get("rcb") is not None \
+                    or r.get("status") not in ("filled", "uncommitted"):
+                continue
+            f = by_eid.get(r.get("_eid"))
+            if f is None:
+                same = [g for g in grp if g.get("index") is not None
+                        and g.get("key") == r.get("key")
+                        and g.get("part") == r.get("part")]
+                if len(same) != 1:
+                    continue
+                f = same[0]
+            if f.get("kind") in ("checkbox", "radio"):
+                continue
+            if rep.has_value(f):
+                if r.get("verified") is None and _values_match(
+                        r.get("value") or "", f.get("current_value") or ""):
+                    r.pop("note", None)
+                    r.update(status="filled", verified=True,
+                             verified_by="section_reread")
+                continue
+            r.pop("committed_as", None)
+            r.update(status="uncommitted", verified=False, observed_value="",
+                     note="read back EMPTY when the section was re-read after "
+                          "filling: the widget dropped the value (a search/"
+                          "prompt field needs a pick from its results)")
 
     @classmethod
     def _rs_status(cls, out: dict, section: str) -> str:
@@ -3290,7 +4042,19 @@ class BrowserSession:
     _ENTRY_BUDGET_S = 30.0
     _LEDGER_WINDOW_S = 24 * 3600
     _RECENT_SUBMIT_S = 60
-    _AUTH_OK = ("authenticated", "verification")
+    _AUTH_OK = ("authenticated", "verification", "created_signin_required")
+    # Which sign-in outcomes count as FAILED for the lockout budget. Exempt:
+    # unknown (no password field and no form: the live Capital One redirect
+    # after a SUCCESSFUL sign-in, which the old rule counted and so locked
+    # the tenant) and no_account. still_auth COUNTS: the password field is
+    # still showing after the wait, which is what a rejection whose wording
+    # no regex knows looks like ("Sign in failed. Please try again.");
+    # exempting it allowed one wrong-password submit per call, unbounded.
+    _SIGN_IN_FAILED = ("bad_password", "combined", "bad_credentials",
+                       "still_auth")
+    _REJECTED = ("bad_password", "combined")
+    # Post-submit wait: the redirect to the form can take well over 10s.
+    _AUTH_WAIT_S = 25.0
 
     async def _scan_controls(self, email_index=None) -> list[dict]:
         """Visible button-ish controls across frames (see _CONTROLS_JS), each
@@ -3328,10 +4092,15 @@ class BrowserSession:
         except Exception:
             body = ""
         try:
+            chrome = await self.page.evaluate(_CHROME_TEXT_JS)
+        except Exception:
+            chrome = ""
+        try:
             blk = await self.detect_blockers()
         except Exception:
             blk = {}
         return {"url": self.page.url, "fields": fields, **bits, "body": body,
+                "chrome": chrome or "",
                 "blocked": bool(blk.get("blocked")),
                 "signals": blk.get("signals") or []}
 
@@ -3684,15 +4453,69 @@ class BrowserSession:
                    for e in self._ledger_entries(host))
 
     def _ledger_failed_sign_in(self, host: str) -> bool:
-        """A failed sign-in in the last 24h that no later success explains
-        (a sign-in that failed because the account did not exist yet is
-        explained by the create-account that succeeded after it)."""
+        """A sign-in in the last 24h that the site rejected (wrong password /
+        wrong email-or-password) or that left the password field showing
+        (still_auth), with no later success to explain it. "unknown" (a
+        redirect with no password field) never counts; the 60s resubmit
+        guard still applies to it."""
         entries = self._ledger_entries(host)
         last_ok = max((float(e["t"]) for e in entries
                        if e.get("outcome") in self._AUTH_OK), default=-1.0)
         return any(e.get("kind") == "sign_in"
-                   and e.get("outcome") not in self._AUTH_OK
+                   and e.get("outcome") in self._SIGN_IN_FAILED
                    and float(e.get("t", 0)) > last_ok for e in entries)
+
+    def _last_submit_kind(self, host: str):
+        subs = [e for e in self._ledger_entries(host)
+                if e.get("kind") in ("sign_in", "create_account")]
+        return max(subs, key=lambda e: float(e.get("t", 0)))["kind"] if subs else None
+
+    def _reject(self, host: str) -> None:
+        """A confirmed sign-in rejection: the lockout verdict, and an
+        `active` registry row is downgraded so auto mode parks instead of
+        retrying the same password every day."""
+        self._ledger_add(host, "verdict", "bad_credentials")
+        self._downgrade(host)
+
+    def _downgrade(self, host: str) -> None:
+        row = self._reg_get(host)
+        if row and row.get("status") == "active":
+            self._reg_record(host, "exists_unknown_password",
+                             row.get("email") or "")
+
+    # --- Workday account registry (src/accounts.py) -------------------------
+    def _reg_file(self):
+        if self._registry_path is False:
+            return None
+        if self._registry_path:
+            return Path(self._registry_path)
+        try:
+            return Path(config.WORKDAY_ACCOUNTS_PATH)
+        except Exception:
+            return None
+
+    def _reg_load(self) -> dict:
+        if self._registry is None:
+            self._registry = accounts.load(self._reg_file())
+        return self._registry
+
+    def _reg_get(self, host: str) -> dict | None:
+        return self._reg_load().get((host or "").lower())
+
+    def _reg_record(self, host: str, status: str, email: str = "",
+                    created: bool = False, signed_in: bool = False) -> None:
+        """Record a CONFIRMED outcome. Never given a password."""
+        reg = self._reg_load()
+        accounts.record(reg, host, status, email, created=created,
+                        signed_in=signed_in)
+        try:
+            accounts.save(self._reg_file(), reg)
+        except Exception:
+            pass
+
+    def list_workday_accounts(self) -> list[dict]:
+        self._registry = None                 # re-read: may be hand-edited
+        return accounts.entries(self._reg_load())
 
     def clear_auth_ledger(self, tenant: str = "") -> dict:
         led = self._ledger_load()
@@ -3757,13 +4580,22 @@ class BrowserSession:
         if self._ledger_recent_submit(host):
             # Another auth submit hit this tenant under a minute ago: look,
             # don't touch.
-            o = _classify_auth_outcome(state)
+            o = _classify_auth_outcome(state, email=email)
+            last = self._last_submit_kind(host)
+            note = ("an auth submit happened on this tenant in the last 60s; "
+                    "classified only, nothing submitted")
+            if o in self._REJECTED:
+                if last == "create_account":
+                    return out("create_rejected", state, secrets, note=note)
+                # The rejection rendered after the submitting call stopped
+                # waiting: record it now, or the next call would submit the
+                # same wrong password again.
+                self._reject(host)
+                return out("bad_credentials", state, secrets, note=note)
             status = {"authenticated": "authenticated",
                       "verification": "email_verification_required",
                       "blocked": "blocked"}.get(o, "recently_submitted")
-            return out(status, state, secrets,
-                       note="an auth submit happened on this tenant in the "
-                            "last 60s; classified only, nothing submitted")
+            return out(status, state, secrets, note=note)
         if not any(f.get("sensitive") for f in state["fields"]):
             entry = await self.start_application()
             if entry["status"] == "form":
@@ -3776,18 +4608,37 @@ class BrowserSession:
                 return out("unsupported_auth_flow", state, secrets)
         if state["blocked"]:
             return out("blocked", state, secrets)
+        # The account registry decides the mode in auto (the user's rule):
+        # a known-good account -> sign in; no entry -> create one; an
+        # account whose password we never confirmed, or an SSO-only tenant
+        # -> park for the user, touching nothing.
+        reg = self._reg_get(host) or {}
+        reg_status = reg.get("status")
+        if mode == "auto" and reg_status == "exists_unknown_password":
+            return out("account_exists", state, secrets,
+                       registry_status=reg_status,
+                       note="registry: an account exists on this tenant but "
+                            "its password was never confirmed; park for the "
+                            "user to sign in by hand")
+        if mode == "auto" and reg_status == "sso_only":
+            return out("unsupported_auth_flow", state, secrets,
+                       registry_status=reg_status,
+                       note="registry: this tenant is SSO-only; park for the "
+                            "user")
         lay = self._layout(state)
         known = ("sign_in", "create_account")
         if mode != "auto":
             want = mode
-        elif lay["mode"] in known:
-            want = lay["mode"]
+        elif reg_status == "active":
+            want = "sign_in"
         else:
-            want = ("create_account" if _pick_auth_controls(
-                state["controls"], "create_account", submit=True)
-                and not _pick_auth_controls(state["controls"], "sign_in", True)
-                else "sign_in")
-        submits, switched, ambiguous = 0, False, False
+            want = "create_account"
+        submits, switched, created, after_create = 0, False, False, False
+
+        def done(status, st, **extra):
+            if created:
+                extra.setdefault("account_created", True)
+            return out(status, st, secrets, **extra)
         while submits < 2:
             if lay["mode"] != want:
                 if lay["mode"] not in known:
@@ -3816,10 +4667,19 @@ class BrowserSession:
                         return out("toggle_failed", state, secrets, wanted=want)
             if lay["password_index"] is None:
                 return out("unsupported_auth_flow", state, secrets)
-            if want == "sign_in" and self._ledger_failed_sign_in(host):
-                return out("bad_credentials", state, secrets,
-                           note="a sign-in already failed on this tenant in "
-                                "the last 24h; not risking a lockout")
+            if want == "sign_in":
+                # Never submit onto a page that ALREADY shows a rejection
+                # (a late notice from an earlier call).
+                if _classify_auth_outcome(state, "sign_in") in self._REJECTED:
+                    self._reject(host)
+                    return done("bad_credentials", state,
+                                note="the page already shows a sign-in "
+                                     "rejection; nothing was submitted")
+                if self._ledger_failed_sign_in(host):
+                    self._downgrade(host)
+                    return done("bad_credentials", state,
+                                note="a sign-in already failed on this tenant "
+                                     "in the last 24h; not risking a lockout")
             fills = [(lay["email_index"], email, False),
                      (lay["password_index"], password, True)]
             if want == "create_account":
@@ -3863,41 +4723,82 @@ class BrowserSession:
             if await self._click_first(subs, sig, pick=pick_submit) is None:
                 return out("no_auth_submit", state, secrets)
             submits += 1
-            state = await self._settle(
-                sig, until=lambda st: _auth_settled(st, before_notices))
-            outcome = _classify_auth_outcome(state)
+
+            def settled(st, want=want):
+                return _auth_settled(st, before_notices, want, email)
+            state = await self._settle(sig, timeout=self._AUTH_WAIT_S,
+                                       until=settled)
+            outcome = _classify_auth_outcome(state, want, email)
             self._ledger_add(host, want, outcome)
             if outcome == "blocked":
-                return out("blocked", state, secrets)
+                return done("blocked", state)
+            made = want == "create_account" or after_create
             if outcome == "verification":
-                return out("email_verification_required", state, secrets)
+                if made:
+                    created = True
+                    self._reg_record(host, "active", email, created=True)
+                return done("email_verification_required", state)
             if outcome == "authenticated":
-                return out("authenticated", state, secrets)
+                created = created or made
+                self._reg_record(host, "active", email, created=made,
+                                 signed_in=True)
+                return done("authenticated", state)
+            if outcome == "created_signin_required":
+                # A create that lands silently on Sign In is EITHER a new
+                # account OR, on a tenant that hides "already exists", an
+                # existing one: indistinguishable here. So nothing is
+                # recorded yet; ONE follow-up sign-in decides (success ->
+                # active; rejection -> exists_unknown_password, parked).
+                if submits < 2:
+                    want, switched, after_create = "sign_in", True, True
+                    lay = self._layout(state)
+                    continue
+                return done("account_created_signin_required", state,
+                            note="the create landed on a sign-in page with no "
+                                 "message; unconfirmed until a sign-in "
+                                 "succeeds")
+            if after_create and outcome in ("combined", "bad_password",
+                                            "still_auth"):
+                self._reg_record(host, "exists_unknown_password", email)
+                return done("account_exists", state,
+                            note="create landed on Sign In without a message "
+                                 "and the follow-up sign-in was rejected: the "
+                                 "account most likely already existed; "
+                                 "recorded exists_unknown_password; park for "
+                                 "the user to sign in by hand")
             if outcome == "exists":
-                if want == "create_account" and not switched and submits < 2:
-                    want, switched = "sign_in", True
-                    lay = self._layout(state)
-                    continue
-                if ambiguous:
-                    self._ledger_add(host, "verdict", "bad_credentials")
-                    return out("bad_credentials", state, secrets)
-                return out("account_exists", state, secrets)
-            if outcome in ("no_account", "combined"):
+                if want == "create_account":
+                    # Never fall back to a sign-in with a password nobody
+                    # confirmed for this account: park it for the user.
+                    self._reg_record(host, "exists_unknown_password", email)
+                    return done("account_exists", state,
+                                note="the account already exists and its "
+                                     "password is unconfirmed; recorded in "
+                                     "the account registry; park for the "
+                                     "user to sign in by hand")
+                return done("account_exists", state)
+            if outcome == "no_account":
+                # The registry said active but the tenant has no such user
+                # (account removed): create it once, in auto mode only.
                 if (want == "sign_in" and mode == "auto" and not switched
-                        and submits < 2):
+                        and not created and submits < 2):
                     want, switched = "create_account", True
-                    ambiguous = outcome == "combined"
                     lay = self._layout(state)
                     continue
-                if outcome == "no_account":
-                    return out("no_account", state, secrets)
-                self._ledger_add(host, "verdict", "bad_credentials")
-                return out("bad_credentials", state, secrets)
-            if outcome == "bad_password":
-                self._ledger_add(host, "verdict", "bad_credentials")
-                return out("bad_credentials", state, secrets)
-            return out("unconfirmed", state, secrets)
-        return out("unconfirmed", state, secrets)
+                return done("no_account", state)
+            if outcome in ("combined", "bad_password"):
+                if want == "create_account":
+                    # Create-form validation ("Invalid email address",
+                    # "Invalid password: must contain ..."), not a sign-in
+                    # rejection: never a lockout verdict.
+                    return done("create_rejected", state)
+                # A sign-in only runs against an account the registry knows
+                # (or one the caller asked for explicitly), so "wrong email
+                # or password" means the password: never a create retry.
+                self._reject(host)
+                return done("bad_credentials", state)
+            return done("unconfirmed", state)
+        return done("unconfirmed", state)
 
     async def open_verification_link(self, url: str) -> dict:
         """Open an emailed Workday verification link in a NEW tab of this

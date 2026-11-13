@@ -56,8 +56,12 @@ class FakeElement:
                  native_check_commits=True, proxy_exists=True,
                  proxy_commits=True, normalize=None, unreadable=False,
                  aria_scoped=False, options=(), option_click_commits=True,
-                 typing_commits=True, expanded=None, never_opens=False):
+                 typing_commits=True, expanded=None, never_opens=False,
+                 clears_on_blur=False):
         self.read_value = read_value
+        # A search/prompt input: holds typed text until blur, then drops it.
+        self.clears_on_blur = clears_on_blur
+        self.blurs = 0
         self.check_raises = check_raises
         self.native_check_commits = native_check_commits
         self.proxy_exists = proxy_exists
@@ -164,6 +168,11 @@ class FakeFrame:
             return el.expanded
         if js is browser._COMBO_OPTIONS_JS:
             return list(el.options)
+        if js is getattr(browser, "_BLUR_JS", object()):
+            el.blurs += 1
+            if el.clears_on_blur:
+                el.read_value = ""
+            return True
         return None                      # the data-japroxy cleanup sweep
 
     def locator(self, selector):
@@ -301,6 +310,26 @@ def test_empty_text_readback_is_uncommitted():
     assert res["observed_value"] == "", res
 
 
+def test_text_is_verified_after_blur_not_before():
+    # Live Capital One Workday: School / Field of Study are search/prompt
+    # inputs that hold the typed text until focus leaves, then drop it unless
+    # a result was picked. Reading back BEFORE blur said verified:true over
+    # what ended up an empty box.
+    el = FakeElement(clears_on_blur=True)
+    s = make_session("text", el)
+    res = asyncio.run(s.fill_field(0, "University of California, Los Angeles"))
+    assert el.blurs == 1, el.blurs
+    assert res["status"] == "uncommitted" and res["verified"] is False, res
+    assert res["observed_value"] == "" and "did not survive" in res["note"], res
+
+
+def test_text_that_survives_blur_is_still_verified():
+    el = FakeElement()
+    s = make_session("text", el)
+    res = asyncio.run(s.fill_field(0, "Springfield"))
+    assert res["verified"] is True and "note" not in res, res
+
+
 def test_select_mismatch_is_uncommitted():
     el = FakeElement(normalize=lambda v: "Select...")
     s = make_session("select", el)
@@ -336,7 +365,7 @@ def test_read_form_and_the_verifier_share_the_listbox_cascade():
 
 def test_scanner_sees_listbox_buttons_as_comboboxes():
     assert 'button[aria-haspopup="listbox"]' in browser._SCAN_JS
-    assert "widget: isListbox ? 'listbox' : undefined" in browser._SCAN_JS
+    assert "widget: isListbox ? 'listbox' :" in browser._SCAN_JS
 
 
 def test_listbox_reading_back_the_placeholder_is_uncommitted():

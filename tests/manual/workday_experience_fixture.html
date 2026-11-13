@@ -31,6 +31,16 @@
     * prefill variants: #prefill (resume-parsed experience group with only
       title + company), #prefill-edu (education group whose school is a
       pill), #orphan-edu (education group with a degree but no school)
+    * #remount: the first time a group's Company field loses focus with a
+      value, the WHOLE group is re-rendered (new elements, values carried
+      over, every data-ja* stamp gone), like a framework remount. Models the
+      live Capital One first pass (2026-11-13): every new group "vanished"
+      right after Job Title + Company. The trigger is a model, not observed.
+    * #prompt-edu: School and Field of Study are plain text inputs (no
+      role=combobox) that DROP typed text on blur unless a result was
+      picked. Models the live Capital One School / Field of Study result
+      (`verified:true` while the page showed both boxes empty); built from
+      tool results and one screenshot, not a DOM probe.
 -->
 <style>
   body { font: 14px system-ui; padding: 24px; max-width: 720px; }
@@ -82,6 +92,10 @@
 <script>
   window.__adds = {we: 0, ed: 0, lang: 0, cert: 0};
   var ARIACB = location.hash.indexOf('ariacb') !== -1;
+  var REMOUNT = location.hash.indexOf('remount') !== -1;
+  var PROMPT = location.hash.indexOf('prompt-edu') !== -1;
+  window.__remounted = {};
+  window.__remounts = 0;
   var SCHOOLS = ['University of Southern California',
                  'University of California, Santa Barbara',
                  'Stanford University', 'Example State University'];
@@ -144,6 +158,15 @@
       '<div class="field"><label for="' + p + '-desc">Role Description</label>' +
       '<textarea id="' + p + '-desc" rows="3"></textarea></div>';
     document.getElementById('we-groups').appendChild(g);
+    wireExperience(p);
+    if (pre) {
+      document.getElementById(p + '-title').value = pre.title;
+      document.getElementById(p + '-company').value = pre.company;
+    }
+    document.getElementById('we-add').textContent = 'Add Another';
+  }
+
+  function wireExperience(p) {
     wireSpin(p + '-from');
     wireSpin(p + '-to');
     var box = document.getElementById(p + '-cur');
@@ -161,11 +184,52 @@
     } else {
       box.addEventListener('change', sync);
     }
-    if (pre) {
-      document.getElementById(p + '-title').value = pre.title;
-      document.getElementById(p + '-company').value = pre.company;
+    if (REMOUNT && !window.__remounted[p]) {
+      var co = document.getElementById(p + '-company');
+      co.addEventListener('blur', function () {
+        if (window.__remounted[p] || !co.value) return;
+        window.__remounted[p] = true;
+        setTimeout(function () { remountGroup(p); }, 0);
+      });
     }
-    document.getElementById('we-add').textContent = 'Add Another';
+  }
+
+  // Framework-style remount: brand-new elements, the same values, and no
+  // trace of anything a script stamped on the old ones.
+  function remountGroup(p) {
+    var old = document.getElementById(p + '-h').closest('.grp');
+    var vals = {};
+    old.querySelectorAll('input, textarea').forEach(function (e) {
+      vals[e.id] = e.type === 'checkbox' ? e.checked : e.value;
+    });
+    var g = document.createElement('div');
+    g.className = 'grp';
+    g.setAttribute('role', 'group');
+    g.setAttribute('aria-labelledby', p + '-h');
+    g.innerHTML = old.innerHTML.replace(/\sdata-ja[a-z]+="[^"]*"/g, '');
+    old.replaceWith(g);
+    Object.keys(vals).forEach(function (id) {
+      var e = document.getElementById(id);
+      if (!e) return;
+      if (e.type === 'checkbox') e.checked = vals[id]; else e.value = vals[id];
+    });
+    wireExperience(p);
+    window.__remounts += 1;
+  }
+
+  // #prompt-edu: a search box that keeps typed text only until blur; only a
+  // PICKED result (none is ever offered here) would survive.
+  function promptBox(id, label) {
+    return '<div class="field"><label for="' + id + '">' + label + '</label>' +
+      '<ul class="pills" id="' + id + '-pills"></ul>' +
+      '<input type="text" id="' + id + '" autocomplete="off" placeholder="Search">' +
+      '</div>';
+  }
+  function wirePrompt(id) {
+    var inp = document.getElementById(id);
+    inp.addEventListener('blur', function () {
+      setTimeout(function () { inp.value = ''; }, 0);
+    });
   }
 
   function typeahead(id, label) {
@@ -245,7 +309,8 @@
     g.innerHTML =
       '<h4 id="' + p + '-h">Education ' + n + '</h4>' +
       '<button type="button">Delete</button>' +
-      typeahead(p + '-school', 'School or University*') +
+      (PROMPT ? promptBox(p + '-school', 'School or University*')
+              : typeahead(p + '-school', 'School or University*')) +
       '<div class="field"><label id="' + p + '-deg-l">Degree*</label>' +
       '<button type="button" id="' + p + '-deg" aria-haspopup="listbox" ' +
       'aria-expanded="false" aria-controls="' + p + '-deg-lb" ' +
@@ -253,7 +318,8 @@
       '<div role="listbox" id="' + p + '-deg-lb" hidden>' +
       DEGREES.map(function (d) { return '<div role="option">' + d + '</div>'; }).join('') +
       '</div></div>' +
-      typeahead(p + '-fos', 'Field of Study') +
+      (PROMPT ? promptBox(p + '-fos', 'Field of Study')
+              : typeahead(p + '-fos', 'Field of Study')) +
       '<div class="field"><label for="' + p + '-gpa">Overall Result (GPA)</label>' +
       '<input type="text" id="' + p + '-gpa"></div>' +
       '<div class="field"><label for="' + p + '-from">From</label>' +
@@ -261,8 +327,13 @@
       '<div class="field"><label for="' + p + '-to">To (Actual or Expected)*</label>' +
       '<input type="text" id="' + p + '-to" placeholder="YYYY"></div>';
     document.getElementById('ed-groups').appendChild(g);
-    wireTypeahead(p + '-school', SCHOOLS, true);
-    wireTypeahead(p + '-fos', FIELDS, false);
+    if (PROMPT) {
+      wirePrompt(p + '-school');
+      wirePrompt(p + '-fos');
+    } else {
+      wireTypeahead(p + '-school', SCHOOLS, true);
+      wireTypeahead(p + '-fos', FIELDS, false);
+    }
     wireListbox(p + '-deg', p + '-deg-lb');
     if (pre && pre.school) setPill(p + '-school', pre.school);
     if (pre && pre.degree) commitListbox(document.getElementById(p + '-deg'), pre.degree);
