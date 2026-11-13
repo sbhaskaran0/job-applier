@@ -1,11 +1,19 @@
-# Multi-user generalization — Linear backlog (mirror)
+# Multi-user generalization — backlog (mirror)
 
-> **Status:** pushed to Linear 2026-08-10 (team **Job Applier Task
-> Management**) — Linear is now the source of truth; this file is the mirror.
-> Epics: **JOB-81** (M1, Done) · **JOB-82** (M2) · **JOB-83** (M3) ·
-> **JOB-84** (M4). Stories: M2.1–M2.6 = JOB-85…90 · M3.1–M3.4 = JOB-91…94 ·
-> M4.1–M4.4 = JOB-95…98. JOB-33 (portability data split) closed as
-> superseded by JOB-81; JOB-34 (env hardening) stays open.
+> **Status:** the tracker moved from Linear to **taskman** (project `JOB`) on
+> 2026-09-10; see CLAUDE.md for the tracker discipline.
+>
+> **⚠ The `JOB-*` IDs in the tables below are Linear-era and do NOT map to
+> taskman keys.** taskman's `JOB` project reuses the `JOB-` prefix but
+> renumbered from 1, so `JOB-85` here is not taskman's `JOB-85`. They are kept
+> verbatim as historical citations of how the epics were originally filed —
+> resolve any of these stories in taskman **by title**
+> (`mcp__taskman__search_nodes`), never by number. Original Linear filing
+> (2026-08-10, team *Job Applier Task Management*): Epics **JOB-81** (M1,
+> Done) · **JOB-82** (M2) · **JOB-83** (M3) · **JOB-84** (M4); Stories
+> M2.1–M2.6 = JOB-85…90 · M3.1–M3.4 = JOB-91…94 · M4.1–M4.4 = JOB-95…98.
+> JOB-33 (portability data split) closed as superseded by JOB-81; JOB-34 (env
+> hardening) stays open.
 >
 > Product decisions baked in: hybrid deployment (GCP data plane, local
 > execution, each user's own Claude subscription) · ~2–10 known users ·

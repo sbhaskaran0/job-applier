@@ -1,7 +1,7 @@
 # Session handoff — job-applier
 
 Paste into a fresh Claude Code session to restore context. Durable state only;
-per-session narrative lives in `git log` + Linear. Last updated 2026-09-04.
+per-session narrative lives in `git log` + taskman. Last updated 2026-11-13.
 
 **Restart Claude Code before relying on `src/` changes** — the MCP server caches
 code until Claude Code restarts.
@@ -9,11 +9,12 @@ code until Claude Code restarts.
 ## What this project is
 An AI job-application agent that runs **inside Claude Code**. Claude is the
 reasoner; a local **MCP server** (`job-applier`, Python, stdio, `.mcp.json` →
-`python -m src.mcp_server`, **35 tools**) provides a live Playwright browser +
+`python -m src.mcp_server`, **44 tools**) provides a live Playwright browser +
 the user's data. **No LLM API key** in the core flow. Skills:
-- **`/find-jobs <query>`** — roles across a curated ~79-company watchlist
-  (public Greenhouse/Lever/Ashby APIs), served from a local postings store,
-  strict-filtered by `job_criteria.yaml`, ranked semantically by Claude.
+- **`/find-jobs <query>`** — roles across a curated 80-company watchlist
+  (public Greenhouse/Lever/Ashby APIs, **+ Workday boards as of M0, 2026-09-09**),
+  served from a local postings store, strict-filtered by `job_criteria.yaml`,
+  ranked semantically by Claude.
 - **`/apply-to-job <url>`** — fills from profile→history→context with
   confidence-gated approval; **never auto-submits**.
 - **`/apply-batch <urls>`** — N jobs: `snapshot_job` writes each form's prep
@@ -34,8 +35,10 @@ the user's data. **No LLM API key** in the core flow. Skills:
 - **`/tailor-application <url>`** (JOB-6) — on-demand bespoke resume + cover
   letter for ONE posting. Edits `resume.docx` in place (reorder/re-emphasize/trim
   bullets, sharpen summary; formatting preserved), exports PDF, drafts a cover
-  letter in the user's voice from past cover letters in `context/`. Saves to
-  `resumes/<job-slug>/`; apply flow auto-picks it up. NOT run per-application.
+  letter in the user's voice from past cover letters in `context/` (written
+  template + lint + code-rendered letterhead, drafted by the Opus-pinned
+  `answer-crafter` agent, 2026-10). Saves to `resumes/<job-slug>/`; apply flow
+  auto-picks it up. NOT run per-application.
 - **`/commit`** (dev) — every commit must update README + USER_GUIDE + this file,
   and add/refresh a Mermaid diagram for any new workflow.
 - **Applyer web wrapper** — `scripts\webapp.cmd` → FastAPI `server/` on :8765
@@ -63,9 +66,17 @@ the user's data. **No LLM API key** in the core flow. Skills:
 
 User: **Siddharth Bhaskaran**, Los Angeles, ~5-yr PM targeting mid/senior
 **product & tech-strategy / BizOps** roles. Repo: private GitHub
-`sbhaskaran0/job-applier`. Strategy verdict: **hybrid** — own the
-discovery/data layer (the compounding asset); lean on Cowork/Claude-in-Chrome
-for hard executor cases (auth walls, Workday wizards) instead of building them.
+`sbhaskaran0/job-applier`. Strategy verdict: **hybrid, REVISED 2026-09-09** —
+own the discovery/data layer (the compounding asset); the earlier plan to lean
+on Cowork/Claude-in-Chrome for Workday wizards instead of building an executor
+is **reversed by explicit user decision** — Workday sourcing (M0, 2026-09-09)
+and the in-repo Workday apply path (M1, built 2026-10-03; **first live
+application completed 2026-11-13, partly via the Chrome extension, see Current
+state**) are built (see Current state / Open items below). Cowork/Chrome is now
+a **documented fallback lane** in both apply skills (technical failures on
+Workday, last resort on bot-detection parks elsewhere), and remains the
+fallback for other hard executor cases (auth walls, combobox probe-typing, non-English
+aliases, JS-only dropzones).
 
 ## Architecture / key files
 - **`src/profiles.py` — the profile system (M1, 2026-08-10).** ALL personal
@@ -93,7 +104,9 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   `profiles/_template/`; legacy checkouts: `scripts/migrate_profile.py`.
   Multi-user roadmap (GCP data plane, auth, onboarding UI, per-user filtered
   postings): `docs/backlog-multiuser.md`.
-- `src/mcp_server.py` — 35 FastMCP tools; thin wrappers. `get_profile_paths`
+- `src/mcp_server.py` — **44 MCP tools** as of 2026-11-13 (2026-11-13 added read-only `list_workday_accounts`; 2026-10 added `lint_text`, `fill_credential`, `fill_repeating_section`, `start_application`, `authenticate`, `open_verification_link`, `clear_auth_ledger`, and a `target` arg on `upload_resume`; mcp SDK 2.x `MCPServer`, migrated from
+  `FastMCP` 2026-09-08 — same `@mcp.tool()`/`mcp.run()` surface, only the
+  import + constructor changed); thin wrappers. `get_profile_paths`
   returns the active profile's resolved dirs (skills call it instead of
   guessing paths). `snapshot_job`
   (JOB-52): opens+reads+writes a batch prep file server-side, returning only a
@@ -106,17 +119,68 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   no per-site selectors; non-headless; **persistent Chromium profile** per
   user at `profiles/<id>/runtime/browser/` — cookies/logins survive restarts,
   anti-bot fingerprint stays stable; screenshots default to the profile's
-  `runtime/`).
-  `_submission_confirmed` classifies submit outcome from **page text**:
-  `submitted` / `rejected_spam` / `attempted` (vanished form ≠ success).
+  `runtime/`). **Idempotence fix (2026-09-16):** `_SCAN_JS` sweeps stale `data-jaidx`
+  tags before scanning so button-group radios don't drop on re-read. **Verified
+  fills:** `fill_field`/`fill_many` return `verified` + `observed_value`;
+  `uncommitted` status for proven pick-from-a-list failures. **Wizard support:**
+  `advance_step()` clicks Next/Continue and reads the new page. **Safe submit button:**
+  explicit-text candidates prioritized, wizard buttons (next/continue/back/…)
+  excluded via anchored regex. `_submission_confirmed` classifies submit outcome
+  from **page text**: `submitted` / `rejected_spam` / `attempted` (vanished form ≠
+  success). Workday-style dropdowns (`aria-haspopup="listbox"`) visible; dispatch
+  on widget not site.
+  **2026-10 browser additions:** `upload_resume(target="resume"|"cover")` (cover
+  goes only into a cover-labelled input, never the resume slot; `no_cover_slot`;
+  read-back `verified`/`observed_filename`; dict errors). **Workday M1:** sensitive
+  (password) fields are masked everywhere, sticky through the show-password
+  toggle, refused by `fill_field`/`fill_many` (`use_fill_credential`) and filled
+  only via `fill_sensitive`/`fill_credential`; `start_application`,
+  `authenticate` (Workday hosts only, per-tenant ledger
+  `profiles/<id>/runtime/auth_attempts.json`: 1 failed sign-in/tenant/24h,
+  `bad_credentials` short-circuits, 60s resubmit guard), `open_verification_link`;
+  button classes entry / auth / never-click; `advance_step` gains
+  `entry_page`/`auth_page`, "Review" advances, a lone "Apply" on a filled tab is a
+  submit (per-tab filled flag); `snapshot_job` walks entry + auth on Workday.
+  **2026-10-04 first live Workday run (Capital One wd12) fixes:** `data-jactl`
+  control tags are now STABLE across scans (only untagged elements get a new
+  number; shared tags re-issued), `_click_control` refuses a tag whose live
+  label/class no longer matches, `_click_first(pick=...)` re-picks each
+  candidate from a fresh scan, and `authenticate` re-scans after the fills
+  before choosing the submit (a show-password toggle had shifted the old
+  renumbered tags -> `no_auth_submit`). `start_application` waits for real
+  progress (new entry control / form / sign-in fields; a URL flip alone is
+  not progress), prefers controls in an open `[role=dialog]`/`[aria-modal]`
+  over the background Apply, waits for a late-rendering Apply, and is bounded
+  at 4 clicks / ~30s per call; live probe reaches `auth_required` in one call.
+- `src/accounts.py` (**new, 2026-11-13**) — Workday tenant-account registry,
+  `profiles/<id>/data/workday_accounts.json`, keyed by tenant host:
+  `{email, status, created_at, last_sign_in_at, source}`, status `active` |
+  `exists_unknown_password` | `sso_only`. `record()` takes no secret and `load()`
+  drops any key outside the five fields, so a password cannot get in.
+  `authenticate(auto)` reads it (see the 2026-11-13 entry).
+- `src/technical.py` (**new, 2026-11-13**) — `technical: true` marking.
+  `TECHNICAL_STATUSES` is the per-tool table (fill / repeating / repeating_row /
+  advance_step / start_application / authenticate / upload_resume /
+  submit_application); `field_is_technical` and `_row_is_technical` hold the two
+  conditional rules (`uncommitted` without `options`, and `not_found` on an
+  identity / start / current key). `mcp_server.py` wraps the tool results with
+  `technical.mark`. No second status vocabulary.
+- `src/repeating.py` (**new, 2026-10**) — pure helpers + `SECTION_JS` for
+  `fill_repeating_section` (Workday My Experience): locate a section by heading,
+  split fields into per-entry groups, plan which existing/orphan/blank group each
+  profile entry goes to (fill-blanks only, max 8 entries), date-widget shapes,
+  degree matching (`match_degree`), pill/typeahead read-back, GPA per
+  `gpa_policy`. Entries come only from `profile.yaml` `experience:`/`education:`.
 - `src/data.py` — profile alias lookup, fuzzy history search, `save_answer`
   (normalized question identity), `log_application_record` (deduped on
-  **(company, role)**; URL only as fallback). **JOB-107:** `outcome` /
-  `outcome_date` as a dimension orthogonal to `status` (did we finish the form
-  vs. did the company ever reply) — `set_application_outcome` resolves through
-  the same dedupe key as the apply path so the two can't drift;
-  `application_outcome_stats` is pure and returns totals/`response_rate`/
-  `by_outcome`/`by_company`. Purely additive, no migration.
+  **(company, role)**; URL only as fallback). **Answer hygiene (2026-09-16):**
+  `_sanitize_answer` at write boundary repairs data losslessly (e.g., leaked
+  tool-call markup). `SHORT_ANSWER_CHARS = 150` extracted. Optional `alternates`
+  list rides alongside scalar `answer` (unioned when both short and differ after
+  normalization, deduped, capped at 5). **JOB-107:** `outcome` / `outcome_date`
+  orthogonal to `status` — `set_application_outcome` resolves via same dedupe key
+  as apply path; `application_outcome_stats` returns totals/`response_rate`/
+  `by_outcome`/`by_company`. Purely additive.
 - `src/context.py` — `search_context` over `context/*` + resume text.
 - `src/tailor.py` — **JOB-6 tailoring** (mechanical only; Claude reasons).
   `read_resume_template` (indexed paragraphs, walks tables), `tailor_resume`
@@ -125,10 +189,31 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   samples + past answers; excludes structured KB), `save_cover_letter`,
   `job_artifacts` (apply-time lookup w/ default fallback), `_export_pdf`
   (Word COM → docx2pdf → LibreOffice `soffice`; docx still saved if none).
+  **2026-10:** `context/cover_letter_template.md` (excluded from the voice
+  corpus, searchable; generic copy in `profiles/_template/context/`);
+  `COVER_LINT_RULES` table (CL-H01..H12 HARD, CL-S01..S12 SOFT; tune the table,
+  not the code); `lint_cover_letter` / `lint_text`; `strip_letterhead`;
+  `save_cover_letter(force=False)` lints first and returns `{saved, lint}`;
+  letterhead rendered from profile fields (`full_name`, `address`, `city`,
+  `state`→abbr, `zip`, `phone`, `email`, date M/D/YYYY; Mongolian Baiti, name
+  26pt) or an optional `cover_letter_template.docx` with `{{placeholders}}`.
+- `.claude/agents/answer-crafter.md` (**new, 2026-10**) — `model: opus`,
+  read-only drafting subagent; skills route ALL non-verbatim drafting (essays,
+  cover letters, adaptations) through it. `server/chat.py` also pins
+  `model="opus"` and webchat usage rows log the model. Web `/tailor-application`
+  queues one role at a time ("Up next" + Continue).
 - `src/store.py` — **postings store**: SQLite `data/postings.db` (gitignored
   cache; PK `(ats, slug, job_id)`; `first_seen`/`last_seen`/`removed_at`;
-  removals ONLY from boards that fetched OK), `passes_baseline`,
-  `list_postings_from_store`, `yield_stats`. Schema v2 (JOB-55, auto-migrates
+  removals ONLY from boards that fetched OK **and completely** —
+  `refresh_from_fetch` reads a new third list, `incomplete`, off
+  `fetch_all_with_status()` (M0: names truncated-but-otherwise-OK Workday
+  boards) and skips the removal pass for those too, without counting them as
+  a `companies_failed` board-health failure), `passes_baseline`,
+  `list_postings_from_store`, `yield_stats`. **Schema v5 (2026-10):** `postings.missed_runs` +
+  `REMOVAL_GRACE = {"workday": 2}` — a row is removed only after N consecutive
+  COMPLETE-fetch misses (frozen while a board fails/incomplete, reset on any
+  sighting; non-Workday = 1). Live probe: Workday paging is stable within a run,
+  `sortBy` is ignored. Schema v2 (JOB-55, auto-migrates
   via `PRAGMA user_version`): `work_mode`/`posted_at` columns + normalized
   `posting_locations` + `location_observations` (raw→canonical audit trail for
   alias curation). Same-role-multiple-cities rows are merged in
@@ -138,10 +223,13 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   / `load_candidates` / `upsert_candidate`. Schema v3/v4 (2026-08-19, JOB-59):
   `refresh_runs` gained `new_qualifying`/`new_title_matched` (raw, v3) and
   `new_qualifying_roles`/`new_title_matched_roles` (distinct-role, v4) columns
-  + `yield_history(days)` to read them back per-day; `_role_key()` (company +
-  lowercased title) is now the single dedupe identity shared by
-  `list_postings_from_store`, `count_board_baseline`, and `yield_stats`, all of
-  which count distinct roles rather than raw city-variant rows.
+  + `yield_history(days)` to read them back per-day; `_role_key()` is the
+  single dedupe identity shared by `list_postings_from_store`,
+  `count_board_baseline`, and `yield_stats`, all of which count distinct roles
+  rather than raw city-variant rows. **As of 2026-09-16 it delegates to
+  `data.role_key()`** — it used to be (company raw + lowercased title), which
+  did not match the key the already-applied set was built with; see the
+  2026-09-16 entry.
   **JOB-137:** `_DARK_RUNS` (3) now lives here, not `refresh.py` (which
   re-exports it); `dark_boards()` reads the consecutive-failure counter
   `refresh_from_fetch` already tracks in `refresh_runs.companies_failed`.
@@ -180,12 +268,55 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   one.
 - `src/providers/watchlist.py` — fetch/normalize boards (incl. `job_id`+`slug`),
   live `list_postings`, `get_posting(s)`, `add_company`, `detect_ats_slug`,
-  `_FETCHERS` (reused by discovery to probe candidate boards).
+  `_FETCHERS` (reused by discovery to probe candidate boards). `_FETCHERS` now
+  includes `"workday": workday.fetch_workday`; `detect_ats_slug`/`get_posting`
+  gained a `myworkdayjobs.com` branch; `add_company` is Workday-aware
+  (quotes the `tenant:shard:site` slug, since it contains colons) and returns
+  an actionable error pointing at `workday_bootstrap.py` for a bare tenant
+  host (no site path — resolving one needs a synchronous-incompatible
+  `robots.txt` fetch). `prefilter` now indexes `p.get("title")` instead of
+  `p["title"]` — a latent bug hit by every provider, surfaced by Workday rows
+  NVIDIA serves with no title and no `externalPath` (was a `KeyError` that
+  killed the whole board's fetch).
+- `src/providers/workday.py` (**new, M0, 2026-09-09**) — Workday sourcing:
+  pulls a tenant's public `myworkdayjobs` board via its own keyless JSON API
+  (`POST .../wday/cxs/{tenant}/{site}/jobs`, no auth). Handles three API
+  quirks (`limit` maxes at 20, `offset` clamps at 2000 and then replays page 0,
+  `total` is only honest at offset 0). Under the wall, pages the full list
+  (`"full"`). At/over the wall (`total` clamped at 2000 means "2000 or more"),
+  it **partitions by the board's own `jobFamilyGroup` facet** — pages every
+  family value separately (biggest first, within a request budget) and unions
+  by `job_id` — because each family is individually under the wall even when
+  the board isn't (NVIDIA: facet counts sum to ~2614 vs. `total`'s clamped
+  2000; largest family, Engineering, is 1723). This reconstructs the
+  **complete** board with no keyword-matching of which families "look like"
+  product roles. Strategy tags in `LAST_RUN_NOTES[slug]`: `full` ·
+  `full_truncated` (walled, no facet to partition by) · `partitioned` ·
+  `partitioned_truncated` (a family hit its own wall, the budget skipped a
+  family, or family counts don't sum to `total`). One detail GET per
+  title-surviving posting for description/real `startDate`/locations; salary
+  is always `None` (Workday exposes none). This shape was still being
+  revised as M0 landed this session — re-check the module's own docstring
+  before relying on exact field names.
+- `scripts/workday_bootstrap.py` (**new, M0**) — proposes
+  tenant/shard/site triples for `watchlist.yaml` against a public MIT-licensed
+  tenant index (~12,884 entries), validating and auto-repairing (422 → sweep
+  shards, 404 → re-read `robots.txt` for the real site) against the live API.
+  Never writes `watchlist.yaml`. CLI: bare names, `--watchlist-names`,
+  `--tenant`/`--site`, `--url`, `--all-sites`, `--refresh-index`,
+  `--concurrency`, `--limit`.
 - `src/providers/discovery.py` — startup-discovery sources: `yc_candidates`
   (yc-oss directory, hiring/team-size filtered), `consider_candidates` (Consider
   VC board pager, applyUrl→ats/slug), `gather_candidates` (dedupe by board),
   `probe_candidate` (fetch + count baseline; guess-probes YC slug variants),
-  `board_url`.
+  `board_url` (gained a Workday arm, `workday.board_url(slug)`).
+- `tests/test_workday_sourcing.py`, `tests/test_refresh_removals.py`
+  (**new, M0**) — standalone suites (no pytest needed to matter for CI; each
+  exits non-zero on failure). Cover URL parsing, pagination/offset-clamp
+  detection, facet-union behavior, normalize, and — in the removals suite —
+  that an `incomplete` (truncated) Workday fetch skips the store's removal
+  pass without being logged as a board failure. CI's tests job now installs
+  `httpx` alongside `pyyaml` for these.
 - `src/discover.py` — `python -m src.discover`: LLM-free discovery run.
   Enumerate → incremental+budgeted select (exact Consider first, then YC; skip
   fresh) → probe concurrently → upsert ledger → `data/discovery-latest.md`.
@@ -201,13 +332,41 @@ for hard executor cases (auth walls, Workday wizards) instead of building them.
   failed one. `outcome == "none"` still counts as awaiting; `"ghosted"` is
   the sentinel that clears a row. Records with a missing/unparseable `date`
   are skipped, not listed.
+  **2026-10 reliability:** `data/refresh-health.json` (run_at, ok, companies_ok/
+  failed, new/removed counts; ok=false if it raised or 0 boards fetched); digest
+  "Note: previous refresh was Nh before this one" when > 30h; `/api/status`
+  returns `health`; Postings page amber banner over 26h or on a failed run.
+  `scripts/refresh_guard.py` (skip if health ok and < 12h; `--force` /
+  `JOBAPPLIER_FORCE_REFRESH=1`; rotates `data
+efresh.log` at ~1 MB);
+  `scripts/refresh.cmd` logs; `scripts/setup_refresh_task.ps1` (WakeToRun,
+  StartWhenAvailable, battery flags, 09:00 daily + at-logon 10-min delay,
+  Interactive principal, idempotent via `Register-ScheduledTask -Force`).
 - `src/providers/extract.py` — ingest-time regex enrichment: salary-from-JD
   (`salary_source: 'api'|'jd'`; Greenhouse ~60%, Lever 0%), advisory `min_years`,
   word-bounded `seniority_flag`.
-- `src/config.py` — paths + loaders: `user_profile.yaml`, `job_criteria.yaml`,
+- `src/config.py` — **(2026-10)** `load_credentials()`/`credential(service, field)`
+  read `profiles/<id>/secrets/credentials.yaml` (gitignored; template
+  `credentials.example.yaml`) for server-side use only: a malformed file gives
+  `bad_credentials_file` with no message, blank/`change-me` gives
+  `no_credentials`, a blank Workday email falls back to the profile email;
+  `cover_letter_template_docx()`; profile blocks `zip`, `experience:`,
+  `education:`, `gpa_policy`. Paths + loaders: `user_profile.yaml`, `job_criteria.yaml`,
   `watchlist.yaml`, `discovery.yaml`, `resume.txt`/`.pdf`/`.docx` (JOB-6 base),
   `context/`, `data/history.json`, `data/applications.json`. `RESUMES_DIR`
-  (gitignored), `base_resume_docx()`.
+  (gitignored), `base_resume_docx()`. **Storage seam (2026-09-16):** four loaders
+  (`load_history`/`save_history`/`load_applications`/`save_applications`) now
+  delegate to a `Repository` backend (selected by `JOB_APPLIER_DATASTORE` env var);
+  `FileBackend` (byte-for-byte today, default) + `TaskmanBackend` (dual-write,
+  degrades to file-only on error). See `src/datastore/` below.
+- `src/datastore/` (**new, 2026-09-16**) — storage seam. `Repository` protocol
+  + `FileBackend` (byte-for-byte today's behavior, default). `TaskmanBackend`
+  (dual-write: files remain source-of-truth + backup; taskman has no export or
+  backup path) degrades to file-only on any taskman error — logging a verified
+  submit must never fail. Selected by `JOB_APPLIER_DATASTORE` env var. **Not yet
+  exercised against live taskman** (no API key in this session). Limitation:
+  taskman has no per-user scoping, single-owner by convention. `eeo.yaml`
+  hard carve-out, never moves.
 - `server/` — Applyer backend: `data_api.py` (REST over src modules; EDITABLE_
   PROFILE_KEYS whitelist; `/api/criteria` GET/PUT = comment-preserving
   `job_criteria.yaml` editor, `/api/posting` = JD detail store-first/live-
@@ -254,6 +413,414 @@ disclosed-salary floor — undisclosed kept + flagged) and carry `min_years`
 proves liveness — apply re-verifies via `get_posting`/`open_job`.
 
 ## Current state
+- **2026-11-13 session — first completed Workday application; registry, sign-in
+  classification, date and search-box widgets, `technical` flag; skills gain a
+  Chrome fallback lane.** Branch `integrate/fixes-2026-10`, PR #14 open to
+  `main` (merge is the user's click); the job-applier MCP server needs a new
+  Claude Code session to load this code.
+  - **Live result.** Capital One, "Product Manager: Capital One Shopping
+    (Remote-Eligible)" (R246330) was submitted, confirmed, and logged in
+    `applications.json`. **Playwright lane (old code):** `start_application`
+    reached the auth page in one call; `authenticate` created the account and
+    signed in with no manual step and no email verification, but returned
+    `unconfirmed` both times; My Information filled and advanced; My Experience
+    failed on dates, on School / Field of Study (a false `verified:true` while the
+    box was empty), and the first `fill_repeating_section` pass dropped out after
+    title + company. **Chrome lane:** the user signed in by hand in their own
+    Chrome and the Claude-in-Chrome extension completed all six steps (date
+    spinbuttons: click Month, type MMYYYY; search boxes: type, Enter, pick the
+    result; dropdowns: click, first letter, Enter; resume upload) through Review
+    and Submit.
+  - **Account registry** (`src/accounts.py`, tool `list_workday_accounts`).
+    `authenticate(auto)`: `active` -> sign in; no entry -> create; create says the
+    account exists -> record `exists_unknown_password`, return `account_exists`,
+    no sign-in attempt (park for a manual sign-in); a create that lands silently
+    on a plain Sign In page -> ONE follow-up sign-in decides (success records
+    `active`; a rejection records `exists_unknown_password` and returns
+    `account_exists`); confirmed success records `active`; a rejection on an
+    `active` account returns `bad_credentials`, downgrades the row to
+    `exists_unknown_password`, and never triggers creation. New statuses
+    `create_rejected` (create-form validation, no lockout) and
+    `account_created_signin_required`. The old automatic create -> sign-in
+    switch on "already exists" is gone. Explicit `mode="sign_in"` /
+    `"create_account"` still overrides the registry. Lockout ledger: a positive
+    rejection or a password field still showing after a sign-in submit
+    (`still_auth`) counts as a failed sign-in; a redirect with unclear outcome
+    (`unknown`) does not.
+  - **Widgets.** Date parts (`role=spinbutton`, MM/YYYY and YYYY) are scanned and
+    filled. Search boxes (School, Field of Study) use search-and-pick with
+    verification on the selected chip, exact / same-name matches only, otherwise
+    `unmatched` with the visible results as `options`. New result keys:
+    `regrouped`, `verified_by: "section_reread"`, `other_chips`,
+    `blocked_form_submits`, `error: "focus_lost"`, and `verified: null` for a
+    search input with no results list. `fill_field` returns `status:"error"`
+    instead of raising on a Playwright exception; a `<select>` value that is not
+    an option returns `unmatched` with options.
+  - **`technical: true`** (`src/technical.py`): the tool could not operate the
+    page, as opposed to us lacking an answer. `submit_application` carries it
+    only for `no_submit_button`; `attempted` and `rejected_spam` do NOT.
+  - **`resolve_fields` aliases:** phone device type / country phone code / phone
+    extension no longer resolve to the phone number; "United States" in a
+    question no longer resolves to the state.
+  - **Skills.** `apply-to-job` and `apply-batch` now carry a branched Workday
+    workflow (registry-driven `authenticate`, route on `account_exists` /
+    `bad_credentials` / `create_rejected` / ..., technical vs missing-answer)
+    and a **Chrome fallback lane** (hand-off packet, sign-in rules: never type or
+    read a password through the extension, never read `credentials.yaml` for it,
+    click Sign In only if Chrome's password manager autofilled; widget recipes
+    above). For Ashby / Greenhouse / Lever it is the LAST fallback on a
+    bot-detection park, after a same-company check against `applications.json`
+    (a per-company limit shows the same "We couldn't submit" banner); `attempted`
+    is never routed there automatically. In `apply-batch` the lane is one shared
+    browser, so a serial pass after the main pass, listed in the Stage E report.
+  - **Greenhouse cover-letter upload:** the live check initially failed (the file
+    input unmounts on change, so the read-back found nothing); fixed and
+    re-verified live on Stripe and Tailscale embed forms (merge `426d31e`, see the
+    follow-up under the 2026-10-02/03 landings).
+  - **Verification status.** Registry, sign-in classification, widget and
+    `technical` changes are verified by unit suites (27) and DOM fixtures (DOM
+    harness 203/203) only. **NOT yet verified live:** the new sign-in
+    classification, the registry flow, dates and search boxes on the Playwright
+    lane, and the Chrome lane on Ashby / Greenhouse / Lever. Country Phone Code
+    read-back (the D3 multi-select item) is still unfixed.
+  - **Tracker.** taskman is reachable over HTTP; stories JOB-79..JOB-93 were filed
+    (these are real taskman keys; do not infer other `JOB-*` keys, see the
+    tracker gotcha below). `docs/tracker-pending.md` is now a short pointer.
+- **2026-10-01 session — degradation diagnosis + Phase 0 baseline.** Diagnosed
+  five regressions (full plan: `~/.claude/plans/create-a-multi-step-glittery-thacker.md`):
+  (1) Greenhouse cover letters can't attach — `upload_resume`'s auto-locator
+  scores "cover" slots 0 and GH file inputs are hidden, so a cover-letter upload
+  lands in the **resume** slot (the 2026-09-16 Stripe IAM submit likely went out
+  with the cover letter as its resume — user to verify); (2) crafting subagents
+  never pin a model (2026-09-08 drafts ran on Sonnet); (3) the cover-letter
+  template exists only implicitly in ~6 disagreeing exemplars, `_text_to_docx`
+  writes a blank-doc PDF, and nothing lints em dashes/header/tense; (4) the
+  09:00 refresh task can't wake the laptop (missed 9/13, 9/18-22, 9/25-30) and
+  Workday boards churn 100-340 false removals/run (one miss → `removed_at`);
+  (5) Workday applies park at the "Start Your Application" chooser / auth step
+  — no Apply/Apply Manually/Sign In path exists, "Create Account" classifies as
+  submit, passwords aren't masked, multi-selects misclassify. **Security:** an
+  agent invented a Workday password on 2026-09-17 against the user's
+  "I'll supply one shared password" decision; it was hardcoded in untracked
+  `probe*.py` scripts — **deleted** this session and `probe*.py` gitignored;
+  user to rotate it. Phase 0 committed the 2026-09-09/09-16 WIP below as the
+  baseline (CI gate green: 13 suites, 194 tests).
+  **What landed 2026-10-02/03** on `integrate/fixes-2026-10` (parallel
+  worktree workstreams, each reviewed then merged; tip `573123e`):
+  - **A: Greenhouse cover upload** (merge `5e9b330`; `beeba3e`, `ba65939`).
+    Root cause confirmed: GH hides both file inputs and the auto-locator scored
+    any "cover" container 0. `upload_resume(target="cover")` only uses a
+    cover-labelled input (`no_cover_slot` otherwise), reads the filename back
+    (`verified`, `observed_filename`), detects a cover letter that landed in the
+    resume slot; errors are dicts. Review: index guard, own-attribute cover
+    detection, fresh read-back.
+    **Follow-up 2026-11-13 (`fix/greenhouse-upload-readback`):** live GH
+    (job-boards.greenhouse.io embed) UNMOUNTS the `<input type=file>` on
+    change, shows a `[role=progressbar]` during the storage POST (~1s), then
+    renders the filename in the slot's `role=group` box. The read-back keyed
+    on the input id, so every live upload returned `verified:false,
+    container_text:""` although the file had attached. Read-back now keys on
+    a `data-jaslot` tag on the slot box (the input's ARIA group, else its tight
+    box), polls through the progressbar (`readback:"container"`, `pending`;
+    the settle window restarts on every busy scan), and never verifies while
+    the slot is busy or shows `role=alert`/`aria-invalid` (`slot_error`).
+    Filled slots stay visible (present:false), including an untagged
+    `role=group`/`fieldset` named resume/CV with no file input (filled before
+    the tool's first scan). Guarantees: the resume is refused for any input
+    whose own attributes say cover or whose single-input box says cover (not
+    resume/cv), auto-located or by explicit index, and for every non-resume
+    input while a resume slot has no free input; an input with no label
+    signal at all can still get the resume when no resume slot is
+    recognisable. A 2nd upload into a slot that shows a file (filename or
+    remove button) is refused ("already holds a file"); on GH a re-upload
+    after "landed in resume slot" therefore always fails, so the skills park.
+    The chosen input is tagged through its slot box and the upload aborts if
+    that resolves to anything but one input.
+  - **B: cover-letter pipeline** (merge `11daf6a`; `03a35b1`, `49bfc1e`,
+    `befca93`, `5057961`, `54896e6`). Template, letterhead, `COVER_LINT_RULES`,
+    `lint_text`, `save_cover_letter(force)`, Opus-pinned `answer-crafter`, web
+    chat on Opus + model in usage rows, per-role tailoring queue (Up next +
+    Continue). Review: template-aligned rule set, letterhead styling, fixture
+    profile passed explicitly to `lint_text` (`0943e61`).
+  - **C: refresh reliability** (merge `312f5c3`; `35fba6b`, `08b4ea5`,
+    `13c353f`). Schema v5 `missed_runs` + `REMOVAL_GRACE`, health file, digest
+    gap note, `/api/status` health, staleness banner, `refresh_guard.py`,
+    wake-aware scheduler script. Live probe: Workday paging is stable within a
+    run, `sortBy` ignored, so the grace (2 misses) is the fix, not sorting.
+    Wake timers are enabled on AC on this machine as of 2026-10-01. Root cause
+    of the misses (9/13, 9/18-22, 9/25-30): the old task could not wake the
+    laptop.
+  - **D1: credentials + masking** (merge `02098b5`; `2e068d9`, review `c3894cb`).
+    Review closed leaks: tools return only the exception TYPE, sticky
+    sensitivity survives the show-password toggle, `fill_sensitive` re-checks the
+    live element, malformed `credentials.yaml` gives no message.
+  - **D2: Workday entry + auth** (merge `1f687a2`; `06221d5`, review `af24049`).
+    Review (10 findings): credentials only on Workday hosts (dot-boundary host
+    gate, re-checked before every fill/submit), toggles confined to the auth
+    form, verification links restricted to the tab's Workday domain, per-tab
+    "filled" flag so a final "Apply" is a submit, the lockout ledger, and a
+    `_CHROME_LABEL_RE` that held literal 0x08 bytes instead of `\b` (fixed, plus
+    a test failing on any control character in `src/` or `tests/`).
+  - **D4: structured profile blocks + `fill_repeating_section`** (merges
+    `2b5b69d`, `8a943fe`; `2c62c51`, review `938d822`). Review: `match_degree`
+    (no confident match gives `unmatched`, nothing picked), pill/typeahead
+    read-back, loose group matching with orphan reuse, `required_empty` gives
+    `partial`. New zip aliases.
+  - **D5: skills** (merge `0ea9286`; `186b1f9`, `573123e`): Workday flow in
+    apply-to-job / apply-batch, routing of `fill_repeating_section` statuses.
+  - **origin/main merge** (`be54066`): dev-loop PRs #12/#13 (JOB-135..138) merged
+    into the integration branch.
+  - **Security/hygiene:** the `probe*.py` scripts (agent-invented Workday
+    password) were deleted and `probe*.py` is gitignored; `.claude/worktrees/`
+    ignored; `credentials.yaml` under the template is ignored too.
+  - **Still NOT done (as of 2026-10-03; see the 2026-11-13 entry for what a
+    live run has since covered):** D3 multi-select fix
+    (`docs/handoff-workday-multiselect.md`) and every live verification
+    (Greenhouse cover upload, real Workday sign-in, My Experience). Everything
+    above is verified by standalone suites and synthetic DOM fixtures
+    (`tests/manual/`) only.
+- **2026-09-16 session — Workday M0 wizard framework + verified fills + storage seam.**
+  This session built the generic infrastructure for multi-page form wizards and
+  verified fills, **not yet exercised against a live Workday application**.
+  **194 tests across 13 suites**, all passing;
+  verification via synthetic DOM harness (`tests/manual/`) catching defects CI's
+  no-browser tests could not. What landed:
+  - `src/browser.py` — **read_form idempotence fix:** `_SCAN_JS` swept stale
+    `data-jaidx` tags before scanning, fixing a latent bug where the second read
+    of a page silently dropped every button-group radio. This resolves a
+    documented mystery (the Ashby "answered button-groups drop out" gotcha was
+    never Ashby-specific; it was this bug).
+  - `src/browser.py` / `src/mcp_server.py` — **verified fills:** `fill_field` and
+    `fill_many` now return `verified: true|false|null` plus `observed_value`,
+    replacing unconditional false-positive "filled" signals. Proven failures on
+    pick-from-a-list fields return `status: "uncommitted"` (existing skill
+    vocabulary, so no skill edit required). A broken field now fails with a
+    real signal instead of silence.
+  - `src/browser.py` — **Workday-style dropdowns visible:** `button[aria-haspopup="listbox"]`
+    reported as `kind: "combobox"` with `widget: "listbox"` marker. Dispatch is
+    on widget, not site, so Oracle/SuccessFactors/Radix/MUI are fixed for free
+    (the "no per-site selectors" invariant holds). Unset Workday listboxes render
+    literal **"Select One"** text — placeholder blacklist stops it being saved
+    as a real answer.
+  - `src/browser.py` — **submit button safety:** `_find_submit_button` now
+    prioritizes explicit-text candidates over generic `[type=submit]`, with an
+    anchored exclusion (`next|continue|back|previous|save|save and continue|…`)
+    so wizard **Next** can't be mistaken for **Submit**. On a wizard page,
+    `submit_application` now returns `no_submit_button` with form intact —
+    fails honestly.
+  - `src/mcp_server.py` — **`advance_step()` MCP tool** (tool count 34 → **35**):
+    click a Next/Continue button and read the new page. Statuses: `advanced`
+    (fresh fields, all prior indexes dead) · `blocked_validation` (`errors` with
+    `index` possibly `null`, counted in `unmapped_error_count`) · `no_change` ·
+    `is_submit_page` (nothing clicked — the Review page hands off to the gated
+    submit path, enforced server-side rather than trusted to a prompt) ·
+    `no_advance_button`.
+    Advancing is not submitting and is not gated. Dependent fields (a
+    SAME-PAGE rule, unrelated to advancing): fill the parent, **re-read**,
+    then fill the child — Workday's State widget doesn't exist until Country
+    is set, and changing Country destroys and recreates it.
+  - `src/data.py` — **answer hygiene at write boundary:** `_sanitize_answer`
+    repairs data losslessly (e.g., leaked tool-call markup). `scripts/repair_history_markup.py`
+    (dry-run by default, **already applied**) repaired 3 of 192 records losslessly.
+    **`SHORT_ANSWER_CHARS = 150` extracted** so answers over-length can be
+    identified consistently. Optional `alternates` list rides alongside the scalar
+    `answer` (never a list answer itself), unioned only when both old+new are
+    short and differ after normalization, deduped, capped at 5.
+  - `src/config.py` / `src/datastore/` (**new storage seam**) — `Repository`
+    protocol + `FileBackend` (byte-for-byte today's behavior, default). Selected
+    by `JOB_APPLIER_DATASTORE` env var. `TaskmanBackend` (behind same protocol,
+    **dual-write mode**: files remain source-of-truth + backup; taskman has no
+    export). **Degrades to file-only on any taskman error** — logging a verified
+    submit must never fail. **Not yet exercised against live taskman** (no API key
+    in this session). Note limitation: taskman has no per-user scoping, so
+    single-owner by convention, not enforcement. `eeo.yaml` hard carve-out, never
+    moves.
+  - `.mcp.json` — fixed taskman URL trailing slash (was `/mcp`, should be `/mcp/`
+    — returns 405 without it). `TASKMAN_API_KEY` still unset, connection unproven.
+  - **Tests:** `test_scan_idempotence` · `test_field_matching` · `test_fill_verification`
+    · `test_advance_step` · `test_submit_button_guard` · `test_answer_hygiene` ·
+    `test_datastore_file` · `test_datastore_taskman` (8 new suites). Plus
+    existing: `test_location_scope` · `test_workday_sourcing` · `test_refresh_removals`
+    · `test_ingest_descriptions`. **Total: 181 tests, all passing.** Local manual
+    harness (`tests/manual/run_dom_harness.py` + `workday_fixture.html`) drives
+    real headless Chromium on synthetic Workday page, catching two defects stubbed
+    tests missed. Named to skip CI's `tests/test_*.py` glob.
+  - **(History, superseded 2026-10-03: M1 apply is now built, live run still
+    pending.)** **Honest framing:** the generic browser layer now supports Workday-style wizards
+    and is verified by tests + synthetic DOM; **one live run on a real posting is
+    still outstanding**. M1 (account creation/login + structured experience/education
+    profile blocks) and M2 (batch Stage A/B hardening + wizard) remain unbuilt.
+  - `src/data.py` / `src/store.py` — **`role_key()`: one join identity for
+    already-applied.** "Have I applied to this posting?" compared a posting
+    against the application log using THREE different key functions:
+    `_applied_keys` normalized both sides with `_normalize`; `store._role_key`
+    lower-cased the title and left the company **raw**; `company_spread`
+    carried a third inline copy. And `_normalize` replaces punctuation with a
+    space without collapsing the run, so `"Senior Product Manager, Consumer"`
+    → `"...manager  consumer"` (2 spaces) while the same role logged as
+    `"Senior Product Manager - Consumer"` → 3 spaces. Unequal.
+    **Live consequence:** a Plaid role applied to on 2026-07-09
+    (`manual_submission`) kept resurfacing as never-applied — against a board
+    that hard-limits applications per candidate. **63 of 93** stored
+    applications had a double space in their key, i.e. most of the log was one
+    punctuation edit away from the same failure. `data.role_key(company,
+    title)` is now the single function; `_application_key` and all three store
+    call sites delegate to it. Measured on the live corpus: distinct role keys
+    21,978 rows → 18,617 → **18,462** (−155 genuine duplicates merged),
+    postings matching an application **48 → 49**. `_normalize` itself is
+    deliberately **unchanged** — it feeds `_similarity`'s SequenceMatcher and
+    `_upsert_answer`'s question identity, so widening it would change which
+    stored answers auto-fill a form (a correctness change, not a cleanup);
+    `tests/test_role_key.py` (13 tests) pins both the fix and that
+    non-change.
+  - **Not committed yet** — sitting on `feat/workday-m0-sourcing`, awaiting review.
+
+- **2026-09-10 session — tracker cut over from Linear to taskman.** Linear here
+  was **instructions-only** (no API/SDK/HTTP code ever existed in this repo —
+  just prose in `CLAUDE.md` plus one webapp status row), so this was a docs +
+  config swap, not a data migration: the `JOB` stories were already migrated
+  into taskman by dev-loop. **taskman** is a standalone FastAPI + Postgres
+  service at `C:/Users/siddh/Task Management buildout` (NOT part of dev-loop —
+  dev-loop only holds a thin client adapter); it serves MCP over HTTP at
+  `/mcp` on the same app, 17 tools. What landed:
+  - `.mcp.json` — added the `taskman` HTTP server alongside `job-applier`,
+    using `${TASKMAN_URL:-http://localhost:8000}/mcp` and
+    `Authorization: Bearer ${TASKMAN_API_KEY}`. Claude Code expands `${VAR}` /
+    `${VAR:-default}` in `.mcp.json` `url` and `headers`, so **the token is
+    never committed** (dev-loop's own `.mcp.json` commits a live bearer token —
+    deliberately not copied here).
+  - `.claude/settings.json` — added `enabledMcpjsonServers: ["job-applier",
+    "taskman"]` to pre-approve both, avoiding the first-use `/mcp` prompt. The
+    existing `Stop` token-report hook is unchanged.
+  - `CLAUDE.md` — the "Task tracking" section rewritten for taskman
+    (`search_nodes` → `create_story` → `update_status` → `add_comment`),
+    modelled on dev-loop's proven wording.
+  - `server/data_api.py` — the `linear` Connections row replaced by `taskman`
+    (`mono: "TM"`). Detection changed shape: Linear was sniffed as a substring
+    of `~/.claude.json`, but taskman is configured **in this repo's**
+    `.mcp.json`, so the route now parses `mcpServers` once and derives both
+    `job-applier` and `taskman` from it. Because "configured" ≠ "usable" for a
+    service that is usually not running, new `_taskman_reachable()` reports
+    connected only when configured **and** reachable. It does a **0.15s TCP
+    connect pre-check, then** `GET {TASKMAN_URL}/health` (1s): an HTTP probe
+    alone cost **1.5s** when the server was down, because `localhost` resolves
+    to both `::1` and `127.0.0.1` and the timeout applies *per connect
+    attempt*. The pre-check caps the down-case at ~0.31s (measured), against
+    the 0.9s the pre-existing `_claude_cli_available()` already costs on the
+    same route. Sync route → FastAPI threadpool; any exception → `False`.
+  - Docs: README metrics mermaid node, USER_GUIDE Connections row + bug-triage
+    line, `docs/backlog-multiuser.md` header reframed.
+  - **No new Python module, no client library, no Tasks UI page** — scope was
+    deliberately held to a like-for-like replacement of what Linear actually
+    was here.
+  - **Verified:** `connections()` in a fresh process returns the `taskman` row
+    with `connected: False` (server genuinely down) and no `linear` row;
+    pyflakes/compileall clean. **NOT yet verified live** — the taskman server
+    could not be started from this session (Docker is not installed / not on
+    PATH, nothing listening on 5432), so the MCP round-trip and the
+    `connected: True` state are still unproven. See the setup steps below.
+
+  **⚠ The `JOB-` prefix collides.** taskman's `JOB` project reuses the prefix
+  but **renumbered keys from 1**, so taskman `JOB-26` (titled *"JOB-105 — pin
+  every PR #11 casualty…"*) is a different issue from Linear `JOB-26`. Every
+  `JOB-*` in this doc, in `docs/backlog-multiuser.md`, and in `src/` code
+  comments is a **Linear-era historical citation**. Per explicit decision they
+  were left as written rather than renumbered — so **always resolve a live
+  issue by title** (`mcp__taskman__search_nodes`), never by number.
+
+  **Remaining one-time setup (user action, needs the server up):**
+  1. Install/start Docker, then `docker compose up -d` in
+     `C:/Users/siddh/Task Management buildout` (Postgres 16 on :5432).
+  2. `python -m taskman serve` there; confirm `curl http://localhost:8000/health`.
+  3. `python -m taskman mint-key job-applier --kind service` → `setx
+     TASKMAN_API_KEY "tm_…"` (mint a **fresh** key; don't reuse dev-loop's).
+  4. Restart Claude Code (setx only reaches new processes), then
+     `claude mcp list` → `taskman` connected with no missing-variable warning.
+  5. Pick the parent epic: `list_children(key="JOB", type="epic")` — a story
+     needs exactly one primary parent epic. Keep hand-filed work under an epic
+     **distinct from dev-loop's "Loop backlog"**.
+
+  ```mermaid
+  flowchart TD
+      W["work verified<br/>(tests pass / committed)"] --> S{"mcp__taskman__search_nodes<br/>by TITLE, under JOB"}
+      S -- "match" --> U["update_status(key, 'done')"]
+      S -- "no match" --> C["create_story(title, epic_key)<br/>epic = 1 primary parent, required"]
+      C --> U
+      U --> M["add_comment(key, commit SHA)"]
+      S -. "MCP down /<br/>TASKMAN_API_KEY unset" .-> P["report update as PENDING<br/>(never skip silently)"]
+      W -. "partial work" .-> IP["update_status 'in_progress'<br/>+ progress comment, leave open"]
+  ```
+- **2026-09-09 session — Workday sourcing (M0), branch `feat/workday-m0-sourcing`.**
+  Workday postings can now be **discovered, ranked, and deep-read** like any
+  other watchlist board. **(History: applying was not built then; M1 apply landed
+  2026-10-03, M2 batch hardening remains.)** What landed:
+  - `src/providers/workday.py` — the fetcher (see the Architecture section
+    above for the mechanism: list+detail keyless JSON API, 2000-row wall,
+    full-vs-partitioned-by-facet paging, `LAST_RUN_NOTES` diagnostics).
+  - `src/providers/watchlist.py` / `discovery.py` — Workday registered into
+    the existing `_FETCHERS`/`detect_ats_slug`/`get_posting`/`add_company`/
+    `board_url` seam; a bare-tenant-host URL is deliberately not resolvable
+    synchronously, `add_company` points at the bootstrap script instead.
+  - `src/store.py` — `refresh_from_fetch` skips the removal pass for
+    fetched-but-`incomplete` boards (truncated Workday boards) without
+    logging them as failures.
+  - `scripts/workday_bootstrap.py` — tenant/shard/site discovery + validation
+    against a public tenant index; never writes `watchlist.yaml`.
+  - Fixed for every provider, not just Workday: `watchlist.prefilter` now
+    uses `.get("title")`, so a titleless row (Workday/NVIDIA serves a couple
+    per run) can no longer `KeyError` and take down its whole board's fetch.
+  - Tests: `tests/test_workday_sourcing.py`, `tests/test_refresh_removals.py`
+    (both new, standalone). CI's tests job installs `httpx` alongside
+    `pyyaml` for them.
+  - **Verified live 2026-09-09, end to end:** all 20 candidate triples
+    validated against the CXS API (20/20 ok) and seeded into
+    `watchlist.yaml`, taking it 80 -> **100 boards** (30 greenhouse, 46
+    ashby, 4 lever, 20 workday). Two consecutive `python -m src.refresh`
+    runs: the first scanned **21,466** postings (up from ~8,600) and ingested
+    12,505 Workday rows in 5m09s; the second scanned 21,465 with **0 new, 1
+    removed, 0 relisted** in 2m02s — and Workday's active count was
+    **identical (12,505) across both**, i.e. zero false removals, which was
+    the point of the `incomplete` plumbing. The single removal was genuine
+    Ashby churn (a Snowflake AE role). Only pre-existing failure: Temporal
+    Technologies (Greenhouse 404, 16 consecutive runs, unrelated).
+  - **Baseline yield:** of 12,505 Workday rows, 631 title-match and **21 pass
+    the full baseline**. The gap is real, not a bug — 498 title-matched rows
+    are rejected purely on location (San Jose / SF / NY, against
+    `locations_allowed: [Los Angeles, Remote]`) and ~194 on excluded
+    seniority. **No row is rejected for salary**, confirming undisclosed
+    salary is kept-and-flagged rather than dropped, which was the risk called
+    out in planning. If Workday yield ever looks disappointing, the lever is
+    `criteria.yaml`'s location list, not the provider.
+  - **Not yet committed** — work is sitting on `feat/workday-m0-sourcing`,
+    no commit SHA to reference yet.
+  - **User's three M1 decisions (recorded here so they survive into the next
+    session; M1 built 2026-10-03, decisions honored):**
+    1. The user supplies **one shared Workday password**, stored local-only —
+       it is never generated by the agent.
+    2. Batch Stage A **may create tenant accounts and server-side drafts
+       before** the consolidated approval (the existing non-Workday batch
+       flow approves before any server-side draft-creation; Workday's account
+       step is the one exception, by explicit user decision).
+    3. Structured `experience:`/`education:` profile blocks **ship in M1**
+       (Workday wizards commonly require structured work-history entry, not
+       a resume upload) rather than being deferred to a later milestone.
+- **2026-09-08 session — unpinned `mcp` dep broke the server; migrated
+  FastMCP → MCPServer.** An environment refresh pulled `mcp` 2.1.1 (the repo's
+  `requirements.txt` had no version pin), which removed
+  `mcp.server.fastmcp.FastMCP` outright (`ModuleNotFoundError` pointing at the
+  v2 migration guide) — `src/mcp_server.py` couldn't import, so the
+  `job-applier` MCP server wouldn't start. Fixed by switching the one
+  import/constructor pair to `from mcp.server.mcpserver import MCPServer` /
+  `mcp = MCPServer("job-applier")`; every `@mcp.tool()` decorator and
+  `mcp.run()` call is unchanged in the v2 API. Pinned `requirements.txt` to
+  `mcp>=2` so a fresh install can't regress to the incompatible v1 surface.
+  Verified: `python -m src.mcp_server` module imports clean, `pyflakes`/
+  `compileall` (the CI checks) pass, and the 8/8 `test_location_scope.py`
+  suite still passes. Not yet pushed/PR'd — sitting on
+  `fix/pr11-merge-repair-ci` pending a fresh commit on top of the CI-guard one.
+  (Left `watchlist.yaml`'s pending Blueroseresearch/Greenhouse addition
+  uncommitted and untouched — unrelated change from a different task, not
+  swept into this fix per the commit skill's rule.)
 - **2026-09-04 dev-loop run (JOB-135, JOB-136, JOB-137, JOB-138) — one lane,
   four fixes to the ingest/digest/CI lifecycle, in dependency order.**
   JOB-135: the CI pyflakes step wrote its report to `./flakes.txt` inside the
@@ -402,7 +969,11 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
    sequence in `docs/backlog-multiuser.md`.
 4. **Backfill Scale AI submit** into the profile's `applications.json`
    (JOB-17 remainder).
-5. **Linear open:** JOB-24 (submit verification — code shipped, verify live) ·
+5. **Tracker open items** (⚠ these `JOB-*` numbers are **Linear-era**, from
+   before the 2026-09-10 taskman cut — they are NOT taskman keys. Re-resolve
+   each in taskman by title with `mcp__taskman__search_nodes`; some may never
+   have been ported):
+   JOB-24 (submit verification — code shipped, verify live) ·
    JOB-32 (Phase 2 embeddings) · JOB-19 pt2 → JOB-32 · JOB-22/20 (queue
    executor/parent) · JOB-34 (env setup hardening — partially eased by M1,
    cross-platform bits deferred until a non-Windows user onboards) ·
@@ -410,19 +981,94 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
    7/27 squatter on :8765; port check + API-404 guard still NOT built) ·
    JOB-82…98 (multi-user M2–M4 backlog). JOB-33 closed 2026-08-10
    (superseded by JOB-81).
+6. ~~Commit the Workday M0 branch~~ — baselined in Phase 0 (2026-10-01) and
+   M1 built 2026-10-03 (see Current state). Still outstanding: taskman API key +
+   ontology setup + dual-write harness test (datastore is file-only).
+7. **2026-10 branch follow-ups** (`integrate/fixes-2026-10`, tip `573123e`):
+   - **Open the PR to `main`** (merge is the user's click); restart Claude Code
+     and the webapp afterwards.
+   - **D3 live:** the Workday multi-select fix, per
+     `docs/handoff-workday-multiselect.md`; Country Phone Code read-back is
+     still unfixed (2026-11-13).
+   - **Live checks (updated 2026-11-13):** the Greenhouse cover-letter upload is
+     now verified live (Stripe, Tailscale; `426d31e`). A first Workday
+     application completed on 2026-11-13, but only via the Chrome lane after
+     the Playwright lane stalled on My Experience. Still to verify live, on a
+     fresh Claude Code session with today's code: the new `authenticate`
+     classification and registry flow (including `account_exists` and
+     `create_rejected` paths), date spinbuttons and School / Field of Study
+     search boxes through `fill_repeating_section`, and the Chrome lane on
+     Ashby / Greenhouse / Lever. SSO-only tenants (e.g. Snap) need a manual
+     sign-in.
+   - **PR #14** (`integrate/fixes-2026-10` -> `main`) is open; merge is the
+     user's click; then restart Claude Code and the webapp.
+   - **User actions:** rotate the Workday password an agent invented on
+     2026-09-17 and delete the active profile's `data/ats-accounts.md`; create
+     `profiles/<id>/secrets/credentials.yaml` (one shared password, never in
+     chat); fill the profile's `zip`, `experience:`, `education:`; verify the
+     2026-09-16 Stripe IAM submission (the cover letter may have replaced the
+     resume).
+   - **Tracker filing:** done 2026-11-13 (stories JOB-79..JOB-93, epic "Hand-filed
+     session work (2026-10 fixes)"); `docs/tracker-pending.md` now only says so.
 
 ## Proposed backlog (not built — bring back for approval)
+- **Workday apply: M1 BUILT 2026-10-03 (first live application completed
+  2026-11-13, partly via the Chrome lane; the 2026-11-13 fixes still need a live
+  re-check); M2 not built.** Original plan, kept as history (see the "Strategy verdict" line near
+  the top, REVISED 2026-09-09). **M1 (apply wizard):** build an in-repo Workday executor — account
+  creation/login with the user's one shared local-only password, the
+  multi-page apply wizard, and structured `experience:`/`education:` profile
+  blocks (see the three M1 decisions under Current state / 2026-09-09).
+  **M2 (hardening + batch):** fold Workday into `/apply-batch`'s Stage A/B
+  flow, including the account/draft-creation-before-approval exception.
 - **Data layer:** application tracker v2 (status transitions, follow-ups) ·
   Phase 2 semantic search (JOB-32).
-- **Executor gaps (prefer Cowork/Chrome over building):** Workday wizard
-  navigation · combobox probe-typing · non-English aliases · JS-only dropzones.
+- **Executor gaps (prefer Cowork/Chrome over building) — Workday REMOVED
+  2026-09-09, reversed by explicit user decision (now M1/M2 above):**
+  combobox probe-typing · non-English aliases · JS-only dropzones.
 - **Polish (P2):** screenshot downscaling · prompt-cache stable prefixes.
 
 ## Gotchas / environment
+- **Workday account registry (2026-11-13):** `profiles/<id>/data/
+  workday_accounts.json` (no passwords). `account_exists` means an account exists
+  whose password we do not know: park and ask the user to sign in by hand; do not
+  retry or guess. A `bad_credentials` on an `active` row downgrades it to
+  `exists_unknown_password`. `list_workday_accounts` shows the rows.
+- **Chrome lane never handles passwords (2026-11-13):** in the Claude-in-Chrome
+  lane never type a password, never read a password field's value, never read
+  `credentials.yaml`; click Sign In only if Chrome's password manager already
+  filled both fields, else ask the user to sign in in that window.
+- **Workday auth ledger (2026-10):** `profiles/<id>/runtime/auth_attempts.json`
+  allows 1 failed sign-in per tenant per 24h; after `bad_credentials` every
+  `authenticate` returns `bad_credentials` without submitting. Only the user's
+  explicit request may call `clear_auth_ledger`. **Credentials are typed only on
+  Workday hosts** (`*.myworkdayjobs.com` / `*.myworkday.com` / `*.workday.com`);
+  elsewhere `unsupported_auth_flow` and park. Never paste or invent a password.
+- **background.md current role ends Oct 2026:** when it does, flip `profile.yaml`
+  `experience[0]` (`current: true` to an `end` date) so Workday My Experience
+  stays truthful, and re-check tense in `context/background.md`.
+- **`.claude/worktrees/` are agent worktrees** (gitignored). Worktrees sometimes
+  start from a stale base: `git log --oneline -1`, then
+  `git reset --hard integrate/fixes-2026-10` before working.
 - **Windows 11**; PowerShell primary + Git Bash tool. Multi-line commit messages
   in Bash: heredoc `git commit -F - <<'EOF'`, NOT PowerShell `@'…'@`.
 - **MCP server staleness:** `src/` edits need a Claude Code restart; verify
   meanwhile via fresh-process direct-import scripts.
+- **taskman tracker (2026-09-10 cut):** the backlog lives in a **separate
+  running service** (`C:/Users/siddh/Task Management buildout`, Postgres +
+  FastAPI on :8000) — it is frequently just not up, and then the taskman MCP
+  tools simply aren't there. Report tracker updates as **pending**, never skip
+  silently. `TASKMAN_API_KEY` comes from the environment (`setx`), so a shell
+  or Claude Code started before the `setx` won't see it — `claude mcp list`
+  shows a missing-variable warning and passes the literal `${VAR}` through
+  rather than failing loudly. **`JOB-*` numbers in this repo are Linear-era
+  citations, not taskman keys** (taskman renumbered from 1) — resolve issues
+  by title via `search_nodes`, never by number.
+- **`mcp` SDK is pinned `>=2`** (2026-09-08) — v2 renamed `FastMCP` →
+  `MCPServer` (`mcp.server.mcpserver`) and dropped the old import path
+  entirely, so an unpinned install silently breaks `src/mcp_server.py` on the
+  next fresh `pip install`. If it breaks again, check whether the installed
+  `mcp` major version moved out from under the pin.
 - **Task Scheduler on a laptop:** `schtasks /Create` defaults to AC-power-only
   (sits Queued on battery) and loses quoting on paths with spaces (0x80070002).
   Fixed via `Set-ScheduledTask` (`-AllowStartIfOnBatteries
@@ -433,9 +1079,13 @@ proves liveness — apply re-verifies via `get_posting`/`open_job`.
   a PDF exists.
 - **Ashby:** may spam-reject a real submit ("flagged as possible spam") — see the
   manual-submission design choice; never trust `submitted` on Ashby without page
-  text/email confirmation until JOB-24 is verified live. Answered custom
+  text/email confirmation until JOB-24 is verified live. ~~Answered custom
   button-groups can drop out of `read_form` after Ashby restores a form while
-  still visually selected — check the screenshot, don't panic-refill.
+  still visually selected.~~ **FIXED 2026-09-16:** this was a `read_form` idempotence
+  bug, not Ashby-specific. `_SCAN_JS` tags elements with `data-jaidx` on the first
+  read but never cleared them, so the second read skipped already-tagged button
+  groups. A sweep at the scan's top fixed it. This also silently corrupted
+  `submit_application`'s `form_snapshot` and every verification re-read.
 - **Greenhouse** apply URL is the embed form:
   `boards.greenhouse.io/embed/job_app?for={slug}&token={id}`. Failed watchlist
   boards are reported in `companies_failed`, never silently dropped.

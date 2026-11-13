@@ -53,8 +53,11 @@ every step; do not skip the doc updates because a change "looks small."
 
 5. **Commit.** If on the default branch, create a topic branch first (the repo
    works on a feature branch). Write a clear message: a concise subject line,
-   then a body explaining what changed and why, and reference the Linear issue
-   (`JOB-*`) when there is one. In the **Bash** tool use a heredoc
+   then a body explaining what changed and why, and reference the taskman
+   issue when there is one — resolve its key with
+   `mcp__taskman__search_nodes` on the title, never by copying a `JOB-*`
+   number out of the docs (those are Linear-era citations, not taskman keys;
+   see CLAUDE.md). In the **Bash** tool use a heredoc
    (`git commit -F - <<'EOF' … EOF`), NOT PowerShell `@'…'@`. End the message
    with the required trailer:
 

@@ -14,6 +14,9 @@ from urllib.parse import urlparse, parse_qs
 import httpx
 
 from .. import config
+# One-directional by design: workday.py defers its imports of this module to
+# function bodies, so importing it here at module level cannot cycle.
+from . import workday
 
 _UA = "Mozilla/5.0 (compatible; job-applier-watchlist/1.0)"
 _TIMEOUT = httpx.Timeout(20.0)
@@ -173,7 +176,8 @@ async def _fetch_lever(client: httpx.AsyncClient, company: dict) -> list[dict]:
     return out
 
 
-_FETCHERS = {"greenhouse": _fetch_greenhouse, "ashby": _fetch_ashby, "lever": _fetch_lever}
+_FETCHERS = {"greenhouse": _fetch_greenhouse, "ashby": _fetch_ashby,
+             "lever": _fetch_lever, "workday": workday.fetch_workday}
 
 
 # --------------------------------------------------------------------------- #
@@ -202,7 +206,28 @@ async def fetch_all_with_status() -> dict:
                 errors.append({"company": name, "reason": err})
             else:
                 postings.extend(rows)
-    return {"postings": postings, "errors": errors}
+
+    # A Workday board can succeed and still be INCOMPLETE: past offset 2000 the
+    # API replays page 0, so a walled board's fetch is a window onto the board,
+    # not the board. "Absent from this fetch" therefore does not mean "removed",
+    # and the ingest must skip its removal pass -- see store.refresh_from_fetch.
+    # Reported separately from `errors` because the fetch did not fail; logging
+    # it as a failure would trip the dark-board alarm on a healthy board.
+    failed_names = {e["company"] for e in errors}
+    incomplete: list[dict] = []
+    for co in companies:
+        if (co.get("ats") or "").lower() != "workday":
+            continue
+        if co["name"] in failed_names:
+            continue
+        note = workday.LAST_RUN_NOTES.get(co.get("slug", "")) or {}
+        if note.get("truncated"):
+            incomplete.append({
+                "company": co["name"],
+                "reason": "hit the offset wall (strategy %s, %s of %s rows)"
+                          % (note.get("strategy"), note.get("rows"),
+                             note.get("board_total"))})
+    return {"postings": postings, "errors": errors, "incomplete": incomplete}
 
 
 async def fetch_all() -> list[dict]:
@@ -219,7 +244,10 @@ def prefilter(postings: list[dict], keywords: list[str] | None = None,
     neg = [x.lower() for x in (exclude or [])]
     out = []
     for p in postings:
-        t = (p["title"] or "").lower()
+        # .get, not [...]: a board can serve a degenerate row with no title
+        # (NVIDIA does, 1-2 per run). Indexing raised KeyError and killed the
+        # WHOLE board's fetch; a titleless row should just fail the gate.
+        t = (p.get("title") or "").lower()
         if any(k in t for k in kws) and not any(x in t for x in neg):
             out.append(p)
     return out
@@ -335,6 +363,12 @@ async def get_posting(url: str) -> dict:
                     return {"url": url, "found": True, "title": j.get("text"),
                             "description": _strip_boilerplate(_clean_html(
                                 j.get("descriptionPlain") or j.get("description", "")))}
+        elif "myworkdayjobs" in host:
+            # None when the URL is a board root rather than a posting; fall
+            # through to the note so the caller reads the page instead.
+            res = await workday.get_posting(client, url)
+            if res:
+                return res
     return {"url": url, "found": False,
             "note": "Could not resolve via ATS API; use open_job + get_job_text."}
 
@@ -366,6 +400,17 @@ def detect_ats_slug(url: str):
         return "lever", parts[0]
     if "ashbyhq.com" in host and parts:
         return "ashby", parts[0]
+    if "myworkdayjobs.com" in host:
+        # A Workday board is (tenant, shard, site); the site is the first
+        # non-locale path segment. A bare tenant host carries no site, and
+        # resolving one needs a robots.txt fetch -- async, while this function
+        # is sync and called from request handlers. So we decline rather than
+        # block; add_company explains the fix.
+        got = workday.parse_workday_url(p.geturl())
+        if got and got["site"]:
+            return "workday", workday.make_slug(got["tenant"], got["shard"],
+                                                got["site"])
+        return None
     return None
 
 
@@ -374,14 +419,24 @@ def add_company(url: str, name: str | None = None) -> dict:
     watchlist.yaml (preserving the file's comments by appending text)."""
     got = detect_ats_slug(url)
     if not got:
-        return {"status": "error",
-                "reason": "Could not detect ATS/slug. Supported: greenhouse, lever, ashby."}
+        reason = ("Could not detect ATS/slug. "
+                  "Supported: greenhouse, lever, ashby, workday.")
+        if "myworkdayjobs.com" in (urlparse(url).hostname or "").lower():
+            reason = ("That Workday URL names a tenant but no site. Pass the "
+                      "full board URL (e.g. "
+                      "https://acme.wd5.myworkdayjobs.com/External), or run "
+                      "`python scripts/workday_bootstrap.py <company name>` "
+                      "to discover the tenant's sites.")
+        return {"status": "error", "reason": reason}
     ats, slug = got
     existing = config.load_watchlist()
     if any(c.get("slug") == slug and c.get("ats") == ats for c in existing):
         return {"status": "exists", "ats": ats, "slug": slug}
-    display = name or slug.replace("-", " ").replace("_", " ").title()
-    block = f"  - name: {display}\n    ats: {ats}\n    slug: {slug}\n"
+    label = workday.split_slug(slug)[0] if ats == "workday" else slug
+    display = name or label.replace("-", " ").replace("_", " ").title()
+    # A Workday slug is "tenant:shard:site" -- bare colons are invalid YAML.
+    rendered = f'"{slug}"' if ":" in slug else slug
+    block = f"  - name: {display}\n    ats: {ats}\n    slug: {rendered}\n"
     with open(config.WATCHLIST_PATH, "a", encoding="utf-8") as f:
         f.write(block)
     return {"status": "added", "name": display, "ats": ats, "slug": slug}

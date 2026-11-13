@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS postings (
   url TEXT, description TEXT, posted TEXT,
   work_mode TEXT, posted_at TEXT,
   first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, removed_at TEXT,
-  content_hash TEXT,
+  content_hash TEXT, missed_runs INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (ats, slug, job_id)
 );
 CREATE TABLE IF NOT EXISTS refresh_runs (
@@ -146,10 +146,30 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 "ALTER TABLE refresh_runs ADD COLUMN new_title_matched_roles INTEGER")
         conn.execute("PRAGMA user_version=4")
         conn.commit()
+    if version < 5:
+        # Schema v5: consecutive-miss counter so one flaky listing (Workday
+        # pages unstably) does not flip a live posting to removed.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(postings)")}
+        if "missed_runs" not in cols:
+            conn.execute(
+                "ALTER TABLE postings ADD COLUMN missed_runs "
+                "INTEGER NOT NULL DEFAULT 0")
+        conn.execute("PRAGMA user_version=5")
+        conn.commit()
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _is_blank(value) -> bool:
+    """True for None / "" / whitespace, for values that are not always strings.
+
+    Providers disagree on the type of `posted`: Greenhouse and Ashby send ISO
+    strings, Lever sends an epoch integer. A bare `.strip()` raises on the int,
+    which is exactly how this helper came to exist.
+    """
+    return not str("" if value is None else value).strip()
 
 
 def _content_hash(p: dict) -> str:
@@ -236,6 +256,15 @@ def store_age_hours() -> float | None:
 # --------------------------------------------------------------------------- #
 # refresh (called by `python -m src.refresh`)
 # --------------------------------------------------------------------------- #
+# missed_runs counts CONSECUTIVE COMPLETE fetches that lacked the row; it is
+# frozen (neither advanced nor reset) while the board fails or is incomplete,
+# and reset to 0 on any sighting.
+# Consecutive complete-fetch misses before a posting is marked removed.
+# Workday listings page unstably, so one miss is noise there; every other ATS
+# answers with the whole board in one request, so one miss is already proof.
+REMOVAL_GRACE = {"workday": 2}
+
+
 def refresh_from_fetch(fetch_result: dict) -> dict:
     """Ingest one fetch_all_with_status() result. Returns a summary dict the
     digest is built from.
@@ -269,10 +298,31 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
             if not key[1] or not key[2]:
                 continue  # can't key it — skip rather than corrupt the store
             seen_by_board.setdefault((key[0], key[1]), set()).add(key[2])
-            chash = _content_hash(p)
             row = conn.execute(
-                "SELECT content_hash, removed_at FROM postings "
+                "SELECT content_hash, removed_at, description, posted FROM postings "
                 "WHERE ats=? AND slug=? AND job_id=?", key).fetchone()
+            # A provider that fetches descriptions ONCE (Workday: the text is
+            # a second HTTP hit per posting and effectively never changes)
+            # re-reports a posting it already knows with an EMPTY description.
+            # That is a fetch artifact, never a real edit -- but description is
+            # part of the content hash, so taking it at face value would flip
+            # the hash and make the UPDATE below erase text we already have.
+            # Keep what is stored. The Workday fetcher also carries the stored
+            # description forward itself; this is the belt to that brace, and
+            # it protects every other provider from the same class of bug.
+            if row is not None and _is_blank(p.get("description"))                     and not _is_blank(row["description"]):
+                p = {**p, "description": row["description"]}
+            # Same reasoning for the date, which needs its own guard because it
+            # is NOT in the content hash: the unchanged-hash branch below
+            # rewrites `posted` every run, so a provider that omits it nulls a
+            # date we already knew. A posting never truly loses its date.
+            # (A DEGRADED location -- Workday's "3 Locations" standing in for
+            # "San Jose; San Francisco" -- is not fixable here: the incoming
+            # value is non-empty, so only the provider can tell it is lossy.
+            # The Workday fetcher carries location forward for that reason.)
+            if row is not None and _is_blank(p.get("posted"))                     and not _is_blank(row["posted"]):
+                p = {**p, "posted": row["posted"]}
+            chash = _content_hash(p)
             if row is None:
                 e = _enrich(p, excluded)
                 wm = _apply_locations(conn, key, p["location"], p["remote"])
@@ -302,7 +352,7 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                         "min_years=?, min_years_source=?, seniority_flag=?, "
                         "url=?, description=?, posted=?, work_mode=?, "
                         "posted_at=?, content_hash=?, "
-                        "last_seen=?, removed_at=NULL "
+                        "last_seen=?, removed_at=NULL, missed_runs=0 "
                         "WHERE ats=? AND slug=? AND job_id=?",
                         (p["company"], p["title"], p["location"],
                          int(bool(p["remote"])), e["salary_min"], e["salary_max"],
@@ -315,19 +365,27 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                     # flag; posted isn't hashed (Greenhouse updated_at drifts),
                     # so keep posted_at current too
                     conn.execute(
-                        "UPDATE postings SET last_seen=?, removed_at=NULL, "
+                        "UPDATE postings SET last_seen=?, removed_at=NULL, missed_runs=0, "
                         "seniority_flag=?, posted=?, posted_at=? "
                         "WHERE ats=? AND slug=? AND job_id=?",
                         (now, extract.seniority_flag(p["title"], excluded),
                          p.get("posted"), locations.parse_posted(p.get("posted")),
                          *key))
 
-        # Removal pass — ONLY over boards that fetched successfully this run.
+        # Removal pass — ONLY over boards whose fetch was successful AND
+        # complete. A board that errored proves nothing about its postings, and
+        # neither does one that came back truncated (Workday's 2000-row offset
+        # wall): the rows it could not see are unknown, not gone. Treat both the
+        # same here, but keep them distinct in the run log — an incomplete fetch
+        # is not a failure and must not trip the dark-board alarm.
         watchlist = config.load_watchlist()
         failed_names = {e["company"] for e in errors}
-        removed = 0
+        incomplete_names = {e["company"]
+                            for e in fetch_result.get("incomplete", [])}
+        no_removals = failed_names | incomplete_names
+        removed = pending_removal = 0
         for co in watchlist:
-            if co["name"] in failed_names:
+            if co["name"] in no_removals:
                 continue
             board = ((co.get("ats") or "").lower(), co.get("slug", ""))
             current = seen_by_board.get(board, set())
@@ -335,13 +393,23 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                 "SELECT job_id FROM postings WHERE ats=? AND slug=? "
                 "AND removed_at IS NULL", board)]
             gone = [jid for jid in active if jid not in current]
+            grace = REMOVAL_GRACE.get(board[0], 1)
             for i in range(0, len(gone), 500):
                 chunk = gone[i:i + 500]
+                marks = ','.join('?' * len(chunk))
+                # missed_runs + 1 on the right-hand side reads the OLD value
+                # in SQLite, so the CASE compares the post-increment count.
                 conn.execute(
-                    f"UPDATE postings SET removed_at=? WHERE ats=? AND slug=? "
-                    f"AND job_id IN ({','.join('?' * len(chunk))})",
-                    (now, *board, *chunk))
-            removed += len(gone)
+                    f"UPDATE postings SET removed_at=CASE WHEN missed_runs+1>=? "
+                    f"THEN ? END, missed_runs=missed_runs+1 "
+                    f"WHERE ats=? AND slug=? AND job_id IN ({marks})",
+                    (grace, now, *board, *chunk))
+            if gone:
+                newly = conn.execute(
+                    "SELECT COUNT(*) FROM postings WHERE ats=? AND slug=? "
+                    "AND removed_at=?", (*board, now)).fetchone()[0]
+                removed += newly
+                pending_removal += len(gone) - newly
 
         # Orphaned-board sweep (JOB-137) — the config-removal half of the
         # contract in this function's docstring. The loop above can only ever
@@ -375,6 +443,15 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
                            for f in json.loads(prev["companies_failed"])}
         failed = [{**e, "consecutive": prev_consec.get(e["company"], 0) + 1}
                   for e in errors]
+        # Hours since the previous run (read before this run is inserted);
+        # the digest uses it to flag missed scheduled runs.
+        prev_gap_hours = None
+        if prev and prev.get("run_at"):
+            try:
+                prev_gap_hours = (datetime.fromisoformat(now) - datetime.fromisoformat(
+                    prev["run_at"])).total_seconds() / 3600
+            except ValueError:
+                pass
         # Per-run sourcing yield (schema v3): of this run's NEW postings, how
         # many title-match / pass the full baseline under the criteria in
         # force right now. Previously computed for the digest and discarded.
@@ -406,6 +483,9 @@ def refresh_from_fetch(fetch_result: dict) -> dict:
         return {"run_at": now, "total_scanned": len(postings),
                 "new_count": len(new_rows), "removed_count": removed,
                 "relisted_count": relisted, "new_rows": new_rows,
+                "pending_removal": pending_removal,
+                "companies_ok": len(watchlist) - len(failed),
+                "prev_gap_hours": prev_gap_hours,
                 "new_qualifying": new_qualifying,
                 "new_title_matched": new_title_matched,
                 "new_qualifying_roles": new_qualifying_roles,
@@ -426,8 +506,15 @@ def _title_matches(title: str, keywords: list[str] | None) -> bool:
 def _role_key(row: dict) -> tuple:
     """Identity for a role independent of which city it's posted in — the
     same role cross-posted to several cities collapses to one key. Applies to
-    both DB rows and freshly-fetched dicts, hence the defensive .get."""
-    return (row["company"], (row.get("title") or "").strip().lower())
+    both DB rows and freshly-fetched dicts, hence the defensive .get.
+
+    Delegates to `data.role_key` so posting dedupe and the already-applied
+    match are literally the same function. They used to be two: this one
+    lower-cased the title and left the company raw, while the applied match
+    normalized both — so the set a row was deduped into and the set it was
+    matched against could disagree."""
+    from . import data  # local import: data.py pulls in fuzzy-match machinery
+    return data.role_key(row["company"], row.get("title"))
 
 
 def _location_ok(row: dict, baseline: dict) -> bool:
@@ -534,7 +621,7 @@ def passes_baseline(row: dict, baseline: dict) -> tuple[bool, str]:
 # --------------------------------------------------------------------------- #
 def _applied_keys() -> set:
     from . import data  # local import: data.py pulls in fuzzy-match machinery
-    return {(data._normalize(a.get("company", "")), data._normalize(a.get("job_title", "")))
+    return {data.role_key(a.get("company", ""), a.get("job_title", ""))
             for a in config.load_applications()}
 
 
@@ -610,8 +697,9 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
             "url": r["url"], "first_seen": r["first_seen"],
             "posted_at": r.get("posted_at"),
             "is_new": r["first_seen"] == run_at,
-            "already_applied": (_data._normalize(r["company"]),
-                                _data._normalize(r["title"])) in applied,
+            # Same function as _applied_keys built the set with — the join
+            # condition, stated once on both sides.
+            "already_applied": _data.role_key(r["company"], r["title"]) in applied,
             "snippet": _snippet(r["description"] or "", snippet_chars),
         }
         by_key[key] = entry
@@ -634,6 +722,43 @@ def list_postings_from_store(query: str | None = None, limit: int | None = None,
         "dropped_over_max_years": dropped_years,
         "companies_failed": json.loads(run["companies_failed"]) if run else [],
     }
+
+
+def stored_detail_fields(ats: str, slug: str) -> dict:
+    """`{job_id: {"description", "location", "posted"}}` for one board's active
+    postings that already carry description text.
+
+    Exists for fetch-once providers. Workday's LIST payload has no description,
+    no real date, and often only `"3 Locations"` where the posting is really
+    "San Jose; San Francisco" -- all three only arrive on the per-posting detail
+    request. Re-fetching those every refresh would add ~11 minutes to a daily
+    run to re-download data that effectively never changes, so the fetcher
+    fetches each posting's detail ONCE and thereafter carries these three
+    fields forward from here.
+
+    All three matter, not just the text. `description` and `location` are both
+    inside `_content_hash`, so re-emitting a degraded value flips the hash and
+    rewrites the row; `posted` is refreshed unconditionally on the unchanged
+    branch, so it is lost even when the hash matches. Worse than data loss, a
+    location degraded back to `"3 Locations"` no longer substring-matches
+    `locations_allowed`, so the row silently fails the baseline location gate
+    and drops out of the digest.
+
+    Presence of description text is the "we already fetched this posting's
+    detail" signal, which is why the query gates on it.
+    """
+    conn = connect()
+    try:
+        return {r["job_id"]: {"description": r["description"],
+                              "location": r["location"],
+                              "posted": r["posted"]}
+                for r in conn.execute(
+                    "SELECT job_id, description, location, posted FROM postings "
+                    "WHERE ats=? AND slug=? AND removed_at IS NULL "
+                    "AND description IS NOT NULL AND description != ''",
+                    (ats, slug))}
+    finally:
+        conn.close()
 
 
 def posting_description(url: str) -> str | None:
@@ -812,10 +937,10 @@ def company_spread() -> dict:
     and the application log — so posting/application spread is self-reporting
     instead of hand-counted every time someone asks (JOB-113).
 
-    The qualifying side counts DISTINCT ROLES on the same
-    (company, title.strip().lower()) key list_postings_from_store dedupes on:
-    one role posted across five cities is five rows but one opportunity, and
-    counting raw rows is exactly what inflates the per-company yield table.
+    The qualifying side counts DISTINCT ROLES on the same `_role_key`
+    list_postings_from_store dedupes on: one role posted across five cities is
+    five rows but one opportunity, and counting raw rows is exactly what
+    inflates the per-company yield table.
 
     The application side counts EVERY record in the log, not only
     status == "submitted": a manual submission is still an application spent on
@@ -841,11 +966,15 @@ def company_spread() -> dict:
     finally:
         conn.close()
 
-    roles = {(r["company"], (r["title"] or "").strip().lower())
-             for r in rows
-             if r["company"] not in dark and passes_baseline(r, baseline)[0]}
+    # Dedupe on the normalized role identity, but count under the board's own
+    # company name: _role_key lower-cases the company, and this report is
+    # read by humans (and the dark-board tests assert display names).
+    roles: dict[tuple, str] = {}
+    for r in rows:
+        if r["company"] not in dark and passes_baseline(r, baseline)[0]:
+            roles.setdefault(_role_key(r), r["company"])
     qualifying: dict[str, int] = {}
-    for company, _title in roles:
+    for company in roles.values():
         qualifying[company] = qualifying.get(company, 0) + 1
 
     by_company: dict[str, int] = {}

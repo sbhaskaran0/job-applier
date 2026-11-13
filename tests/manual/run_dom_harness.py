@@ -1,0 +1,1131 @@
+"""Run src/browser.py's JavaScript against a REAL DOM.
+
+The CI suites under tests/test_*.py stub Playwright, because CI has no
+browser. That leaves an honest gap: no automated test ever executes _SCAN_JS,
+_LISTBOX_VALUE_FN or _ERRORS_JS against a live document, so a JS typo or a
+wrong selector would pass every gate and only surface in a live application
+run -- which costs a real posting.
+
+This harness closes that gap locally. It drives a headless Chromium over
+`workday_fixture.html`, a synthetic page reproducing the DOM shapes a Workday
+wizard uses (listbox buttons with a "Select One" placeholder, an overlaid
+radio, a dependent child field, an sr-only required input, and a
+type=submit "Save and Continue"). It is NOT a substitute for one live run on
+a real posting -- a real tenant may shape its DOM differently, and the notes
+at the bottom say which assertions a live run still has to make -- but it
+does prove the JS parses, runs, and means what the Python believes.
+
+It lives under tests/manual/ deliberately: CI globs tests/test_*.py, so this
+file is skipped there and needs no Playwright stub.
+
+    python tests/manual/run_dom_harness.py [--headed]
+
+Nothing here touches the user's profile: the browser runs on a throwaway
+user_data_dir in the system temp directory, never the persistent profile the
+real runs share.
+"""
+
+import asyncio
+import shutil
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from src import browser as browser_mod          # noqa: E402
+from src.browser import BrowserSession          # noqa: E402
+
+FIXTURE = (Path(__file__).resolve().parent / "workday_fixture.html").as_uri()
+
+UPLOAD_FIXTURE = (Path(__file__).resolve().parent
+                  / "greenhouse_upload_fixture.html").as_uri()
+
+# authenticate() only ever acts on a Workday host, so the entry/auth fixtures
+# are served on a fake tenant host by request interception (no network).
+FAKE_TENANT = "https://acme.wd5.myworkdayjobs.com/fixture/"
+ENTRY_FIXTURE = FAKE_TENANT + "entry"
+AUTH_FIXTURE = FAKE_TENANT + "auth"
+EXPERIENCE_FIXTURE = FAKE_TENANT + "experience"
+WIDGETS_FIXTURE = FAKE_TENANT + "widgets"
+_FIXTURE_FILES = {"entry": "workday_entry_fixture.html",
+                  "auth": "workday_auth_fixture.html",
+                  "experience": "workday_experience_fixture.html",
+                  "widgets": "workday_widgets_fixture.html"}
+AUTH_FILE_URI = (Path(__file__).resolve().parent
+                 / "workday_auth_fixture.html").as_uri()
+
+REVIEW_HTML = """
+<!doctype html><meta charset="utf-8"><h1>Review</h1>
+<p>Please review your application.</p>
+<button id="b1" type="button">Back</button>
+<button id="b2" type="submit">Submit application</button>
+<script>
+  window.__clicks = 0;
+  document.querySelectorAll('button').forEach(function (b) {
+    b.addEventListener('click', function () { window.__clicks += 1; });
+  });
+</script>
+"""
+
+_results = []
+
+
+def check(name, ok, detail=""):
+    _results.append((name, bool(ok), detail))
+    print("%-4s %s%s" % ("PASS" if ok else "FAIL", name,
+                         ("  -- " + str(detail)) if detail else ""))
+
+
+def idx_by_label(fields, needle):
+    """First field index whose label contains `needle` (case-insensitive)."""
+    for f in fields:
+        if needle.lower() in (f.get("label") or "").lower():
+            return f["index"]
+    return None
+
+
+def sig(fields):
+    """Comparable identity of a read_form result: what was seen, not where."""
+    return sorted((f.get("kind"), f.get("label"), f.get("option_value") or "")
+                  for f in fields)
+
+
+async def run(headless=True):
+    tmp = Path(tempfile.mkdtemp(prefix="jobapplier-harness-"))
+    # Never the user's persistent profile: a real run shares that directory,
+    # and a second Chromium on it would either fail to lock or disturb a
+    # half-filled application.
+    browser_mod.config.BROWSER_PROFILE_DIR = tmp / "browser"
+    s = BrowserSession()
+    try:
+        await s._ensure(headless=headless)
+        await s._open_tab()
+        page = s.page
+        await page.goto(FIXTURE, wait_until="domcontentloaded")
+        await page.wait_for_timeout(300)
+
+        # --- Phase 0: read_form is idempotent ---------------------------
+        first = await s.read_form()
+        second = await s.read_form()
+        check("read_form twice returns an identical field set",
+              sig(first) == sig(second),
+              "%d fields then %d" % (len(first), len(second)))
+
+        fields = second
+
+        # --- Phase 1: the scanner sees listbox buttons ------------------
+        device = idx_by_label(fields, "Phone Device Type")
+        country = idx_by_label(fields, "Country")
+        school = idx_by_label(fields, "School")
+        check("scanner sees button[aria-haspopup=listbox] dropdowns",
+              None not in (device, country, school),
+              "device=%s country=%s school=%s" % (device, country, school))
+
+        by_index = {f["index"]: f for f in fields}
+        check("a listbox is reported kind=combobox + widget=listbox",
+              device is not None
+              and by_index[device].get("kind") == "combobox"
+              and by_index[device].get("widget") == "listbox",
+              by_index.get(device))
+
+        # --- the placeholder trap ---------------------------------------
+        check('an UNSET listbox reads "", not "Select One"',
+              device is not None and by_index[device].get("current_value", "") == "",
+              repr(by_index.get(device, {}).get("current_value")))
+        check("a SET listbox reads its committed value",
+              school is not None
+              and by_index[school].get("current_value") ==
+              "University of Southern California",
+              repr(by_index.get(school, {}).get("current_value")))
+
+        # --- Phase 3: a bogus listbox value must NOT report filled -------
+        res = await s.fill_field(device, "Definitely Not An Option")
+        check("a bogus listbox value is not reported as filled",
+              res.get("status") == "uncommitted" and res.get("verified") is False,
+              res)
+        check("the failed listbox fill carries observed_value",
+              "observed_value" in res, res.get("observed_value"))
+
+        # --- a real listbox value commits and verifies -------------------
+        res = await s.fill_field(device, "Mobile")
+        check("a real listbox value fills and verifies",
+              res.get("status") == "filled" and res.get("verified") is True, res)
+
+        # --- the normalization guard -------------------------------------
+        phone = idx_by_label(fields, "Phone Number")
+        res = await s.fill_field(phone, "4155551212")
+        observed = await s._read_back(phone)
+        # Assert the field REALLY reformatted: otherwise this passes trivially
+        # (raw == raw) and proves nothing about the loose comparator.
+        check("the fixture actually normalized the phone (else the next "
+              "assertion is vacuous)",
+              observed not in ("", "4155551212"), repr(observed))
+        check("a site-normalized phone verifies true (no bogus retry)",
+              res.get("verified") is True,
+              "wrote 4155551212, field holds %r" % observed)
+
+        # --- password fields: fillable, flagged, never echoed ------------
+        pw = idx_by_label(fields, "Create Password")
+        check("scanner emits sensitive=true for type=password",
+              pw is not None and by_index[pw].get("sensitive") is True,
+              by_index.get(pw))
+        res = await s.fill_field(pw, "fake-pw-123")
+        check("generic fill_field refuses a password field",
+              res.get("status") == "use_fill_credential", res)
+        res = await s.fill_sensitive(pw, "fake-pw-123", require_password=True)
+        check("fill_sensitive fills + verifies on presence, no echo",
+              res.get("verified") is True
+              and "fake-pw-123" not in repr(res), res)
+        after_pw = await s.read_form()
+        masked = [f for f in after_pw if f.get("sensitive")]
+        check("read_form masks the filled password value",
+              masked and masked[0].get("current_value") == "********"
+              and "fake-pw-123" not in repr(after_pw), masked)
+        check("values_only read_form masks it too",
+              "fake-pw-123" not in repr(await s.read_form(values_only=True)))
+        check("_read_back masks it",
+              await s._read_back(masked[0]["index"]) == "********")
+
+        # show-password toggle: the eye button flips type to text
+        await page.evaluate("document.getElementById('pw').type = 'text'")
+        flipped = await s.read_form()
+        check("after a type=text flip read_form stays masked (sticky)",
+              "fake-pw-123" not in repr(flipped)
+              and [f for f in flipped if f.get("sensitive")], flipped)
+        check("values_only stays masked after the flip",
+              "fake-pw-123" not in repr(await s.read_form(values_only=True)))
+        res = await s.fill_sensitive(pw, "fake-pw-123", require_password=True)
+        check("live type check refuses a password into a type=text box",
+              res.get("status") == "not_a_password_field", res)
+        res = await s.fill_field(pw, "x")
+        check("generic fill still refuses the flipped field",
+              res.get("status") == "use_fill_credential", res)
+        await page.evaluate("document.getElementById('pw').type = 'password'")
+
+        # --- Defect 3: the overlaid radio --------------------------------
+        yes = None
+        for f in fields:
+            if f.get("kind") == "radio" and f.get("option_value") == "Yes":
+                yes = f["index"]
+                break
+        res = await s.fill_field(yes, "true")
+        check("an overlaid radio commits via the label proxy and verifies",
+              res.get("status") == "filled" and res.get("verified") is True, res)
+
+        # --- dependent fields: State does not exist until Country is set --
+        check("State is absent before Country is set",
+              idx_by_label(fields, "State") is None)
+        res = await s.fill_field(country, "United States")
+        check("Country commits", res.get("verified") is True, res)
+        after_country = await s.read_form()
+        check("State appears only after a re-read following Country",
+              idx_by_label(after_country, "State") is not None)
+
+        # --- the matcher, against a real option list ---------------------
+        state = idx_by_label(after_country, "State")
+        res = await s.fill_field(state, "CA")
+        check("State accepts an abbreviation via the matcher",
+              res.get("verified") is True, res)
+        res = await s.fill_field(idx_by_label(after_country, "School"), "UCSB")
+        check('"UCSB" matches its full school name on a live list',
+              res.get("verified") is True, res)
+
+        # --- the safety hazard: submit must not click the wizard Next ----
+        before_h1 = await page.inner_text("h1")
+        res = await s.submit_application()
+        after_h1 = await page.inner_text("h1")
+        check("submit_application on a wizard page returns no_submit_button",
+              res.get("status") == "no_submit_button", res.get("status"))
+        check("submit_application did NOT advance the wizard",
+              before_h1 == after_h1, "%r -> %r" % (before_h1, after_h1))
+        check("no_submit_button still carries form_snapshot",
+              len(res.get("form_snapshot") or []) > 0,
+              len(res.get("form_snapshot") or []))
+
+        # --- advance_step: validation errors -----------------------------
+        res = await s.advance_step()
+        check("a blank required field blocks the advance",
+              res.get("status") == "blocked_validation", res.get("status"))
+        labels = [e.get("field_label") for e in res.get("errors", [])]
+        check("validation errors come back with usable labels",
+              any("Legal Name" in (l or "") for l in labels), labels)
+        check("an sr-only field's error is reported with index null, not dropped",
+              res.get("unmapped_error_count", 0) >= 1,
+              "unmapped=%s errors=%s" % (res.get("unmapped_error_count"),
+                                         res.get("errors")))
+        orphan = [e for e in res.get("errors", [])
+                  if "could not be validated" in (e.get("message") or "")]
+        check("an orphan error is reported, not dropped", len(orphan) == 1, orphan)
+        check("an orphan error is NOT misattributed to an unrelated field",
+              bool(orphan) and orphan[0].get("index") is None, orphan)
+
+        mapped = [e for e in res.get("errors", []) if e.get("index") is not None]
+        check("an aria-describedby error maps to a real field index",
+              len(mapped) >= 1, mapped)
+
+        # --- advance_step: a real advance --------------------------------
+        cur = res.get("fields") or await s.read_form()
+        await s.fill_field(idx_by_label(cur, "Legal Name"), "Siddharth Bhaskaran")
+        await page.evaluate(
+            "() => { const e = document.getElementById('consent-code');"
+            " e.value = 'OK'; }")
+        res = await s.advance_step()
+        check("advance_step reports advanced when the step really moves",
+              res.get("status") == "advanced", res.get("status"))
+        check("advance_step returns a fresh field list",
+              isinstance(res.get("fields"), list) and res["fields"],
+              len(res.get("fields") or []))
+        print("     note: url_changed=%r on this advance (a real Workday run "
+              "must confirm whether Workday changes the URL)" %
+              res.get("url_changed"))
+
+        # --- the Review page: is_submit_page must click NOTHING ----------
+        await page.set_content(REVIEW_HTML)
+        await page.wait_for_timeout(200)
+        await s.read_form()
+        res = await s.advance_step()
+        clicks = await page.evaluate("() => window.__clicks")
+        check("a Review page reports is_submit_page",
+              res.get("status") == "is_submit_page", res.get("status"))
+        check("is_submit_page clicked NOTHING", clicks == 0, "clicks=%s" % clicks)
+
+        # --- hidden Greenhouse-style uploads: cover must not hit resume ---
+        for fn in ("resume_x.pdf", "cover_letter_x.pdf"):
+            (tmp / fn).write_bytes(b"%PDF-1.4 fixture")
+        await page.goto(UPLOAD_FIXTURE, wait_until="domcontentloaded")
+        await s.read_form()
+        res = await s.upload_resume(None, str(tmp / "resume_x.pdf"), "resume")
+        check("resume upload lands in the resume slot and verifies",
+              res.get("status") == "uploaded" and res.get("verified") is True,
+              res)
+        res = await s.upload_resume(None, str(tmp / "cover_letter_x.pdf"), "cover")
+        check("cover upload verifies with the cover filename",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and res.get("observed_filename") == "cover_letter_x.pdf", res)
+        names = await page.evaluate(
+            "() => ['resume','cover_letter'].map(i =>"
+            " (document.getElementById(i).files[0] || {}).name || '')")
+        check("resume slot still holds the resume, cover slot the cover",
+              names == ["resume_x.pdf", "cover_letter_x.pdf"], names)
+
+        # --- dropzone re-render: the input node is replaced after upload ---
+        await page.goto(UPLOAD_FIXTURE + "#rerender", wait_until="domcontentloaded")
+        await page.reload(wait_until="domcontentloaded")
+        res = await s.upload_resume(None, str(tmp / "cover_letter_x.pdf"), "cover")
+        check("re-rendered dropzone: cover upload still verifies via box text",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and res.get("observed_filename") == "", res)
+
+        # --- live Greenhouse shape: the widget UNMOUNTS the input, shows a
+        # progressbar, then the filename in the role=group box. The old
+        # read-back keyed on the input's id and returned verified:false,
+        # container_text:"" for every upload (2026-11-13, Stripe/Tailscale).
+        await _goto(page, UPLOAD_FIXTURE + "#unmount")
+        await s.read_form()
+        res = await s.upload_resume(None, str(tmp / "resume_x.pdf"), "resume")
+        check("unmounting widget: resume verifies via the slot box",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and res.get("readback") == "container"
+              and "Resume/CV" in res.get("container_text", "")
+              and "resume_x.pdf" in res.get("container_text", ""), res)
+        res = await s.upload_resume(None, str(tmp / "cover_letter_x.pdf"),
+                                    "cover")
+        check("unmounting widget: cover verifies in the Cover Letter slot",
+              res.get("status") == "uploaded" and res.get("verified") is True
+              and "Cover Letter" in res.get("container_text", "")
+              and "cover_letter_x.pdf" in res.get("container_text", ""), res)
+        boxes = await page.evaluate(
+            "() => Array.from(document.querySelectorAll('[role=group]'))"
+            ".map(g => g.innerText.replace(/\\s+/g, ' ').trim())")
+        check("unmounting widget: each slot shows its own file",
+              boxes == ["Resume/CV* resume_x.pdf x",
+                        "Cover Letter cover_letter_x.pdf x"], boxes)
+        res = await s.upload_resume(None, str(tmp / "resume_x.pdf"), "resume")
+        boxes2 = await page.evaluate(
+            "() => Array.from(document.querySelectorAll('[role=group]'))"
+            ".map(g => g.innerText.replace(/\\s+/g, ' ').trim())")
+        check("unmounting widget: a 2nd resume upload with the resume slot "
+              "filled is refused and touches nothing",
+              res.get("status") == "error"
+              and "already holds a file" in res.get("error", "")
+              and boxes2 == boxes, (res, boxes2))
+
+        await run_upload_variants(s, tmp)
+
+        await run_entry_auth(s)
+        await run_experience(s)
+        await run_widgets(s)
+    finally:
+        try:
+            await s.close()
+        except Exception:
+            pass
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+_GROUPS_JS = ("() => Array.from(document.querySelectorAll('[role=group]'))"
+              ".map(g => g.innerText.replace(/\\s+/g, ' ').trim())")
+_FILES_JS = ("() => Array.from(document.querySelectorAll('input[type=file]'))"
+             ".map(e => e.id + ':' + ((e.files[0] || {}).name || ''))")
+
+
+async def run_upload_variants(s, tmp):
+    """The review follow-ups, against the REAL upload JS (groupOf, slotOf,
+    slot tagging, present:false enumeration) -- the unit suite fakes it."""
+    page = s.page
+    resume, cover = str(tmp / "resume_x.pdf"), str(tmp / "cover_letter_x.pdf")
+
+    # "Enter manually": the cover input is swapped for a textarea AFTER the
+    # slots were tagged. That is not a filled slot: no_cover_slot.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount")
+    await s.read_form()
+    await s.upload_resume(None, resume, "resume")
+    await page.click('button.manual[data-for="cover_letter"]')   # test setup
+    res = await s.upload_resume(None, cover, "cover")
+    groups = await page.evaluate(_GROUPS_JS)
+    check("Enter manually: cover is no_cover_slot, not 'already holds a file'",
+          res.get("status") == "no_cover_slot"
+          and groups[0] == "Resume/CV* resume_x.pdf x", (res, groups))
+
+    # busy + filename at once: must wait until the progressbar is gone.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount-busyname")
+    await s.read_form()
+    res = await s.upload_resume(None, resume, "resume")
+    busy = await page.evaluate(
+        "() => !!document.querySelector('[role=progressbar]')")
+    check("filename shown while busy: verified only after the progressbar",
+          res.get("verified") is True and not busy
+          and res.get("container_text") == "Resume/CV* resume_x.pdf x",
+          (res, busy))
+
+    # filename + role=alert "Upload failed": never verified.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount-fail")
+    await s.read_form()
+    res = await s.upload_resume(None, resume, "resume")
+    check("filename next to an upload error is NOT verified",
+          res.get("verified") is False
+          and "Upload failed" in res.get("slot_error", ""), res)
+
+    # Resume slot filled before the tool ever scanned (never tagged), with a
+    # Portfolio slot free: the resume must not go to Portfolio.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount-prefilled")
+    await s.read_form()
+    res = await s.upload_resume(None, resume, "resume")
+    files = await page.evaluate(_FILES_JS)
+    check("pre-filled untagged resume slot: resume refused, Portfolio and "
+          "Cover untouched",
+          res.get("status") == "error"
+          and "already holds a file" in res.get("error", "")
+          and files == ["cover_letter:", "portfolio:"], (res, files))
+    res = await s.upload_resume(None, cover, "cover")
+    groups = await page.evaluate(_GROUPS_JS)
+    check("pre-filled page: cover still lands in the Cover Letter slot",
+          res.get("verified") is True and groups[:2] == [
+              "Resume/CV* old_resume.pdf x",
+              "Cover Letter cover_letter_x.pdf x"]
+          and groups[2].startswith("Portfolio") and ".pdf" not in groups[2],
+          (res, groups))
+
+    # Explicit index: read_form lists VISIBLE file inputs; pointing the
+    # resume at the cover input's index must be refused.
+    await _goto(page, UPLOAD_FIXTURE + "#unmount-visible")
+    fields = await s.read_form()
+    ids = {}
+    for f in fields:
+        if f.get("kind") == "file":
+            loc, _ = s._locator(f["index"])
+            ids[await loc.evaluate("e => e.id")] = f["index"]
+    res = await s.upload_resume(ids.get("cover_letter", -1), resume, "resume")
+    files = await page.evaluate(_FILES_JS)
+    check("explicit index: resume into the cover input is refused",
+          res.get("status") == "error" and "cover-letter slot" in
+          res.get("error", "") and files == ["resume:", "cover_letter:"],
+          (ids, res, files))
+    res = await s.upload_resume(ids.get("resume", -1), resume, "resume")
+    check("explicit index: resume into the resume input verifies",
+          res.get("verified") is True, res)
+
+
+FAKE_EMAIL = "harness@example.test"
+FAKE_PW = "fake-pw-123"
+
+
+async def _goto(page, url):
+    # A hash-only change does not reload the document, so go via about:blank.
+    await page.goto("about:blank")
+    await page.goto(url, wait_until="domcontentloaded")
+    await page.wait_for_timeout(300)
+
+
+async def run_entry_auth(s):
+    """Entry (Apply -> chooser -> form) and auth (create / sign-in toggle)
+    against the synthetic Workday fixtures. Credentials are fakes injected
+    by replacing config.credential; nothing real is read."""
+    page = s.page
+    s._ledger_path = False           # never write the real profile's ledger
+    s._ledger = None
+    s._registry_path = False         # nor its Workday account registry
+    s._registry = {}
+
+    async def serve(route):
+        name = route.request.url.split("/fixture/", 1)[1].split("#")[0].split("?")[0]
+        f = Path(__file__).resolve().parent / _FIXTURE_FILES.get(name, "missing")
+        if not f.exists():
+            await route.fulfill(status=404, body="no fixture")
+            return
+        await route.fulfill(status=200, content_type="text/html",
+                            body=f.read_text(encoding="utf-8"))
+    await s.context.route(FAKE_TENANT + "**", serve)
+
+    real_cred = browser_mod.config.credential
+    browser_mod.config.credential = (
+        lambda service, field: (FAKE_EMAIL if field == "email" else FAKE_PW, None))
+    try:
+        # --- entry: advance_step clicks nothing, start_application walks ---
+        # (a real run reaches here via open_job, which resets the tab's
+        # "filled" flag; the phases above filled this same tab)
+        s.tabs[s.active_id]["filled"] = False
+        await _goto(page, ENTRY_FIXTURE)
+        await s.read_form()
+        res = await s.advance_step()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("job page: advance_step reports entry_page",
+              res.get("status") == "entry_page", res.get("status"))
+        check("job page: advance_step clicked nothing", clicked == [], clicked)
+        res = await s.submit_application()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("job page: submit_application finds no submit (Apply is not one)",
+              res.get("status") == "no_submit_button" and clicked == [],
+              (res.get("status"), clicked))
+        res = await s.start_application()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("start_application walks job -> chooser -> form",
+              res.get("status") == "form"
+              and idx_by_label(res.get("fields") or [], "First Name") is not None,
+              res.get("status"))
+        check("start_application clicked exactly Apply, Apply Manually",
+              clicked == ["Apply", "Apply Manually"], clicked)
+        res = await s.start_application()
+        clicked2 = await page.evaluate("() => window.__clicked")
+        check("start_application is idempotent on the form",
+              res.get("status") == "form" and clicked2 == clicked, clicked2)
+
+        # --- slow entry (live Capital One): a same-URL modal ~2.5s after
+        # Apply, then an auth form ~2.5s after Apply Manually's URL flip ---
+        await _goto(page, ENTRY_FIXTURE + "#slow")
+        await s.read_form()
+        t0 = time.monotonic()
+        res = await s.start_application()
+        took = time.monotonic() - t0
+        clicked = await page.evaluate("() => window.__clicked")
+        check("slow modal entry: auth_required in ONE start_application call",
+              res.get("status") == "auth_required", res.get("status"))
+        check("slow modal entry: clicked exactly Apply, Apply Manually "
+              "(the background Apply not re-clicked)",
+              clicked == ["Apply", "Apply Manually"], clicked)
+        check("slow modal entry: landed on /apply/applyManually",
+              (res.get("url") or "").endswith("/apply/applyManually"),
+              res.get("url"))
+        check("slow modal entry: bounded (< 30s)", took < 30, round(took, 1))
+
+        # --- auth page: classification, no clicks from advance/submit -----
+        await _goto(page, AUTH_FIXTURE + "#ok")
+        res = await s.start_application()
+        auth = res.get("auth") or {}
+        check("auth page: start_application reports auth_required",
+              res.get("status") == "auth_required", res.get("status"))
+        check("auth layout: create_account with email/pw/confirm/consent",
+              auth.get("mode") == "create_account"
+              and None not in (auth.get("email_index"), auth.get("password_index"),
+                               auth.get("confirm_index"))
+              and len(auth.get("consent_indexes") or []) == 1, auth)
+        check("auth layout: submit_label is the auth button text",
+              auth.get("submit_label") == "Create Account", auth)
+        check("auth layout: both modes visible (toggle)",
+              set(auth.get("available") or []) == {"sign_in", "create_account"},
+              auth.get("available"))
+        res = await s.advance_step()
+        subs = await page.evaluate("() => window.__submits")
+        check("auth page: advance_step reports auth_page and submits nothing",
+              res.get("status") == "auth_page" and subs == [],
+              (res.get("status"), subs))
+        res = await s.submit_application()
+        subs = await page.evaluate("() => window.__submits")
+        check("auth page: submit_application never clicks Create Account",
+              res.get("status") == "no_submit_button" and subs == [],
+              (res.get("status"), subs))
+
+        # --- authenticate scenarios --------------------------------------
+        # (flags, registry status for the tenant or None, want, submits).
+        # No registry entry -> create; create says "exists" -> park
+        # (account_exists, no sign-in); registry active -> sign in.
+        ACTIVE = "active"
+        scenarios = [
+            ("ok", None, "authenticated", ["create"]),
+            ("exists", None, "account_exists", ["create"]),
+            ("badpw", ACTIVE, "bad_credentials", ["sign_in"]),
+            ("verify", None, "email_verification_required", ["create"]),
+            ("signin", None, "authenticated", ["create"]),
+            ("signin,exists", ACTIVE, "authenticated", ["sign_in"]),
+            # filling the password inserts a show-password eye before the
+            # submit and re-renders the overlay + button (live Capital One)
+            ("eye", None, "authenticated", ["create"]),
+            # live Capital One 2026-11-13: create -> plain Sign In page ->
+            # sign in, in ONE call; a blank redirect before the form; a
+            # signed-in header with no form fields
+            ("redirect", None, "authenticated", ["create", "sign_in"]),
+            ("redirect,slow", None, "authenticated", ["create", "sign_in"]),
+            ("signin,exists,slow", ACTIVE, "authenticated", ["sign_in"]),
+            ("signin,exists,hdronly", ACTIVE, "authenticated", ["sign_in"]),
+        ]
+        tenant = browser_mod._host_of(FAKE_TENANT)
+        for flags, reg, want, want_subs in scenarios:
+            s.clear_auth_ledger()    # each scenario is a fresh tenant history
+            s._registry = ({tenant: {"email": FAKE_EMAIL, "status": reg}}
+                           if reg else {})
+            await _goto(page, AUTH_FIXTURE + "#" + flags)
+            res = await s.authenticate()
+            subs = await page.evaluate("() => window.__submits")
+            hdr = await page.evaluate("() => window.__hdr")
+            check("authenticate #%s -> %s" % (flags, want),
+                  res.get("status") == want, res)
+            check("authenticate #%s submits %s (<= 2)" % (flags, want_subs),
+                  subs == want_subs, subs)
+            check("authenticate #%s never clicks the header Sign In" % flags,
+                  hdr == 0, hdr)
+            check("authenticate #%s result carries no credential" % flags,
+                  FAKE_PW not in repr(res) and FAKE_EMAIL not in repr(res), res)
+            if flags == "ok":
+                agreed = await page.evaluate(
+                    "() => document.getElementById('agree').checked")
+                check("create-account ticked the privacy consent", agreed)
+                promo = await page.evaluate(
+                    "() => document.getElementById('promo').checked")
+                check("create-account left the marketing opt-in unticked",
+                      promo is False, promo)
+            if "hdronly" in flags:
+                rf = await s.read_form()
+                check("a hidden auth panel's buttons are not a phantom radio "
+                      "group (the old scanner saw a 'form' on a blank page)",
+                      not [f for f in rf if f.get("kind") == "radio"],
+                      [(f["kind"], f["label"]) for f in rf])
+            if flags == "exists":
+                row = s._registry.get(tenant) or {}
+                check("authenticate #exists records exists_unknown_password",
+                      row.get("status") == "exists_unknown_password", row)
+            if flags.startswith("redirect"):
+                row = s._registry.get(tenant) or {}
+                check("authenticate #%s: account_created, registry active "
+                      "with both timestamps" % flags,
+                      res.get("account_created") is True
+                      and row.get("status") == "active"
+                      and row.get("created_at") and row.get("last_sign_in_at"),
+                      (res, row))
+            if flags == "eye":
+                eye = await page.evaluate("() => window.__eye")
+                check("authenticate #eye never clicks the show-password eye",
+                      eye == 0, eye)
+            if flags == "verify":
+                check("verification excerpt is page text, email redacted",
+                      "verification email" in res.get("message_excerpt", "")
+                      and "<redacted>" in res.get("message_excerpt", ""),
+                      res.get("message_excerpt"))
+
+        # --- the ledger: bad_credentials short-circuits the next call ------
+        s.clear_auth_ledger()
+        s._registry = {tenant: {"email": FAKE_EMAIL, "status": "active"}}
+        await _goto(page, AUTH_FIXTURE + "#badpw")
+        first = await s.authenticate()
+        check("ledger: first bad-password run ends bad_credentials",
+              first.get("status") == "bad_credentials", first)
+        await _goto(page, AUTH_FIXTURE + "#badpw")
+        res = await s.authenticate()
+        subs = await page.evaluate("() => window.__submits")
+        check("ledger: bad_credentials on a fresh page submits nothing",
+              res.get("status") == "bad_credentials" and subs == [], (res, subs))
+        rf = await s.read_form()
+        check("after auth, read_form never shows the password",
+              FAKE_PW not in repr(rf), [f for f in rf if f.get("sensitive")])
+        s.clear_auth_ledger()
+
+        # --- a real overlay: the click_filter intercepts the button --------
+        # (covered by every create scenario above; the submit count of 1
+        # per attempt proves the overlay and its button were not BOTH hit)
+
+        # --- credentials are Workday-only --------------------------------
+        await _goto(page, AUTH_FILE_URI + "#ok")
+        res = await s.authenticate()
+        subs = await page.evaluate("() => window.__submits")
+        val = await page.evaluate("() => document.getElementById('email').value")
+        check("non-Workday host: unsupported_auth_flow, nothing typed/clicked",
+              res.get("status") == "unsupported_auth_flow" and subs == []
+              and val == "", (res, subs, val))
+
+        # --- a filled tab never clicks a bare Apply via start_application -
+        await _goto(page, ENTRY_FIXTURE)
+        await s.read_form()
+        s.tabs[s.active_id]["filled"] = True
+        res = await s.start_application()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("filled tab: start_application refuses the Apply (no click)",
+              res.get("status") == "already_in_application" and clicked == [],
+              (res.get("status"), clicked))
+        res = await s.advance_step()
+        clicked = await page.evaluate("() => window.__clicked")
+        check("filled tab: a lone Apply reads as is_submit_page, not clicked",
+              res.get("status") == "is_submit_page" and clicked == [],
+              (res.get("status"), clicked))
+        s.tabs[s.active_id]["filled"] = False
+
+        # --- no credentials: the page is not touched ---------------------
+        browser_mod.config.credential = (
+            lambda service, field: (None, {"status": "no_credentials", "hint": ""}))
+        await _goto(page, AUTH_FIXTURE + "#ok")
+        res = await s.authenticate()
+        subs = await page.evaluate("() => window.__submits")
+        val = await page.evaluate("() => document.getElementById('email').value")
+        check("no credentials -> no_credentials, nothing typed or clicked",
+              res.get("status") == "no_credentials" and subs == [] and val == "",
+              (res, subs, val))
+
+        for bad in ("https://evil.example.com/verify",
+                    "https://workday.evil.com/x",
+                    "https://evilmyworkdayjobs.com/x",
+                    "https://myworkdayjobs.com@workday-login.ru/",
+                    "https://acme.wd5.myworkdayjobs.com:8443/x"):
+            res = await s.open_verification_link(bad)
+            check("open_verification_link refuses %s" % bad,
+                  res.get("status") == "not_allowed", res)
+    finally:
+        browser_mod.config.credential = real_cred
+
+
+# A synthetic profile: the real one is never read. Injected by replacing
+# config.load_user_profile, which data.profile_section and the gpa_policy
+# lookup both go through.
+LONG_DESC = ("Owned the roadmap for a synthetic fixture product, coordinating "
+             "a cross-functional team across several launches and metrics.")
+TEST_PROFILE = {
+    "gpa_policy": "always",
+    "experience": [
+        {"company": "Globex", "title": "Senior Product Manager",
+         "location": "Springfield", "start": "2022-03", "end": "",
+         "current": True, "description": LONG_DESC},
+        {"company": "Acme Corp", "title": "Product Manager",
+         "location": "Shelbyville", "start": "2019-06", "end": "2022-02",
+         "current": "false", "description": "Shipped things."},
+    ],
+    "education": [
+        {"school": "Example State University", "degree": "B.S.",
+         "field_of_study": "Economics", "start": "2014-09", "end": "2018-05",
+         "gpa": "3.50"},
+    ],
+}
+
+
+async def run_experience(s):
+    """fill_repeating_section against the synthetic My Experience page."""
+    page = s.page
+    real_profile = browser_mod.config.load_user_profile
+    browser_mod.config.load_user_profile = lambda: TEST_PROFILE
+
+    async def val(sel, prop="value"):
+        return await page.evaluate(
+            "([s, p]) => { const e = document.querySelector(s);"
+            " return e ? e[p] : null; }", [sel, prop])
+
+    async def adds():
+        return await page.evaluate("() => window.__adds")
+
+    async def ngroups(which):
+        return await page.evaluate(
+            "(w) => document.querySelectorAll('#' + w + '-groups .grp').length", which)
+
+    def entry_rows(res, pos):
+        for e in res.get("filled") or []:
+            if e.get("entry") == pos:
+                return e
+        return {}
+
+    try:
+        # --- resume-prefilled group: completed in place, one Add -----------
+        s.tabs[s.active_id]["filled"] = False
+        await _goto(page, EXPERIENCE_FIXTURE + "#prefill")
+        res = await s.fill_repeating_section("experience")
+        a = await adds()
+        acme = entry_rows(res, 1)
+        check("experience: prefilled Acme group completed in place (fill-blanks)",
+              acme.get("result") == "completed_blanks", res)
+        check("experience: prefilled title/company not overwritten, blanks filled",
+              await val("#we1-title") == "Product Manager"
+              and await val("#we1-company") == "Acme Corp"
+              and await val("#we1-from-m") == "06" and await val("#we1-to-y") == "2022"
+              and await val("#we1-loc") == "Shelbyville",
+              (await val("#we1-from-m"), await val("#we1-to-y")))
+        check('experience: current="false" string does not tick the box',
+              await val("#we1-cur", "checked") is False)
+        check("experience: exactly one Add, for the one missing role",
+              res.get("added") == 1 and a["we"] == 1, (res.get("added"), a))
+        check("experience: status ok", res.get("status") == "ok", res)
+        check("experience: no other section's Add was clicked",
+              a["lang"] == 0 and a["ed"] == 0 and a["cert"] == 0, a)
+        check("experience: fill marked the tab filled", s.filled)
+        check("experience: new group holds title + company",
+              await val("#we2-title") == "Senior Product Manager"
+              and await val("#we2-company") == "Globex",
+              (await val("#we2-title"), await val("#we2-company")))
+        check("experience: current role ticks 'I currently work here'",
+              await val("#we2-cur", "checked") is True)
+        check("experience: To is gone (current role) and was not refilled",
+              await val("#we2-to-m") is None)
+        check("experience: split Month/Year From survives blur (shape b)",
+              await val("#we2-from-m") == "03" and await val("#we2-from-y") == "2022",
+              (await val("#we2-from-m"), await val("#we2-from-y")))
+        check("experience: full description typed into the page",
+              await val("#we2-desc") == LONG_DESC)
+        fields = entry_rows(res, 0).get("fields", [])
+        desc = [f for f in fields if f.get("key") == "description"]
+        check("experience: description echo truncated to 60 chars",
+              desc and len(desc[0].get("value", "")) <= 60
+              and desc[0].get("verified") is True, desc)
+        check("experience: no leftover blank groups",
+              res.get("leftover_blank_groups") == 0, res.get("leftover_blank_groups"))
+
+        for run in (2, 3):
+            res = await s.fill_repeating_section("experience")
+            a = await adds()
+            check("experience: run %d is already_present, no growth" % run,
+                  res.get("status") == "already_present" and res.get("added") == 0
+                  and a["we"] == 1 and await ngroups("we") == 2,
+                  (res.get("status"), a))
+
+        # --- education: pill school, specific degree, shape (a) dates ------
+        res = await s.fill_repeating_section("education")
+        check("education: status ok, one group added",
+              res.get("status") == "ok" and res.get("added") == 1, res)
+        check("education: prompt school commits as a pill (input cleared)",
+              await val("#ed1-school") == ""
+              and "Example State University" in (await page.evaluate(
+                  "() => document.getElementById('ed1-school-pills').innerText")),
+              await val("#ed1-school"))
+        sch = [f for f in entry_rows(res, 0).get("fields", []) if f.get("key") == "school"]
+        check("education: pill school verified true",
+              sch and sch[0].get("verified") is True
+              and sch[0].get("committed_as") == "pill", sch)
+        deg = await page.evaluate(
+            "() => document.getElementById('ed1-deg').innerText.trim()")
+        check('education: "B.S." -> Bachelor of Science (BS), not BA',
+              deg == "Bachelor of Science (BS)", deg)
+        check("education: plain typeahead keeps value",
+              await val("#ed1-fos") == "Economics", await val("#ed1-fos"))
+        check("education: GPA filled under gpa_policy=always",
+              await val("#ed1-gpa") == "3.50", await val("#ed1-gpa"))
+        check("education: single MM/YYYY From (shape a)",
+              await val("#ed1-from") == "09/2014", await val("#ed1-from"))
+        check("education: YYYY-only To",
+              await val("#ed1-to") == "2018", await val("#ed1-to"))
+        a = await adds()
+        check("education: Languages Add / Add Certification never clicked",
+              a["lang"] == 0 and a["cert"] == 0, a)
+        for run in (2, 3):
+            res = await s.fill_repeating_section("education")
+            check("education: run %d with a pill school is already_present" % run,
+                  res.get("status") == "already_present" and res.get("added") == 0
+                  and await ngroups("ed") == 1, (res.get("status"), await ngroups("ed")))
+
+        # --- prefilled education with a pill school: complete blanks -------
+        await _goto(page, EXPERIENCE_FIXTURE + "#prefill-edu")
+        res = await s.fill_repeating_section("education")
+        check("education (pill prefill): completed_blanks, no Add",
+              res.get("added") == 0 and entry_rows(res, 0).get("result")
+              == "completed_blanks" and res.get("status") == "ok", res)
+        check("education (pill prefill): field of study filled, degree kept",
+              await val("#ed1-fos") == "Economics" and await page.evaluate(
+                  "() => document.getElementById('ed1-deg').innerText.trim()")
+              == "Bachelor of Science (BS)")
+
+        # --- orphan: degree set, school never committed --------------------
+        await _goto(page, EXPERIENCE_FIXTURE + "#orphan-edu")
+        res = await s.fill_repeating_section("education")
+        check("education (orphan): reused, no Add",
+              res.get("added") == 0 and entry_rows(res, 0).get("result")
+              == "completed_orphan", res)
+        for run in (2, 3):
+            res = await s.fill_repeating_section("education")
+            check("education (orphan): run %d no growth" % run,
+                  res.get("added") == 0 and await ngroups("ed") == 1
+                  and (await adds())["ed"] == 0, (res.get("status"), await ngroups("ed")))
+
+        # --- empty page: two roles, current one first ----------------------
+        await _goto(page, EXPERIENCE_FIXTURE)
+        res = await s.fill_repeating_section("experience")
+        a = await adds()
+        check("experience (blank page): two groups added, status ok",
+              res.get("added") == 2 and a["we"] == 2
+              and res.get("status") == "ok", (res.get("status"), a, res))
+        check("experience (blank page): past role keeps To = 02/2022",
+              await val("#we2-to-m") == "02" and await val("#we2-to-y") == "2022"
+              and await val("#we2-cur", "checked") is False,
+              (await val("#we2-to-m"), await val("#we2-to-y")))
+        check("experience (blank page): current role has no To",
+              await val("#we1-to-m") is None)
+        check("result never carries the long description in full",
+              LONG_DESC not in repr(res))
+
+        # --- [role=checkbox] current-role control ---------------------------
+        await _goto(page, EXPERIENCE_FIXTURE + "#ariacb")
+        res = await s.fill_repeating_section("experience")
+        on = await page.evaluate(
+            "() => document.getElementById('we1-cur').getAttribute('aria-checked')")
+        check("aria checkbox: current role ticks a [role=checkbox]",
+              on == "true" and await val("#we1-to-m") is None, (on, res.get("status")))
+        check("aria checkbox: status ok", res.get("status") == "ok", res)
+
+        # --- a group re-rendered mid-fill (live Capital One first pass) ----
+        await _goto(page, EXPERIENCE_FIXTURE + "#remount")
+        res = await s.fill_repeating_section("experience")
+        rows = [f for e in res.get("filled") or [] for f in e.get("fields", [])]
+        vanished = [f for f in rows if f.get("error") == "group_vanished"]
+        check("remount: the fixture really re-rendered both groups",
+              await page.evaluate("() => window.__remounts") == 2,
+              await page.evaluate("() => window.__remounts"))
+        check("remount: one call, no group_vanished, status ok",
+              not vanished and res.get("status") == "ok",
+              (res.get("status"), vanished, res.get("errors")))
+        check("remount: the result says the groups were re-found",
+              sum(e.get("regrouped", 0) for e in res.get("filled") or []) >= 2,
+              [e.get("regrouped") for e in res.get("filled") or []])
+        check("remount: both groups filled end to end in the page",
+              await val("#we1-loc") == "Springfield"
+              and await val("#we1-from-m") == "03"
+              and await val("#we1-desc") == LONG_DESC
+              and await val("#we2-loc") == "Shelbyville"
+              and await val("#we2-to-m") == "02" and await val("#we2-to-y") == "2022"
+              and await val("#we2-desc") == "Shipped things.",
+              (await val("#we1-loc"), await val("#we2-loc"), await val("#we2-to-y")))
+        co = [f for f in rows if f.get("key") == "company"]
+        check("remount: company rows end verified (settled by the re-read)",
+              len(co) == 2 and all(f.get("verified") is True for f in co), co)
+        check("remount: no internal bookkeeping leaks into the result",
+              "_eid" not in repr(res))
+
+        # --- prompt School / Field of Study that drop unpicked text ---------
+        await _goto(page, EXPERIENCE_FIXTURE + "#prompt-edu")
+        res = await s.fill_repeating_section("education")
+        rows = [f for e in res.get("filled") or [] for f in e.get("fields", [])]
+        sch = [f for f in rows if f.get("key") == "school"]
+        fos = [f for f in rows if f.get("key") == "field_of_study"]
+        check("prompt: the page really holds no school / field of study",
+              await val("#ed1-school") == "" and await val("#ed1-fos") == "",
+              (await val("#ed1-school"), await val("#ed1-fos")))
+        check("prompt: School is NOT verified:true over an empty box",
+              sch and sch[0].get("verified") is False
+              and sch[0].get("status") == "uncommitted", sch)
+        check("prompt: Field of Study is NOT verified:true over an empty box",
+              fos and fos[0].get("verified") is False
+              and fos[0].get("status") == "uncommitted", fos)
+        check("prompt: result agrees with its own required_empty",
+              any(r.get("key") == "school" for r in res.get("required_empty") or [])
+              and res.get("status") == "partial", (res.get("status"),
+                                                    res.get("required_empty")))
+
+        # --- two valid Add controls in one section: click nothing --------
+        await _goto(page, EXPERIENCE_FIXTURE)
+        await page.evaluate(
+            "() => { const b = document.createElement('button');"
+            " b.type = 'button'; b.textContent = 'Add Education';"
+            " document.querySelector('section[aria-labelledby=ed-h]').appendChild(b); }")
+        res = await s.fill_repeating_section("education")
+        a = await adds()
+        check("two Add candidates -> ambiguous_add, nothing clicked",
+              res.get("status") == "ambiguous_add" and a["ed"] == 0
+              and await ngroups("ed") == 0, (res.get("status"), a))
+
+        # --- no section on the page --------------------------------------
+        await _goto(page, ENTRY_FIXTURE)
+        res = await s.fill_repeating_section("education")
+        check("no Education heading -> section_not_found",
+              res.get("status") == "section_not_found", res)
+    finally:
+        browser_mod.config.load_user_profile = real_profile
+
+
+WIDGET_PROFILE = {
+    "gpa_policy": "never",
+    "experience": [
+        {"company": "Initech", "title": "Product Manager", "location": "Remote",
+         "start": "2023-04", "end": "2025-10", "current": False,
+         "description": "Shipped the thing."},
+    ],
+    "education": [
+        {"school": "University of California, Los Angeles",
+         "degree": "Master of Science", "field_of_study": "Economics",
+         "start": "2018-09", "end": "2020-06"},
+    ],
+}
+
+
+async def run_widgets(s):
+    """Segmented-date spinbuttons, search-and-pick boxes and listbox quirks,
+    modelled on the live Capital One accessibility tree (2026-11-13)."""
+    page = s.page
+    real_profile = browser_mod.config.load_user_profile
+    browser_mod.config.load_user_profile = lambda: WIDGET_PROFILE
+
+    async def aria(sel, attr="aria-valuetext"):
+        return await page.evaluate(
+            "([s, a]) => { const e = document.querySelector(s);"
+            " return e ? e.getAttribute(a) : null; }", [sel, attr])
+
+    async def text(sel):
+        return await page.evaluate(
+            "(s) => { const e = document.querySelector(s);"
+            " return e ? e.innerText.replace(/\\s+/g, ' ').replace('\u00d7', '').trim()"
+            " : null; }", sel)
+
+    async def js(expr):
+        return await page.evaluate(expr)
+
+    def rows(res):
+        return {(f.get("key"), f.get("part")): f
+                for e in res.get("filled") or [] for f in e.get("fields", [])}
+    try:
+        await _goto(page, WIDGETS_FIXTURE)
+        fields = await s.read_form()
+        spins = [f for f in fields if f.get("widget") == "spinbutton"]
+        check("widgets: read_form lists the date spinbuttons (2+2+1+1)",
+              len(spins) == 6 and {f["label"] for f in spins} == {"Month", "Year"},
+              [(f["label"], f.get("current_value")) for f in spins])
+        boxes = [f for f in fields if f.get("widget") == "searchbox"]
+        check("widgets: read_form tags School / Field of Study as searchbox",
+              len(boxes) == 2 and all(f.get("current_value") == "" for f in boxes),
+              boxes)
+
+        res = await s.fill_repeating_section("experience")
+        r = rows(res)
+        check("widgets: experience status ok, no Add click",
+              res.get("status") == "ok"
+              and await js("() => window.__adds.we") == 0, res)
+        got = [await aria(x) for x in ("#we1-from-m", "#we1-from-y",
+                                       "#we1-to-m", "#we1-to-y")]
+        check("widgets: From = 4 / 2023 and To = 10 / 2025 in the page",
+              got == ["4", "2023", "10", "2025"], got)
+        check("widgets: every date part verified",
+              all(r.get((k, p), {}).get("verified") is True
+                  for k in ("start", "end") for p in ("month", "year")),
+              {k: v for k, v in r.items() if k[0] in ("start", "end")})
+
+        res = await s.fill_repeating_section("education")
+        r = rows(res)
+        check("widgets: education status ok", res.get("status") == "ok", res)
+        sch = r.get(("school", None), {})
+        chips = await text("#ed1-school-chips") or ""
+        check("widgets: School committed as the tenant's chip, verified",
+              "University of California-Los Angeles" in chips
+              and sch.get("verified") is True and sch.get("committed_as") == "pill",
+              (sch, chips))
+        fos = r.get(("field_of_study", None), {})
+        chips = await text("#ed1-fos-chips") or ""
+        n = await js("() => window.__searches")
+        check("widgets: Field of Study picked from the 2nd (filtered) search",
+              chips.startswith("Economics") and fos.get("verified") is True
+              and n == 3, (fos, chips, n))
+        check("widgets: results popup closed after the picks",
+              await js("() => document.getElementById('popup').hidden"))
+        got = (await aria("#ed1-from-y"), await aria("#ed1-to-y"))
+        check("widgets: education From / To years in the page",
+              got == ("2018", "2020"), got)
+        check("widgets: degree picked",
+              await text("#ed1-deg") == "Master of Science (MS)",
+              await text("#ed1-deg"))
+
+        fields = await s.read_form(values_only=True)
+        by = {f["label"]: f for f in fields}
+        check("widgets: read_form reads the chips back, not typed text",
+              by.get("School or University*", {}).get("current_value")
+              == "University of California-Los Angeles"
+              and by.get("Field of Study", {}).get("current_value") == "Economics",
+              (by.get("School or University*"), by.get("Field of Study")))
+        res = await s.fill_repeating_section("education")
+        check("widgets: education re-run is already_present",
+              res.get("status") == "already_present", res.get("status"))
+
+        # no matching result: never verified, nothing typed left behind
+        await js("() => { document.getElementById('ed1-fos-chips').innerHTML = ''; }")
+        fields = await s.read_form()
+        idx = idx_by_label(fields, "Field of Study")
+        res = await s.fill_field(idx, "Underwater Basket Weaving")
+        check("widgets: zero results in the box's own popup -> unmatched, "
+              "options [], typed text cleared",
+              res.get("status") == "unmatched" and res.get("options") == []
+              and res.get("verified") is False
+              and await js("() => document.getElementById('ed1-fos').value") == "",
+              res)
+        await js("() => { document.getElementById('ed1-school-chips').innerHTML = ''; }")
+        fields = await s.read_form()
+        idx = idx_by_label(fields, "School or University")
+        res = await s.fill_field(idx, "Nowhere Polytechnic")
+        check("widgets: no list / chip at all (unlinked popup) -> left as "
+              "typed, verified null, never true",
+              res.get("status") == "filled" and res.get("verified") is None,
+              res)
+        res = await s.fill_field(idx_by_label(fields, "Field of Study"),
+                                 "Agricultural")
+        check("widgets: a containing result is never picked",
+              res.get("status") == "unmatched" and await text("#ed1-fos-chips") == "",
+              res)
+
+        # Enter inside a <form>: the search runs, the form is NOT submitted
+        await _goto(page, WIDGETS_FIXTURE + "#formsubmit")
+        res = await s.fill_repeating_section("education")
+        subs = await js("() => window.__formSubmits")
+        chips = await text("#ed1-school-chips") or ""
+        check("widgets: Enter in a search box inside a <form> never submits it",
+              subs == 0 and "University of California-Los Angeles" in chips,
+              (subs, chips, res.get("status")))
+        await _goto(page, WIDGETS_FIXTURE)
+
+        # listbox quirks
+        fields = await s.read_form()
+        q1 = idx_by_label(fields, "Have you worked at Acme")
+        res = await s.fill_field(q1, "No, I have never worked at Acme or a "
+                                     "company acquired by Acme")
+        check("widgets: a listbox whose first click only focuses opens on Space",
+              res.get("verified") is True
+              and (await text("#q1") or "").startswith("No, I have never"), res)
+        fields = await s.read_form()
+        q2 = idx_by_label(fields, "Are you 18 or older")
+        res = await s.fill_field(q2, "No")
+        check("widgets: an option with an EMPTY accessible name is picked by text",
+              res.get("verified") is True and await text("#q2") == "No", res)
+    finally:
+        browser_mod.config.load_user_profile = real_profile
+
+
+def main():
+    try:   # a Windows console cannot print every glyph a check detail holds
+        sys.stdout.reconfigure(errors="backslashreplace")
+    except Exception:
+        pass
+    headless = "--headed" not in sys.argv
+    asyncio.run(run(headless=headless))
+    failed = [n for n, ok, _ in _results if not ok]
+    print("\n%d/%d passed" % (len(_results) - len(failed), len(_results)))
+    if failed:
+        print("failed: " + ", ".join(failed))
+    print(
+        "\nStill only a live run on a real posting can confirm:\n"
+        "  * whether Workday changes the URL on advance (this harness reports\n"
+        "    url_changed above; the fixture never navigates)\n"
+        "  * whether a real tenant's error nodes are visible at scan time and\n"
+        "    how often unmapped_error_count is > 0\n"
+        "  * whether the real Review page exposes only a Submit control\n"
+        "  * whether the aria-label-suffix arm of the listbox cascade is ever\n"
+        "    reached (the earlier arms win on this fixture)")
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()

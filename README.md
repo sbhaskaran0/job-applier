@@ -2,11 +2,15 @@
 
 An AI job-application agent that runs inside **Claude Code**. It finds high-quality
 product/strategy roles across a curated company watchlist and fills out their
-application forms on any ATS (Greenhouse, Lever, Ashby, Workday…) — intelligently,
-and **never submitting without your say-so**.
+application forms — intelligently, and **never submitting without your
+say-so**. Applications run on Greenhouse, Lever and Ashby. Workday sourcing is
+**verified live**; the Workday **apply** path has completed one real
+application (Capital One, 2026-11-13), but only with a Chrome-extension
+fallback for the form widgets the built-in browser could not drive, so it is
+**partly verified, not yet routine**.
 
 Claude Code is the reasoner; a local **MCP server** gives it a real browser
-(Playwright), your profile/history/knowledge base, and live jobs from company
+(Playwright, **44 tools**), your profile/history/knowledge base, and live jobs from company
 career boards. **No LLM API key or cost** in the core flow.
 
 ## Quick start
@@ -115,11 +119,16 @@ deep-reads.
 ```mermaid
 flowchart TD
     subgraph ING["python -m src.refresh — pure Python, no LLM, scheduler-friendly"]
-        B["~79 watchlist boards<br/>public Greenhouse/Lever/Ashby APIs"] --> N["normalize<br/>(ats, slug, job_id)"]
+        B["100 watchlist boards (verified 2026-09-09)<br/>public Greenhouse/Lever/Ashby REST APIs<br/>+ 20 Workday boards via the CXS API below"] --> N["normalize<br/>(ats, slug, job_id)"]
         N --> X["extract once per posting:<br/>salary from JD text · min-years (advisory)<br/>· excluded-seniority flag · locations →<br/>canonical tokens + work_mode<br/>(regex + location_aliases.yaml)"]
-        X --> DB[("data/postings.db<br/>first_seen · last_seen · removed_at<br/>(removals only from boards that fetched OK)")]
-        DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield & company<br/>concentration per side of the funnel"]
+        X --> DB[("data/postings.db (schema v5)<br/>first_seen · last_seen · removed_at · missed_runs<br/>(removal only after a COMPLETE successful fetch<br/>missed the row; Workday needs 2 in a row)")]
+        DB --> DG["data/digest-latest.md<br/>new baseline-passing roles ·<br/>board health · yield & concentration ·<br/>missed-run gap note (previous run > 30h ago)"]
+        DB --> HL["data/refresh-health.json<br/>run_at · ok · companies_ok / failed"]
     end
+    HL --> BAN["/api/status → Postings page banner<br/>(amber over 26h, or last run failed)"]
+    SCH["scripts/setup_refresh_task.ps1 task:<br/>09:00 daily + at-logon (10 min delay),<br/>WakeToRun · StartWhenAvailable"] --> GD{"refresh_guard.py:<br/>health ok and < 12h old?"}
+    GD -- "yes (exit 10)" --> SK["skip, logged"]
+    GD -- "no, or --force /<br/>JOBAPPLIER_FORCE_REFRESH=1" --> B
     DB --> Q["list_watchlist_postings<br/>deterministic baseline filter<br/>+ already_applied · is_new<br/>(live-fetch fallback if store > 36h old)"]
     Q --> R["/find-jobs: Claude ranks semantically,<br/>deep-reads finalists, returns apply URLs"]
 ```
@@ -127,7 +136,16 @@ flowchart TD
 The store is a cache of public data — delete `data/postings.db` and the next
 refresh rebuilds it. Schedule the refresh daily (Windows Task Scheduler via
 `scripts/refresh.cmd`, or cron/launchd) to get a standing digest of new
-matching roles; see the USER_GUIDE. `python -m src.refresh --near-misses` (or
+matching roles; see the USER_GUIDE. **Reliability (2026-10):** the old task could
+not wake the laptop (missed 9/13, 9/18-22, 9/25-30) and Workday boards page
+unstably, which produced 100-340 false removals per run. Now
+`REMOVAL_GRACE = {"workday": 2}` (a Workday row is removed only after 2
+consecutive complete-fetch misses; live probe: paging is stable within a run and
+`sortBy` is ignored), each run writes `data/refresh-health.json`,
+`scripts/refresh_guard.py` skips a run if one succeeded under 12h ago and rotates
+`data\refresh.log`, and `scripts/setup_refresh_task.ps1` registers a wake-aware,
+idempotent task. "Allow wake timers" must be enabled in the power plan (it is, on
+AC, on this machine as of 2026-10-01). `python -m src.refresh --near-misses` (or
 `python scripts/near_misses.py`) audits what the title gate in
 `job_criteria.yaml` is silently discarding, in case `acceptable_titles` is
 drawn too tightly.
@@ -142,6 +160,160 @@ undead active row (JOB-137). A location that names a country but no city
 tagged `location_indeterminate` and surfaced as such everywhere it appears
 (digest, postings API, the Postings page badge), since a silent board isn't
 evidence the role is out of scope (JOB-138).
+
+### Workday boards (M0 — sourcing verified live)
+
+Workday postings are discovered, ranked, and deep-read exactly like any other
+board. Applying is covered in the next section. `src/providers/workday.py` pulls a tenant's public
+`myworkdayjobs` board through the same keyless JSON API its own SPA calls
+(`POST .../wday/cxs/{tenant}/{site}/jobs`, no auth, no cookies). Its shape is
+different enough from the REST-list ATSs above to earn its own diagram:
+
+```mermaid
+flowchart TD
+    PB["probe page 0<br/>(POST /jobs, offset 0)<br/>reads total + facets"] --> TOT{"total >= 2000?<br/>(the wall — total<br/>itself clamps at 2000)"}
+    TOT -- "no — common case" --> FULL["page the full list<br/>(20 rows/POST, stop at total<br/>or an empty/short page)"]
+    TOT -- "yes" --> FAM{"board exposes a<br/>jobFamilyGroup facet?"}
+    FAM -- "no" --> FULLT["page to the wall only<br/>(full_truncated)"]
+    FAM -- "yes" --> PART["page EVERY family value<br/>separately, biggest first,<br/>within a request budget<br/>(each family is individually<br/>under its own wall)"]
+    PART --> UNION["union by job_id<br/>(partitioned[_truncated] —<br/>truncated if a family hit its<br/>own wall, the budget skipped<br/>one, or family counts don't<br/>sum to the board total)"]
+    FULL --> TITLE["title-prefilter<br/>(.get, never KeyError<br/>on a titleless row)"]
+    FULLT --> TITLE
+    UNION --> TITLE
+    TITLE --> DETAIL["one detail GET per survivor<br/>(concurrency-capped) →<br/>real posted date, description,<br/>every location; salary always None"]
+    DETAIL --> NOTES[("LAST_RUN_NOTES[slug]<br/>strategy · requests · truncated ·<br/>board_total vs partition_total ·<br/>per-family breakdown")]
+    NOTES --> INC{"truncated?"}
+    INC -- "yes" --> SKIP["ingest skips the removal pass<br/>for this board (not logged<br/>as a failure — healthy signal)"]
+    INC -- "no" --> RM["ingest trusts absence<br/>= removed, as normal"]
+```
+
+### Workday apply (built, first live run done, partly verified)
+
+On 2026-11-13 the first Workday application was completed and submitted:
+Capital One, "Product Manager: Capital One Shopping". It took two browsers. The
+built-in browser got through entry, account creation, sign-in and the first
+form page, then stalled on the My Experience step (dates, School and Field of
+Study search boxes). The application was finished through the **Claude-in-Chrome
+extension** in the user's own Chrome, after the user signed in by hand there.
+Since then the tools were fixed to handle those widgets, a **Workday account
+registry** and a **"technical failure" flag** were added (below), but those
+fixes are checked by tests and simulated pages only. They have **not yet been
+run against a live tenant**. Also open: the Country Phone Code read-back fix
+(`docs/handoff-workday-multiselect.md`).
+
+Entry and sign-in come first. `start_application` clicks only entry controls
+(Apply, Apply Manually, "Sign in with email"); it never clicks Autofill with
+Resume, Use My Last Application, SSO or submit. `authenticate` signs in or
+creates the tenant account from the local-only
+`profiles/<id>/secrets/credentials.yaml`, server-side: the password is never
+returned, never passes through `fill_field` / `fill_many` (they refuse password
+fields), is masked in every read, and is dropped from `capture_submission` and
+`save_answer`. Credentials are typed only on Workday hosts. A per-tenant ledger
+(`profiles/<id>/runtime/auth_attempts.json`) allows at most one failed sign-in
+per tenant per 24h plus a 60s resubmit guard, so a wrong password cannot lock the
+account.
+
+**Account registry.** Each Workday company has its own account system, so the
+tool keeps a small list of which companies already have an account for your
+email (`profiles/<id>/data/workday_accounts.json`; it never stores a password).
+`authenticate` reads it: a known working account is signed in to, an unknown
+company gets a new account, and a company that says "this account already
+exists" is **parked for you to sign in by hand** instead of guessing. The new
+read-only tool `list_workday_accounts` shows the list.
+
+**Two kinds of "stuck".** A field with no answer we trust is a **missing
+answer**: it comes to you for approval, exactly as before. A field the tool
+cannot physically operate (a date box, a search box, a dropdown) is a
+**technical failure**: results now carry `technical: true`. After one retry the
+agent saves the steps already completed, then hands the job to a **Chrome
+fallback lane** that fills the rest in your own Chrome (it never types or reads
+a password; if Chrome has not auto-filled the sign-in, it asks you to sign in
+there). Missing answers never go to that lane. For Greenhouse, Lever and Ashby
+the Chrome lane is only the very last fallback when bot detection blocks a
+submit, and is skipped when the company shows a recent application (a
+per-company application limit looks the same as a spam rejection).
+
+```mermaid
+flowchart TD
+    SA["start_application"] --> SS{"status?"}
+    SS -- "form" --> WIZ
+    SS -- "blocked (visible CAPTCHA)" --> USER["hand to the user"]
+    SS -- "no_entry /<br/>already_in_application" --> PARK["park, or continue with<br/>advance_step / submit"]
+    SS -- "auth_required" --> AU["authenticate()<br/>reads the account registry"]
+    AU --> AS{"status?"}
+    AS -- "authenticated<br/>(signed in, or new account created)" --> WIZ["read_form → fill → advance_step loop"]
+    AS -- "account_exists<br/>(account exists, password unknown)" --> PARK2["park: user signs in by hand"]
+    AS -- "bad_credentials" --> LED["park: no retry for 24h<br/>until the user asks clear_auth_ledger"]
+    AS -- "create_rejected /<br/>no_credentials /<br/>bad_credentials_file" --> PARK3["park: user fixes<br/>credentials.yaml"]
+    AS -- "unsupported_auth_flow<br/>(SSO-only or non-Workday)" --> PARK4["park: user signs in by hand"]
+    AS -- "email_verification_required" --> EV["Gmail: find the email →<br/>open_verification_link(url)<br/>or detect_verification_gate +<br/>fill_verification_code"]
+    EV --> AU
+    WIZ --> ME["My Experience step:<br/>fill_repeating_section(experience | education)<br/>dates and School / Field of Study handled"]
+    ME --> WIZ
+    WIZ --> RES{"result on a field<br/>or advance_step?"}
+    RES -- "missing answer<br/>(no trusted answer)" --> ASK["ask the user<br/>(never the Chrome lane)"]
+    RES -- "technical: true<br/>after one retry" --> SAVE["advance as far as the page allows<br/>(completed steps are saved)"]
+    SAVE --> CH{"Chrome with the<br/>extension connected?"}
+    CH -- "no" --> PARK5["park the job"]
+    CH -- "yes" --> LANE["Chrome fallback lane:<br/>fill the rest from the hand-off packet,<br/>sign in only via the password manager"]
+    LANE --> GATE
+    WIZ -- "is_submit_page" --> GATE["submit_application / Submit<br/><b>gated</b>: explicit user say-so"]
+```
+
+Past sign-in, the generic wizard loop below applies. A form with a
+**Next**/**Continue**/**Review** button (distinct from **Submit**) is advanced
+programmatically via `advance_step()`; a lone "Apply" on an already-filled tab
+counts as a submit, and entry or sign-in pages return `entry_page` / `auth_page`
+without a click:
+
+```mermaid
+flowchart TD
+    A["fill_many([fields])<br/>verified fills →<br/>1 corrective pass on<br/>uncommitted / verified:false"] --> PC["parent-then-child:<br/>set Country → re-read →<br/>set State (SAME page)"]
+    PC --> AD["advance_step()<br/>not a submit · not gated"]
+    AD --> S{"status?"}
+    S -->|"advanced"| NEW["next page + FRESH fields<br/>(every prior index is dead —<br/>use the returned `fields`)"]
+    S -->|"blocked_validation"| ERR["errors[] — index may be null<br/>for a visually-hidden field<br/>(unmapped_error_count);<br/>match those by field_label"]
+    S -->|"no_change"| NC["clicked, nothing moved —<br/>swallowed click or a modal:<br/>retry once, then a technical failure<br/>(Chrome lane, else park)"]
+    S -->|"is_submit_page"| SUBMIT["only a Submit control here —<br/><b>nothing was clicked</b>"]
+    S -->|"no_advance_button"| NAB["single-page form"]
+    NEW --> CAP{"advance count<br/>&lt; ~6?"}
+    CAP -->|"yes"| A
+    CAP -->|"no"| PARK["park — a wizard this long<br/>needs a human"]
+    ERR -->|"fix fields on THIS page,<br/>then advance again"| A
+    NC --> PARK
+    SUBMIT --> GATE["submit_application<br/><b>gated</b> — explicit user say-so"]
+    NAB --> GATE
+```
+
+**Dependent fields matter:** Workday's State widget does not exist until Country is
+set, and changing Country destroys and recreates it — so the rule is fill the
+parent, **re-read the form**, then fill the child from that fresh read. This is
+within one page; it has nothing to do with `advance_step`.
+
+Three quirks force this shape: the list endpoint's `limit` maxes at 20;
+`offset` is clamped at 2000 (past it the API silently replays page 0); and
+`total` is only trustworthy on the first page (2000 there means "2000 or
+more", not exactly 2000). Above the wall, the board is fetched by
+**partition, not paging**: the board's own `jobFamilyGroup` facet reports a
+count per family, and those counts are the true numbers — measured live on
+NVIDIA, whose facet counts sum to roughly 2614 while `total` admits only
+2000, and whose largest single family (Engineering, 1723) is still
+comfortably under the wall on its own. Paging every family separately and
+unioning by `job_id` reconstructs the **complete** board with no keyword
+guessing about which families matter — a fixed request budget spends on the
+biggest families first, and a board still flags `truncated` if a family hits
+its own wall, the budget runs out before every family is paged, or the
+family counts don't add up to the board's `total`. Workday exposes no salary
+anywhere, so every Workday row shows as "salary not listed" — the baseline
+already keeps and flags undisclosed-salary rows rather than dropping them,
+so this doesn't silently lose roles.
+
+A Workday board's identity — tenant, shard, and site — is packed into the
+existing single `slug` column as `"tenant:shard:site"` (e.g.
+`capitalone:wd12:Capital_One`), which needed no store migration: the
+`(ats, slug, job_id)` primary key already covers it. `scripts/workday_bootstrap.py`
+proposes the triples for boards you want to add (see USER_GUIDE §5c for a
+worked example) — it never writes `watchlist.yaml` itself.
 
 ## Growing the watchlist automatically
 
@@ -208,7 +380,7 @@ flowchart TD
     FM --> REV
 
     REV -- "field won't commit/verify<br/>after one fix" --> RF["Flag for manual intervention<br/>left set in the open browser"]
-    REV -- "all fields verified,<br/>user explicitly says submit" --> S{"submit_application<br/>verify from page TEXT"}
+    REV -- "all fields verified,<br/>user explicitly says submit" --> S{"submit_application<br/>verify from page TEXT<br/>(verified result, not assumed)"}
     S -- "explicit success text" --> SS["submitted"]
     S -- "'flagged as possible spam'" --> SR["rejected_spam<br/>leave form for manual click"]
     S -- "neither (vanished form ≠ success)" --> SA["attempted<br/>screenshot-audit"]
@@ -217,6 +389,8 @@ flowchart TD
 
     HIST -. "reused on the<br/>next application" .-> H
 ```
+
+**Verified fills:** `fill_field` and `fill_many` now return `verified: true|false|null` plus `observed_value` to confirm each field actually accepted the input. A proven failure on a pick-from-a-list field returns `status: "uncommitted"` for safe error handling — the Review step has a real machine-readable signal instead of guessing from absence of errors.
 
 - **Profile** (deterministic): ~30 curated facts matched by alias phrases;
   filled verbatim, never re-stored. EEO self-ID values are flagged and only
@@ -246,16 +420,24 @@ flowchart TD
     PLAN --> TR["tailor_resume(edits)<br/>edit .docx COPY in place<br/>→ export PDF (MS Word)"]
     TR --> STORE[("resumes/&lt;job-slug&gt;/<br/>resume.docx + resume.pdf")]
 
-    EX["context/ cover letters<br/>+ writing samples"] --> GCE["get_cover_letter_examples<br/>full-text voice exemplars"]
-    GCE --> DRAFT{"Claude drafts cover letter:<br/>YOUR voice + JD substance<br/>(gated for your approval)"}
-    JD --> DRAFT
-    DRAFT --> SCL["save_cover_letter(text)"]
-    SCL --> STORE2[("resumes/&lt;job-slug&gt;/<br/>cover_letter.txt + .pdf")]
+    EX["context/ cover letters + writing samples<br/>(voice corpus; the template file is excluded)"] --> GCE["get_cover_letter_examples"]
+    TPL["context/cover_letter_template.md<br/>(searchable, not voice corpus)"] --> AC
+    GCE --> AC{"answer-crafter agent (pinned Opus)<br/>drafts: YOUR voice + JD substance<br/>(gated for your approval)"}
+    JD --> AC
+    AC --> SCL["save_cover_letter(text)<br/>strip typed letterhead"]
+    SCL --> LINT{"lint_cover_letter"}
+    LINT -- "HARD fail (CL-H..)<br/>saved: false" --> AC
+    LINT -- "SOFT only (CL-S..)<br/>warnings returned" --> LH["render letterhead from profile<br/>(name 26pt, Mongolian Baiti,<br/>address · zip · phone · email · M/D/YYYY)"]
+    LINT -- "ok" --> LH
+    LH --> STORE2[("resumes/&lt;job-slug&gt;/<br/>cover_letter.txt + .docx/.pdf")]
 
     STORE -.-> GJA["get_job_artifacts<br/>(at apply time)"]
     STORE2 -.-> GJA
-    GJA -->|"tailored exists"| USE["upload tailored resume<br/>+ cover letter"]
+    GJA -->|"tailored exists"| UP["upload_resume(path, target=&quot;cover&quot;)<br/>cover-labelled input only,<br/>never the resume slot"]
     GJA -->|"none"| DEF["fall back to<br/>default resume"]
+    UP -->|"verified: true<br/>(observed_filename)"| OK["attached"]
+    UP -->|"no_cover_slot"| PASTE["paste cover_letter_text<br/>into the text field"]
+    UP -->|"error: landed in resume slot"| FIX["re-upload the resume,<br/>flag for the user"]
 ```
 
 The job folder is keyed off the **same `(company, role)` identity**
@@ -266,6 +448,35 @@ otherwise. Drop a `resume.docx` in your profile directory to enable resume tailo
 cross-platform: it uses Microsoft Word when present (Windows or macOS) and
 falls back to LibreOffice (`soffice`, any OS, no Word needed); if neither is
 installed the tailored `.docx` is still saved to export manually.
+
+**Cover-letter pipeline (2026-10).** The letter follows a written template,
+`context/cover_letter_template.md` (derived from your own letters; the generic
+version ships in `profiles/_template/context/`). It is excluded from the voice
+corpus but stays searchable. The letterhead is **rendered by code** from profile
+fields (`full_name`, `address`, `city`, `state` as an abbreviation, `zip`,
+`phone`, `email`, today's date as M/D/YYYY), so a letterhead typed by the model is
+stripped; an optional `cover_letter_template.docx` with `{{placeholders}}` in the
+profile root overrides the generated layout. `save_cover_letter` lints first:
+HARD rules (`COVER_LINT_RULES` in `src/tailor.py`: salutation and sign-off, no
+dashes, no parentheticals, no contact details or placeholders in the body, 270-460
+words, 3-6 paragraphs) refuse the save and return `{saved: false, lint}`; SOFT
+rules (word band 295-425, canonical opener/closer, AI-tell phrasing) only warn.
+`force=True` overrides, only with your OK. The `lint_text` tool applies the same
+style rules to any free-text answer before it is filled. All non-verbatim
+drafting runs through `.claude/agents/answer-crafter.md`, pinned to **Opus**, and
+the web chat session also uses `model="opus"` (webchat usage rows log the model).
+In the web app, `/tailor-application` is queued **one role at a time**: an "Up
+next" list advances with a Continue button after you approve each result.
+
+**Greenhouse upload fix.** Greenhouse hides both file inputs and the old
+auto-locator scored any "cover" container 0, so a cover letter could overwrite the
+resume. `upload_resume(index, path, target="resume"|"cover")` now only puts a
+cover upload into a cover-labelled input, returns `no_cover_slot` otherwise, reads
+the filename back (`verified`, `observed_filename`), and reports an `error` dict
+if a cover letter landed in the resume slot. A first live check failed (the
+page removes the file input once a file is attached, so the read-back saw
+nothing); the read-back was fixed and verified live on Stripe and Tailscale
+forms on 2026-11-13.
 
 ## Batch prep — snapshot & routing (how `/apply-batch` stays cheap)
 
@@ -407,7 +618,7 @@ flowchart LR
     CC["any Claude Code session<br/>in this repo"] -- "Stop hook<br/>scripts/token_report.py" --> TU[("profiles/&lt;id&gt;/data/<br/>token_usage.jsonl<br/>per-session cost @ real model rates")]
     WS["webapp chat turns<br/>(Agent SDK ResultMessage)"] --> TU
     APPS[("applications.json<br/>(submits — success ledger)")] --> LOOP
-    YH --> LOOP["dev-loop repo:<br/>morning evaluation →<br/>Linear stories → PRs"]
+    YH --> LOOP["dev-loop repo:<br/>morning evaluation →<br/>taskman stories → PRs"]
     BR --> LOOP
     TU --> LOOP
 ```

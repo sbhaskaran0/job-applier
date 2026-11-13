@@ -16,6 +16,7 @@ phone: ""                 # e.g. "310-555-0100"
 address: ""               # street address, e.g. "123 Main St Apt 4"
 city: ""
 state: ""                 # spelled out, e.g. "California"
+zip: ""                   # ZIP code, e.g. "90001"; used in the cover-letter letterhead
 country: ""               # e.g. "United States"
 location: ""              # short display form, e.g. "Los Angeles, CA"
 
@@ -40,6 +41,30 @@ how_did_you_hear: ""      # e.g. "Company careers page"
 # --- compensation / availability -------------------------------------------
 desired_salary: ""        # number as a string, e.g. "130000"
 notice_period: ""         # e.g. "2 weeks"
+
+# --- repeating sections (Workday "My Experience" etc.) ---------------------
+# Structured blocks filled ONLY by the fill_repeating_section tool, one form
+# group per entry (max 8 per section), in the order listed. They are never
+# returned by get_profile_field. Dates are "YYYY-MM" ("" when unknown; a
+# missing month is never invented). Leave a list empty ([]) to skip a section.
+gpa_policy: "if_required"   # always | if_required | never — when to fill GPA
+experience:
+  - company: ""             # e.g. "Example Corp"
+    title: ""               # e.g. "Product Manager"
+    location: ""            # e.g. "Los Angeles, CA"
+    start: ""               # "YYYY-MM", e.g. "2021-05"
+    end: ""                 # "YYYY-MM"; "" when current is true
+    current: false          # true -> ticks "I currently work here", skips To
+    employment_type: ""     # e.g. "Full-time" (only used if the form asks)
+    description: ""         # role description; use a YAML block (|) for
+                            # multiple lines
+education:
+  - school: ""              # e.g. "Example University"
+    degree: ""              # e.g. "Bachelor of Science"
+    field_of_study: ""      # e.g. "Economics"
+    start: ""               # "YYYY-MM" or ""
+    end: ""                 # "YYYY-MM" (graduation, actual or expected)
+    gpa: ""                 # e.g. "3.50"; "" to never fill
 
 # --- misc -------------------------------------------------------------------
 pronouns: ""              # e.g. "She/Her" — not an EEO field; filled into

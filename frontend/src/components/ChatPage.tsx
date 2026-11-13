@@ -98,6 +98,41 @@ export default function ChatPage({
 
         <div style={{ padding: '14px 30px 20px' }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            {chat.queue.length > 0 && (
+              <div style={{
+                marginBottom: 10, padding: '10px 14px', background: 'var(--bg-card)',
+                border: '1px solid var(--border-3)', borderRadius: 12, fontSize: 12.5,
+                color: 'var(--text-2)',
+              }}>
+                <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--ink)' }}>
+                  Up next ({chat.queue.length})
+                </div>
+                <ol style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {chat.queue.map((q, i) => (
+                    <li key={i} style={{ wordBreak: 'break-all' }}>{q.length > 110 ? `${q.slice(0, 110)}…` : q}</li>
+                  ))}
+                </ol>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                  <button
+                    onClick={chat.continueQueue} disabled={chat.typing || !chat.connected}
+                    style={{
+                      fontSize: 12.5, fontWeight: 600, padding: '5px 12px', borderRadius: 20,
+                      border: '1px solid var(--border-2)', background: 'var(--accent-soft)',
+                      color: 'var(--clay-text)',
+                      cursor: chat.typing || !chat.connected ? 'default' : 'pointer',
+                      opacity: chat.typing || !chat.connected ? 0.5 : 1,
+                    }}
+                  >Continue</button>
+                  <button onClick={chat.clearQueue} style={{
+                    fontSize: 12.5, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
+                    border: '1px solid var(--border-2)', background: 'var(--chip)', color: 'var(--text-2)',
+                  }}>Clear</button>
+                  <span style={{ opacity: 0.8 }}>
+                    Approve or edit the current result first, then Continue.
+                  </span>
+                </div>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
               {CHIPS.map((c, i) => (
                 <button key={c} onClick={() => { setInput(c); taRef.current?.focus() }} style={{

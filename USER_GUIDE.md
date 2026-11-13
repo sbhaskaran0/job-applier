@@ -54,7 +54,7 @@ playwright install chromium          # the browser the agent drives
 
 Then, in Claude Code, **open this project and reload it** so it loads
 [.mcp.json](.mcp.json). Run `/mcp` — you should see the `job-applier` server with
-**35 tools**.
+**44 tools**.
 
 > Whenever you change code in `src/`, reload Claude Code so the MCP server
 > restarts with the new code.
@@ -92,12 +92,14 @@ the one shared file, at the repo root.
 | File                                   | Purpose                                                                                                                                                          |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `profiles/<id>/profile.yaml`           | Your exact facts (name, email, phone, location, work auth, links…). Filled fields auto-answer forms. Leave a field `""` to skip it.                              |
+| `profiles/<id>/secrets/credentials.yaml` | **Local-only, gitignored.** Your one shared ATS account password (and optional email) for Workday sign-in; copy `profiles/_template/secrets/credentials.example.yaml`. See §7 "Workday applications". |
 | `profiles/<id>/eeo.yaml`               | **Local-only, voluntary** EEO self-ID (gender, race/ethnicity, veteran, disability). Merged into your profile at read time; never synced, never shown in the webapp. Leave values `""` to skip those form fields. |
 | `profiles/<id>/resume.txt`             | Resume **text** used for crafting answers.                                                                                                                       |
 | `resume.pdf` (add to the profile root) | The actual file **uploaded** to forms (preferred over `.txt`). On each apply, its text is auto-synced into `resume.txt`.                                         |
 | `profiles/<id>/context/`               | Your "knowledge base" — `background.md`, `stories.md`, `preferences.md`, and any `.md` / `.txt` / `**.pdf`** you add. Searched when crafting open-ended answers. |
 | `profiles/<id>/criteria.yaml`          | The strict bar for `/find-jobs`: acceptable titles, seniority, locations/remote, and `salary_floor` (currently **$130k**; mid-level ops titles allowed and `Associate` not excluded, per JOB-26). |
-| [watchlist.yaml](watchlist.yaml)       | **Shared, repo root.** The ~79 companies searched by `/find-jobs` (incl. Series B+ LA/remote startups added 2026-07-04, mid-level S&O/BizOps sources added 2026-07-05 for JOB-26, the 2026-07-12 batch — Harvey, Zip, Abridge, Mixpanel… — 21 discovery adoptions added 2026-07-13, and 12 more added 2026-07-24 — Headway, Flock Safety, ClickUp, Cursor, Turquoise Health, Kong, SentiLink…). |
+| [watchlist.yaml](watchlist.yaml)       | **Shared, repo root.** The companies searched by `/find-jobs` (80 as of 2026-09-09, incl. Series B+ LA/remote startups added 2026-07-04, mid-level S&O/BizOps sources added 2026-07-05 for JOB-26, the 2026-07-12 batch — Harvey, Zip, Abridge, Mixpanel… — 21 discovery adoptions added 2026-07-13, and 12 more added 2026-07-24 — Headway, Flock Safety, ClickUp, Cursor, Turquoise Health, Kong, SentiLink…). Most rows' `slug` is a plain ATS slug; a **Workday** row's `slug` instead packs `"tenant:shard:site"` (quoted — the colons would otherwise break YAML), e.g. `"capitalone:wd12:Capital_One"` — see §5c. |
+| `profiles/<id>/context/cover_letter_template.md` | The written structure your cover letters follow (generic version in `profiles/_template/context/`). Edit it to change every future letter; it is searchable but not used as a voice sample. |
 | `profiles/<id>/data/history.json`      | Past Q&A answers. Grows automatically as you approve crafted answers.                                                                                            |
 | [profiles/_template/](profiles/_template/) | Tracked skeleton (`profile.yaml`, `eeo.yaml`, `criteria.yaml`, README) — copy it to `profiles/<your-id>/` to onboard a new user. |
 
@@ -171,6 +173,15 @@ Each run fetches all boards concurrently (~30–60s), upserts changes, marks
 removals (**only** for boards that fetched successfully — a board hiccup never
 mass-deletes), and regenerates **`data/digest-latest.md`**:
 
+**Removal skips incomplete Workday fetches too.** A Workday board over the
+2000-row wall (see §5c) can come back **truncated** — it fetched fine, but the
+fetch didn't see the whole board, so a posting that's merely unseen must not
+be inferred "removed". Those boards are excluded from the removal pass for
+that run exactly like a failed fetch is, but — because the fetch itself
+succeeded — they're **not** logged under board health as a failure either; an
+incomplete-but-healthy Workday board shouldn't trip the same alarm as a dead
+one.
+
 - **New postings passing your baseline** since the last run — the apply-fast
   candidates (fresh postings get the best response rates).
 - **Board health** — companies whose fetch has failed 3+ consecutive runs
@@ -210,18 +221,31 @@ stated explicitly.
 **Schedule it daily** so the digest is waiting for you:
 
 - **Windows** (already registered on this machine as *"JobApplier Watchlist
-  Refresh"*, daily 09:00):
-  `schtasks /Create /TN "JobApplier Watchlist Refresh" /TR "\"<repo>\scripts\refresh.cmd\"" /SC DAILY /ST 09:00`
-  — [scripts/refresh.cmd](scripts/refresh.cmd) is self-locating; remove with
-  `schtasks /Delete /TN "JobApplier Watchlist Refresh"`.
+  Refresh"*, daily 09:00 + at-logon catch-up):
+  Run `powershell -ExecutionPolicy Bypass -File scripts\setup_refresh_task.ps1`
+  to register/update the scheduled task.
+  - **Wake timers:** `WakeToRun` only works when the power plan's "Allow wake
+    timers" is Enable (some machines show "Important Wake Timers Only", which
+    is not enough). Check with `powercfg /q SCHEME_CURRENT SUB_SLEEP RTCWAKE`;
+    enable with `powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKE 1`
+    then `powercfg /setactive SCHEME_CURRENT`. The setup script never changes it.
+  - **Logged-on only:** the task uses an Interactive principal, so it runs only
+    while you are logged on (it can wake a sleeping machine, but not a
+    logged-off one).
+  - **Catch-up on logon:** The task also runs 10 minutes after logon, which catches up a missed 09:00 run (a run is skipped if one succeeded in the last 12h; `--force` overrides).
+  - **Log location:** Runs are logged to `data\refresh.log` (rotated at ~1 MB).
+  - **Health + staleness:** every run writes `data/refresh-health.json`; the
+    Postings page shows an amber banner when postings are over 26h old or the
+    last refresh failed, and the digest notes a gap over 30h ("missed scheduled
+    runs?"). Force a run past the 12h guard with `scripts\refresh.cmd --force` or
+    `JOBAPPLIER_FORCE_REFRESH=1`.
+  - **Workday removals:** a Workday posting is only marked removed after **2
+    consecutive** complete fetches miss it (Workday listings page unstably);
+    other boards remove on the first complete miss.
 - **Linux (cron):** `0 9 * * * cd /path/to/job-applier && python3 -m src.refresh`
 - **macOS:** the same cron line, or a launchd agent.
 
-The machine must be on at the scheduled time; a missed day is harmless (the
-next run catches up). Deleting `postings.db` is always safe — it's a cache of
-public data and rebuilds on the next refresh (only `first_seen` history is
-lost). The apply flow never trusts the store for liveness: postings are
-re-verified via the ATS API before an application is prepped.
+The machine should stay on at 09:00, but if it sleeps, it will catch up on next logon. A missed day is harmless. Deleting `postings.db` is always safe — it's a cache of public data and rebuilds on the next refresh (only `first_seen` history is lost). The apply flow never trusts the store for liveness: postings are re-verified via the ATS API before an application is prepped.
 
 ---
 
@@ -280,24 +304,88 @@ standing stream of fresh candidates.
 
 ---
 
+## 5c. Bootstrapping Workday boards — `scripts/workday_bootstrap.py`
+
+A Workday board needs three coordinates — tenant, shard, site — packed into
+`watchlist.yaml`'s `slug` field as `"tenant:shard:site"`. Guessing the shard
+by hand is impractical (Workday spreads tenants across 15+ shard hosts), so
+`scripts/workday_bootstrap.py` does the matching and validation for you. It
+**never writes to `watchlist.yaml`** — it prints ready-to-paste YAML plus a
+status table, and you `add_company` (or paste the block) yourself.
+
+It matches human company names against a public, MIT-licensed tenant index
+(~12,884 entries), then validates each candidate live against the real API and
+auto-repairs the two failures that account for almost everything: a `422`
+means the wrong shard (it sweeps the known shards, most-common first), and a
+`404` means the wrong site (it re-reads the tenant's `robots.txt`, which
+enumerates the tenant's sites).
+
+**Worked example:**
+
+```bash
+python scripts/workday_bootstrap.py "Capital One"
+```
+
+resolves the tenant against the index, sweeps shards/sites until the live API
+answers `200`, and prints something like:
+
+```yaml
+  - name: Capital One
+    ats: workday
+    slug: "capitalone:wd12:Capital_One"
+```
+
+for you to paste under `companies:` in `watchlist.yaml` (or run
+`add_company https://capitalone.wd12.myworkdayjobs.com/Capital_One`, which does
+the same append). Other useful invocations:
+
+| Flag | What it does |
+| --- | --- |
+| `<names ...>` (bare positional args) | Match one or more company names against the tenant index. |
+| `--watchlist-names` | Take the names from `watchlist.yaml` instead of argv (find Workday boards for companies you already track under another ATS). |
+| `--tenant T --site S` | Skip name-matching; sweep shards for one known tenant/site directly. |
+| `--url <board url>` | Parse and validate a single Workday board URL. |
+| `--all-sites` | Validate every candidate site for a tenant instead of stopping at the best-scored one. |
+| `--refresh-index` | Force a fresh download of the tenant index instead of the cached copy. |
+| `--concurrency N` | Cap concurrent validation requests (default 8, hard ceiling 10). |
+| `--limit N` | Cap how many candidates get validated this run (name/`--watchlist-names` modes). |
+
+Run `python scripts/workday_bootstrap.py --help` for the exact current flags.
+
+A site the tenant's `robots.txt` lists under `Disallow:` is reported
+separately and **never** recommended — that's an explicit crawler opt-out, and
+the tool honors it rather than routing around it.
+
+---
+
 ## 6. Managing your watchlist
 
 The watchlist is the universe `/find-jobs` searches — curated for quality.
 
 - **See it:** `list_companies`, or open [watchlist.yaml](watchlist.yaml).
-- **Add:** `add_company https://jobs.ashbyhq.com/<company>` (or a Greenhouse/Lever
-board URL) — it detects the ATS and slug and appends the entry.
+- **Add:** `add_company https://jobs.ashbyhq.com/<company>` (a Greenhouse/Lever
+board URL works the same way, and so does a full Workday board URL, e.g.
+`https://acme.wd5.myworkdayjobs.com/External`) — it detects the ATS and slug
+and appends the entry.
 - **Remove:** delete the entry from [watchlist.yaml](watchlist.yaml).
 
-Currently ~79 companies — the original seed (Stripe, Figma, Databricks,
-Airtable, Brex, Mercury, Coinbase, Anthropic, Scale AI, Instacart, Airbnb,
-Robinhood, Samsara, Ramp, Notion, Plaid, Vanta, Linear, OpenAI, Snowflake)
-plus the JOB-26 S&O/BizOps additions, the 2026-07-12 batch (Harvey, Zip,
-Abridge, Alpaca, Cresta, Replit, Mixpanel, ElevenLabs, Modern Treasury,
-Benepass, …), and the 2026-07-13 discovery adoptions (21 boards with ≥2
-qualifying roles each — ClassDojo, PermitFlow, Qventus, Temporal, Valon,
-Ambience Healthcare, Suno, TRM Labs, …). [watchlist.yaml](watchlist.yaml)
-is the source of truth.
+**Workday caveat:** `add_company` needs the *full* board URL — tenant **and**
+site. A bare tenant host (e.g. just `acme.wd5.myworkdayjobs.com` with no path)
+can't be resolved this way: finding the site requires a `robots.txt` fetch,
+and `add_company` runs synchronously from a request handler where that isn't
+available. Pointed at a bare host, it returns an actionable error telling you
+to run `scripts/workday_bootstrap.py <company name>` instead (§5c), which
+resolves the site for you.
+
+Currently **100 companies** (verified 2026-09-09): 80 on Greenhouse/Lever/Ashby
+(Stripe, Figma, Databricks, Airtable, Brex, Mercury, Coinbase, Anthropic, Scale
+AI, Instacart, Airbnb, Robinhood, Samsara, Ramp, Notion, Plaid, Vanta, Linear,
+OpenAI, Snowflake — original seed; plus JOB-26 S&O/BizOps, the 2026-07-12 batch
+Harvey/Zip/Abridge/…, and 2026-07-13 discovery adoptions ClassDojo/PermitFlow/…
+totaling 80) plus **20 Workday boards** seeded in M0 sourcing (Workday, Adobe,
+NVIDIA, Salesforce, Autodesk, Zendesk, Etsy, Zillow, Snap, Expedia, PayPal,
+Capital One, Visa, Mastercard, BlackRock, S&P Global, Nasdaq, Gartner, Disney,
+Warner Bros. Discovery). [watchlist.yaml](watchlist.yaml) is the source of truth.
 
 ---
 
@@ -415,6 +503,103 @@ So an autonomous run ends the same way a batch run does: **"N submitted · K
 awaiting your manual submit · M parked"**, with every unsubmittable job left
 filled for a one- or two-click finish.
 
+### Workday applications (first live run done; fixes still to be re-checked)
+
+**Where this stands (2026-11-13).** The first Workday application was completed
+and submitted for real: Capital One, "Product Manager: Capital One Shopping".
+It needed two browsers. The agent's built-in browser handled entry, account
+creation, sign-in and the first form page, then stalled on My Experience (the
+date boxes and the School / Field of Study search boxes). The rest was finished
+through the Claude-in-Chrome extension in your own Chrome, after you signed in
+there by hand. Since then the tools were fixed for those boxes and an account
+list and a "technical failure" rule were added (described below). Those fixes
+are checked by tests and simulated pages only: they have **not yet been run
+against a live company**, so watch the next one. You also need to start a new
+Claude Code session before the agent picks up the new code.
+
+Workday needs an account per company tenant. One-time setup:
+
+1. Copy `profiles/_template/secrets/credentials.example.yaml` to
+   `profiles/<id>/secrets/credentials.yaml` and fill in the one shared password
+   you want for Workday accounts (email is optional, defaults to your profile
+   email). The file is gitignored and local-only.
+2. **Never paste the password into the chat.** The agent never needs it; it types
+   it server-side from this file, and will never invent one. If it asks you for
+   one or makes one up, stop it.
+3. Fill the structured `experience:` and `education:` blocks (and `gpa_policy`:
+   `always`, `if_required` or `never`) in `profile.yaml`; dates are `"YYYY-MM"`.
+   `zip` is also a profile field now (used on forms and in the cover-letter
+   letterhead).
+
+What you will see: the agent clicks Apply (and Apply Manually), signs in or
+creates the account, handles the verification email through Gmail (opening the
+link or typing the code) if the company sends one, fills each page, completes
+My Experience from your profile blocks (including the dates and the School and
+Field of Study pickers), and **stops at the final page for your explicit
+go-ahead**; it never submits without it. If a sign-in fails with a wrong
+password it **stops and does not retry**: only one failed sign-in per tenant per
+24h is allowed, to protect you from a lockout. After you fix the password, tell
+the agent ("I fixed my Workday password, try again") and it will clear the
+lockout record (`clear_auth_ledger`). Credentials are only ever typed on Workday
+hosts; on any other site it parks.
+
+**The account list.** Each company's Workday has its own accounts. The agent now
+keeps a small list of which companies already have an account for your email
+(`profiles/<id>/data/workday_accounts.json`; it never contains a password, and
+you can ask the agent to show it with `list_workday_accounts`). If a company is
+on the list as working, it signs in. If the company is new, it creates the
+account. If the company says "an account with this email already exists", the
+agent **does not guess**: it parks that job and asks you to sign in by hand in
+the open window, then continue.
+
+**When the agent cannot operate a page widget.** There are two different kinds
+of "stuck":
+
+- **No answer it trusts** (a question your profile and past answers do not
+  cover, or a draft it is not sure of): it asks you, exactly as before.
+- **A technical failure**: it has the answer but cannot work the widget (a date
+  box, a search box, a dropdown, or a Next button that does nothing). It tries
+  once more, saves the steps already completed, and, if the Claude-in-Chrome
+  extension is connected to your Chrome, hands the rest of the application to
+  that browser. There it never types or reads a password: if Chrome has already
+  filled in the sign-in, it clicks Sign In; otherwise it asks you to sign in in
+  that Chrome window. Terms-and-conditions boxes and the final Submit still need
+  your go-ahead (unless you started the run in autonomous mode), and it never
+  solves a CAPTCHA. If no Chrome is connected, the job is parked with the stuck
+  field named.
+
+For Greenhouse, Lever and Ashby, the Chrome route is only the very last fallback
+when bot detection blocks the submit, and it is skipped if you applied to that
+company recently (a per-company application limit shows the same "We couldn't
+submit" message as a spam block, and a second browser would not help).
+
+```mermaid
+flowchart TD
+    A["Open the job page"] --> B["Start application"]
+    B --> C{"Account for this<br/>company on the list?"}
+    C -- "yes, working" --> D["Sign in"]
+    C -- "no" --> E["Create the account"]
+    C -- "exists, password unknown" --> P1["Park: you sign in by hand"]
+    E -- "company says it already exists" --> P1
+    D -- "wrong password" --> P2["Stop: no retry for 24 hours"]
+    D --> F["Fill each page,<br/>My Experience from your profile"]
+    E --> F
+    F --> G{"What got stuck?"}
+    G -- "nothing" --> H["Final page: wait for your go-ahead"]
+    G -- "no answer it trusts" --> I["Ask you"]
+    I --> F
+    G -- "a widget it cannot operate" --> J["Retry once, save completed steps"]
+    J --> K{"Chrome extension<br/>connected?"}
+    K -- "no" --> P3["Park, naming the stuck field"]
+    K -- "yes" --> L["Finish in your own Chrome<br/>(you sign in there if needed)"]
+    L --> H
+```
+
+Limits: the new account list, the sign-in handling and the date and search-box
+fixes have not yet run against a live company; SSO-only tenants (a
+Google/LinkedIn-only sign-in such as Snap's) need you to sign in manually; the
+Country Phone Code dropdown read-back fix (the multi-select item) is still open.
+
 ### Safety
 
 - **By default it never submits on its own.** `submit_application` runs only when
@@ -461,10 +646,33 @@ What happens:
   the profile's `context/` so it matches **your writing voice** — sentence rhythm,
    structure, tone — not a generic AI register. The job description supplies only
    the substance. You approve or edit before it's saved.
+   The letter follows `context/cover_letter_template.md` and is drafted by the
+   Opus-pinned `answer-crafter` agent. The letterhead (name 26pt in Mongolian
+   Baiti, address, `zip`, phone, email, today's date) is **rendered by code** from
+   your `profile.yaml`, so make sure `zip` is filled; a letterhead typed into the
+   draft is stripped. Before saving, the letter is **linted**: HARD failures (em
+   or en dashes, missing salutation or sign-off, parentheticals, contact details
+   or placeholders in the body, outside 270-460 words, outside 3-6 paragraphs)
+   block the save and the agent fixes and retries; SOFT findings (outside the
+   295-425 word target, non-canonical opener/closer, AI-sounding phrases) only
+   warn. The agent uses `force` only if **you** say to save despite a HARD
+   failure. An optional `cover_letter_template.docx` (with `{{full_name}}`,
+   `{{address}}`, `{{phone}}`, `{{email}}`, `{{date}}`, `{{body}}`) in your profile
+   root replaces the generated layout.
 3. Both artifacts are stored under the profile's `resumes/<job-key>/`. The next
   `/apply-to-job` or `/apply-batch` for that exact posting **automatically**
    uploads the tailored resume and attaches/pastes the cover letter; every other
    job still uses the default resume.
+
+**Cover letters on Greenhouse:** at apply time the cover letter is uploaded with
+`upload_resume(target="cover")` into a cover-labelled file input only, never the
+resume slot, and the filename is read back to confirm. If the form has no cover
+upload slot the agent pastes the text instead. (Before 2026-10 a cover upload
+could silently replace the resume; check any earlier Greenhouse submission, for
+example the 2026-09-16 Stripe one.) Not yet verified on a live form.
+
+In the web app, tailoring several roles runs **one at a time**: an "Up next"
+queue offers a Continue button after you approve each result.
 
 **To enable resume tailoring, drop a `resume.docx` in the active profile's
 root** (`profiles/<id>/`) — the
@@ -506,7 +714,7 @@ Then launch with **`scripts\webapp.cmd`** (or `python -m server`) and open
 | **Postings** | Every baseline-passing role from the local store, with NEW tags, salary, and ATS (already-applied roles are excluded — they live on Applications). A filter card narrows by job title, location (normalized city/remote tokens, so "SF" and "San Francisco, CA" match together), years-of-experience and salary ranges, posted date, and an include-missing-data toggle. The **chevron** next to a title opens the full job description in a modal (from the store when cached, live ATS read otherwise). The **Refresh** button next to the page title runs the same board sweep as `python -m src.refresh` (spinner while running, then a scanned/new/removed summary; a second click during a run is refused). Multi-select → **Apply via Claude Code** launches a real `/apply-batch` with those URLs. The **Autonomous** toggle switches the confirm modal to the amber hands-off variant (explicit "can't be undone" warning). |
 | **Applications** | The tracker from `data/applications.json` — stat cards + status pills (`submitted` / `manual submit` / `attempted` / `parked`), plus a response-rate tile (percentage and raw counts) and a per-row **outcome** selector (`none` / `rejected` / `screen` / `interview` / `offer` / `ghosted`, JOB-107) so "did anyone reply?" is a real number, not a guess. `status` (did we finish the form) and `outcome` (did the company ever come back) are independent — a submit can sit at `none` indefinitely. Outcome edits are optimistic and revert on failure; rows without a resolvable key disable the selector. |
 | **Profile** | Your `user_profile.yaml` facts, résumé state, and `context/` knowledge base. "Edit setup" opens a 5-step onboarding that writes whitelisted facts back to the YAML (comments preserved) and uploads résumé/context files. EEO values never appear in the UI and can't be edited from it. Below the facts, a **Job criteria** card edits `job_criteria.yaml` (titles, locations, seniority, salary floor, YoE window, posted-within, remote) with the same comment-preserving write-back — saving re-scopes the Postings page, the digest, and `/find-jobs` immediately. |
-| **Connections** | Detected status of Claude Code, the job-applier MCP server, Gmail, and Linear. Status-only — authorize in Claude Code (`/mcp`) or claude.ai connector settings. |
+| **Connections** | Detected status of Claude Code, the job-applier MCP server, Gmail, and taskman. Status-only — Gmail is authorized in Claude Code (`/mcp`) or claude.ai connector settings; taskman is wired through this repo's `.mcp.json` and shows connected only when the local taskman server is actually running. |
 
 **Profiles in the UI.** The app is profile-aware end to end:
 
@@ -543,7 +751,7 @@ Notes:
   small modal; reports append to the local `data/bug-reports.jsonl`
   (timestamp, profile, page, text, `status: open`). Nothing leaves the
   machine — the nightly dev-loop agent reads the file and triages reports
-  into Linear stories. `GET /api/bug-reports` lists them.
+  into taskman stories. `GET /api/bug-reports` lists them.
 - **Token accounting** — a Claude Code `Stop` hook (`.claude/settings.json` →
   `scripts/token_report.py`) prices every session in this repo from its
   transcript (per the model each message ran on) and upserts one line per
@@ -566,7 +774,7 @@ Notes:
 
 ---
 
-## 8. The full tool set (34)
+## 8. The full tool set (44)
 
 **Browser / apply**
 
@@ -581,8 +789,44 @@ index/kind/label/current_value).
 - `get_field_options(index)` — real options for a dropdown/combobox (also the
 way to expand a summarized `<select>` list).
 - `fill_field(index, value)` — fill one field (text/select/radio/checkbox/combobox).
+Returns `verified: true|false|null` plus `observed_value` to confirm the field
+accepted the input; a proven failure on a pick-from-a-list field returns
+`status: "uncommitted"` instead of `"filled"`; password fields are refused.
 - `fill_many([{index,value}])` — **fill many fields in one call** (the fast path).
-- `upload_resume([index])` — attach the resume (auto-finds hidden file inputs).
+Each result carries `verified` and `observed_value` for safe error handling.
+- `upload_resume([index], path, target)` — attach the resume (auto-finds hidden file
+inputs). `target="cover"` + the cover-letter path uploads into a cover-labelled
+input only (never the resume slot; `no_cover_slot` if none). Always returns
+`verified` + `observed_filename`; a cover upload that lands in the resume slot
+returns `status: "error"`.
+- `fill_repeating_section(section)` — fill Workday's "My Experience" Work
+Experience / Education groups from your profile's `experience:` / `education:`
+blocks (fill-blanks only, safe to re-run). Statuses include `ok`,
+`already_present`, `partial`, `section_not_found`, `no_add_button`,
+`no_entries`. It also fills the date boxes and the School / Field of Study search
+boxes. Tool results can carry `technical: true`, meaning the tool could not
+operate the page (as opposed to the agent lacking an answer).
+- `fill_credential(index, field, service)` — type your Workday email/password from
+`credentials.yaml` server-side; the value is never shown. `fill_field` /
+`fill_many` refuse password fields (`use_fill_credential`).
+- `start_application()` — get from a job page to the form or its sign-in gate
+(clicks only Apply / Apply Manually / "Sign in with email"; never Autofill with
+Resume, Use My Last Application, SSO, or submit). Returns `form`,
+`auth_required`, `blocked`, `no_entry`, or `already_in_application`.
+- `authenticate([mode])` — sign in to or create the Workday tenant account using
+`credentials.yaml`, deciding from the account list. Statuses: `authenticated`,
+`email_verification_required`, `account_exists` (an account exists whose password
+we do not know: park, you sign in by hand), `bad_credentials` (stop),
+`create_rejected` (the create form refused the values), `no_credentials`,
+`unsupported_auth_flow` (non-Workday host or SSO-only), `recently_submitted`, and
+more. Guarded by the auth-attempt ledger.
+- `list_workday_accounts()` — read-only: which Workday companies have an account
+for your email and whether the agent can sign in (`active`,
+`exists_unknown_password`, `sso_only`). Never shows a password.
+- `open_verification_link(url)` — open a Workday verification link from your
+email in a side tab, then reload the application tab (Workday hosts only).
+- `clear_auth_ledger([tenant])` — **only on your request**; lifts the
+failed-sign-in lockout for a tenant.
 - `screenshot([path])` — capture the page for review (saved under the profile's
 `runtime/` dir — `current_page.png` by default).
 - `get_job_text()` — the visible page text (read a JD).
@@ -597,6 +841,16 @@ block or a dead posting.
 challenge blocks (invisible reCAPTCHA v3 comes back as a non-blocking warning).
 - `detect_verification_gate()` — spot an email/OTP code gate after a submit.
 - `fill_verification_code(code)` — fill a detected code gate, then re-submit.
+- `advance_step()` — **multi-page wizards** — click a Next/Continue button and
+read the new page. Returns `advanced` (fresh fields on the new page; all prior
+indexes are dead), `blocked_validation` (form errors, possibly `null`
+index for hidden fields, counted in `unmapped_error_count` — match those by
+`field_label`), `no_change`, `is_submit_page` (only a Submit control here), or
+`no_advance_button`, or on Workday `entry_page` / `auth_page` (nothing clicked;
+call `start_application` / `authenticate`). "Review" advances; `is_submit_page`
+means **nothing was clicked** — it hands
+off to the gated `submit_application` below, which is enforced in the tool rather
+than left to the agent to remember. Advancing is not submitting and is not gated.
 - `submit_application([index])` — **gated**; only on your explicit go-ahead. The
 result is verified from the page **text**: `submitted` (explicit success
 message), `rejected_spam` (a "flagged as possible spam" banner — left for you
@@ -630,9 +884,14 @@ trim edits to a copy of the base, save the profile's
 `resumes/<job-slug>/resume.docx`, export
 `resume.pdf` (formatting preserved).
 - `get_cover_letter_examples()` — full text of your past cover letters + writing
-samples, as voice exemplars.
-- `save_cover_letter(company, job_title, url, text)` — persist the drafted cover
-letter (`cover_letter.txt` + `.pdf`).
+samples, as voice exemplars (the template file is excluded).
+- `save_cover_letter(company, job_title, url, text, force)` — lint, then persist
+the drafted cover letter (`cover_letter.txt` + `.pdf`, letterhead rendered from
+your profile). A HARD lint failure refuses the save and returns
+`{saved: false, lint}`; `force=True` only with your OK. Always returns `saved`
+and `lint`.
+- `lint_text(text, kind)` — style-lint a free-text answer (`kind="answer"`) or a
+cover letter before filling it; returns `{ok, hard, soft, word_count}`.
 - `get_job_artifacts(company, job_title, url)` — at apply time, resolve the
 tailored resume/cover letter for a job, falling back to the default resume.
 
@@ -668,7 +927,8 @@ experience.
 ## 10. Known limits & tips
 
 - **Reload after code changes.** The MCP server caches code until Claude Code
-restarts.
+restarts. (New Workday and upload tools, and the Workday account list, only appear after a restart.)
+- **Answer history hygiene:** `scripts/repair_history_markup.py` (dry-run by default) can repair tool-call markup that may have leaked into stored answer text. Run it if you notice markdown or function calls in your reused answers.
 - **Lever postings:** the base URL is the job description; the form is at
 `<url>/apply` (the skill handles this).
 - **Search is watchlist-only** by design (low-volume, high-quality). To cover a
@@ -687,6 +947,17 @@ application is then tracked as `manual_submission`). A confirmation email
 from the company is the ground truth that a submit landed.
 - **A stale `OPENAI_API_KEY`** may still sit in [.env](.env) from the old version;
 it's unused now and safe to delete.
+- **Workday boards:** Postings are discovered, ranked and deep-read like any other
+board. Applying (Apply, sign-in, My Experience, wizard) has completed one real
+application (Capital One, 2026-11-13), but only with the Chrome-extension
+fallback for the form widgets, and the fixes made since are **not yet verified
+live**: expect to watch the next run. Known gaps: the Country Phone Code
+read-back fix (the multi-select item, D3) is pending, and **SSO-only tenants** (for example Snap's Google/LinkedIn
+sign-in screen) cannot be signed in by the agent; it parks and you sign in by
+hand. Workday also **never exposes salary data** anywhere in its API, so every
+Workday row shows "salary not listed", which is the platform, not a missed
+extraction.
+- **Greenhouse cover-letter upload and read-back** was verified live on 2026-11-13 (Stripe and Tailscale forms).
 
 ---
 
@@ -704,30 +975,36 @@ Job Applier/
 │     ├─ criteria.yaml           # strict search bar (titles/seniority/salary/location)
 │     ├─ resume.txt (resume.pdf) # reasoning text  (uploaded file)
 │     ├─ resume.docx             # base template for /tailor-application (you add it)
-│     ├─ context/                # knowledge base (md/txt/pdf) for crafting answers
+│     ├─ context/                # knowledge base (md/txt/pdf); cover_letter_template.md = letter structure
+│     ├─ secrets/credentials.yaml # local-only Workday password (you create it; gitignored)
 │     ├─ resumes/                # per-job tailored resume + cover letter
 │     ├─ data/
 │     │  ├─ history.json         # learned answers
 │     │  ├─ applications.json    # application tracker (verified submits)
 │     │  └─ prep/                # batch-mode prep files/sheets
-│     └─ runtime/                # screenshots (current_page.png) + persistent browser profile
-├─ watchlist.yaml                # ~79 target companies (shared)
+│     └─ runtime/                # screenshots, persistent browser profile, auth_attempts.json (Workday lockout ledger)
+├─ watchlist.yaml                # 80 target companies (shared); Workday rows' slug is "tenant:shard:site"
 ├─ location_aliases.yaml         # location normalization (shared)
 ├─ discovery.yaml                # startup-discovery sources (YC + VC portfolio boards)
 ├─ data/postings.db              # local postings store (gitignored cache; §5)
 ├─ data/digest-latest.md         # refresh digest (gitignored, regenerated)
 ├─ data/near-misses-latest.md    # title-gate audit report (gitignored, regenerated; §5)
 ├─ data/prep/                    # batch-mode prep files/sheets (gitignored)
-├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows)
+├─ scripts/refresh.cmd           # self-locating scheduler wrapper (Windows; logs to data
+efresh.log)
+├─ scripts/refresh_guard.py      # skip-if-succeeded-<12h pre-flight + log rotation
+├─ scripts/setup_refresh_task.ps1 # register the wake-aware daily + at-logon task (idempotent)
 ├─ scripts/near_misses.py        # title-gate near-miss audit (python scripts/near_misses.py; §5)
 ├─ scripts/webapp.cmd            # launch the Applyer web wrapper (§7b)
 ├─ scripts/migrate_profile.py    # one-shot: move a pre-profile checkout into profiles/<id>/
+├─ scripts/workday_bootstrap.py  # propose Workday tenant/shard/site triples (§5c; never writes watchlist.yaml)
 ├─ server/                       # FastAPI backend: /api/* + /ws/chat (Agent SDK bridge)
 ├─ frontend/                     # Applyer React SPA (Vite + TS; npm run build → dist/)
 ├─ src/
-│  ├─ mcp_server.py              # the 35 tools
+│  ├─ mcp_server.py              # the 44 tools
 │  ├─ profiles.py                # active-profile resolution (env → applyer.local.json → …)
-│  ├─ browser.py                 # ATS-agnostic form reading/filling
+│  ├─ browser.py                 # ATS-agnostic form reading/filling + Workday entry/auth
+│  ├─ repeating.py               # repeating sections (Workday My Experience)
 │  ├─ data.py                    # profile lookup + history
 │  ├─ context.py                 # knowledge-base retrieval
 │  ├─ tailor.py                  # JOB-6 per-job resume/cover-letter tailoring
@@ -739,12 +1016,18 @@ Job Applier/
 │     ├─ __init__.py             # provider seam (get_provider)
 │     ├─ watchlist.py            # ATS board fetch/normalize + watchlist mgmt
 │     ├─ discovery.py            # startup-discovery sources (YC + Consider) + slug probe
+│     ├─ workday.py              # Workday sourcing (M0): list/detail API, facet partitioning, bootstrap helpers
 │     └─ extract.py              # ingest-time salary/years/seniority extraction
+├─ tests/
+│  ├─ test_location_scope.py     # location/foreign-scope baseline gate
+│  ├─ test_workday_sourcing.py   # Workday parsing/paging/facet-union/normalize (standalone; §5c)
+│  └─ test_refresh_removals.py   # incomplete-fetch skips the removal pass, without logging a board failure
 └─ .claude/skills/
    ├─ find-jobs/SKILL.md         # /find-jobs
    ├─ apply-to-job/SKILL.md      # /apply-to-job
    ├─ apply-batch/SKILL.md       # /apply-batch (queue mode)
    ├─ tailor-application/SKILL.md # /tailor-application (per-job resume + cover letter)
+   (agents/answer-crafter.md    # Opus-pinned drafting subagent, under .claude/agents/)
    └─ commit/SKILL.md            # /commit (dev: commit + docs/diagram hygiene)
 ```
 

@@ -1,0 +1,231 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Workday-shaped form fixture</title>
+<!--
+  A synthetic form reproducing the DOM shapes a Workday apply wizard uses.
+  It is NOT a copy of any Workday page - it is the minimum markup that
+  exercises the widget contracts src/browser.py keys off:
+
+    * button[aria-haspopup=listbox] dropdowns, unset ones rendering the
+      literal placeholder text "Select One"
+    * a committed listbox value in [data-automation-id="selectedItem"]
+    * a radio whose real <input> is covered by an overlay, so a direct
+      .check() is intercepted and only a label click commits
+    * a dependent child field (State) that does not exist in the DOM until
+      its parent (Country) is set
+    * a visually-hidden (sr-only) required input, so a validation error on it
+      has no scanned field to map to
+    * "Save and Continue" as type=submit - the trap that let submit_application
+      click Next instead of submitting
+-->
+<style>
+  body { font: 14px system-ui; padding: 24px; max-width: 640px; }
+  .field { margin: 18px 0; }
+  label { display: block; font-weight: 600; margin-bottom: 4px; }
+  button[aria-haspopup=listbox] {
+    width: 100%; text-align: left; padding: 8px; background: #fff;
+    border: 1px solid #999; border-radius: 4px; min-height: 34px;
+  }
+  [role=listbox] { border: 1px solid #999; background: #fff; }
+  [role=option] { padding: 6px 8px; cursor: pointer; }
+  [hidden] { display: none !important; }
+  .radio-wrap { position: relative; display: inline-block; }
+  /* The overlay is the whole point: it sits over the real input and swallows
+     pointer events, which is what makes Playwright's .check() raise. */
+  .radio-wrap .overlay {
+    position: absolute; inset: -4px; background: rgba(0,0,0,0.01); z-index: 5;
+  }
+  /* A genuinely unscannable field. NOTE: the usual sr-only recipe
+     (width:1px;height:1px) still measures ~9x7 in Chromium, because an input's
+     padding and border are added on top under content-box -- so read_form's
+     isVisible (width>1 && height>1) still SEES it. Zero the box model too, or
+     this fixture silently stops testing the unmapped-error path. */
+  .sr-only {
+    position: absolute; width: 0; height: 0; padding: 0; border: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .error { color: #b00; font-size: 12px; margin-top: 4px; }
+</style>
+
+<h1>Application &mdash; Step 2 of 7</h1>
+
+<div class="field">
+  <label id="lbl-name" for="name">Legal Name</label>
+  <input id="name" name="name" type="text" aria-labelledby="lbl-name"
+         aria-describedby="name-err">
+</div>
+
+<div class="field">
+  <label id="lbl-phone" for="phone">Phone Number</label>
+  <input id="phone" name="phone" type="text" aria-labelledby="lbl-phone">
+</div>
+
+<div class="field">
+  <label id="lbl-pw" for="pw">Create Password</label>
+  <input id="pw" name="pw" type="password" aria-labelledby="lbl-pw">
+</div>
+
+<div class="field">
+  <label id="lbl-device">Phone Device Type</label>
+  <button id="device-btn" aria-haspopup="listbox" aria-expanded="false"
+          aria-controls="device-lb" aria-labelledby="lbl-device">Select One</button>
+  <div id="device-lb" role="listbox" hidden>
+    <div role="option">Mobile</div>
+    <div role="option">Home</div>
+    <div role="option">Work</div>
+  </div>
+</div>
+
+<div class="field">
+  <label id="lbl-country">Country</label>
+  <button id="country-btn" aria-haspopup="listbox" aria-expanded="false"
+          aria-controls="country-lb" aria-labelledby="lbl-country">Select One</button>
+  <div id="country-lb" role="listbox" hidden>
+    <div role="option">United States</div>
+    <div role="option">Australia</div>
+    <div role="option">Canada</div>
+  </div>
+</div>
+
+<!-- State is injected by JS only once Country is set. -->
+<div id="state-slot"></div>
+
+<div class="field">
+  <label id="lbl-school">School</label>
+  <button id="school-btn" aria-haspopup="listbox" aria-expanded="false"
+          aria-controls="school-lb" aria-labelledby="lbl-school">
+    <span data-automation-id="selectedItem">University of Southern California</span>
+  </button>
+  <div id="school-lb" role="listbox" hidden>
+    <div role="option">University of Southern California</div>
+    <div role="option">University of California, Santa Barbara</div>
+  </div>
+</div>
+
+<div class="field">
+  <label>Have you previously worked for this company?</label>
+  <span class="radio-wrap">
+    <span class="overlay"></span>
+    <input type="radio" id="worked-yes" name="worked" value="Yes">
+  </span>
+  <label for="worked-yes">Yes</label>
+  <span class="radio-wrap">
+    <span class="overlay"></span>
+    <input type="radio" id="worked-no" name="worked" value="No">
+  </span>
+  <label for="worked-no">No</label>
+</div>
+
+<div class="field">
+  <!-- Visually hidden but required: read_form's isVisible skips it, so a
+       validation error on it has no data-jaidx to map to. -->
+  <label class="sr-only" for="consent-code">Consent Reference Code</label>
+  <input class="sr-only" id="consent-code" name="consent-code" type="text"
+         required aria-describedby="consent-err">
+  <div id="consent-err" class="error" hidden>Consent Reference Code is required</div>
+</div>
+
+<div id="name-err" class="error" hidden>Legal Name is required</div>
+
+<!-- An ORPHAN error: no element points at it with aria-describedby, so error
+     mapping has to fall back to walking up from the node. It must come back
+     with index null, NOT another field's index -- misattributing an error
+     makes the caller refill the wrong field, which is worse than no index. -->
+<div id="orphan-err" class="error" hidden>Section could not be validated</div>
+
+<button id="back-btn" type="button">Back</button>
+<!-- The trap: Workday's next control is type=submit. -->
+<button id="next-btn" type="submit">Save and Continue</button>
+
+<script>
+  function wireListbox(btnId, lbId) {
+    var btn = document.getElementById(btnId);
+    var lb = document.getElementById(lbId);
+    btn.addEventListener('click', function () {
+      var open = !lb.hidden;
+      lb.hidden = open;
+      btn.setAttribute('aria-expanded', String(!open));
+    });
+    lb.addEventListener('click', function (e) {
+      var opt = e.target.closest('[role=option]');
+      if (!opt) return;
+      commit(btn, opt.textContent.trim());
+      lb.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+    });
+  }
+  function commit(btn, text) {
+    var si = btn.querySelector('[data-automation-id="selectedItem"]');
+    if (!si) {
+      btn.textContent = '';
+      si = document.createElement('span');
+      si.setAttribute('data-automation-id', 'selectedItem');
+      btn.appendChild(si);
+    }
+    si.textContent = text;
+    btn.dispatchEvent(new CustomEvent('jacommit', { bubbles: true }));
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('[role=listbox]').forEach(function (lb) {
+      lb.hidden = true;
+      var b = document.querySelector('[aria-controls="' + lb.id + '"]');
+      if (b) b.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  wireListbox('device-btn', 'device-lb');
+  wireListbox('country-btn', 'country-lb');
+  wireListbox('school-btn', 'school-lb');
+
+  document.getElementById('country-btn').addEventListener('jacommit', function () {
+    var slot = document.getElementById('state-slot');
+    if (slot.firstChild) return;
+    slot.innerHTML =
+      '<div class="field">' +
+      '<label id="lbl-state">State</label>' +
+      '<button id="state-btn" aria-haspopup="listbox" aria-expanded="false" ' +
+      'aria-controls="state-lb" aria-labelledby="lbl-state">Select One</button>' +
+      '<div id="state-lb" role="listbox" hidden>' +
+      '<div role="option">California</div><div role="option">New York</div>' +
+      '</div></div>';
+    wireListbox('state-btn', 'state-lb');
+  });
+
+  var phone = document.getElementById('phone');
+  // Normalize on `input`, not `change`. locator.fill() does not reliably fire
+  // `change` here, so a change-based fixture let the read-back see the raw
+  // string it just wrote -- the assertion passed without the loose comparator
+  // ever doing any work. Normalizing on input makes the read-back genuinely
+  // differ from what was written, which is the case worth proving.
+  phone.addEventListener('input', function () {
+    var d = phone.value.replace(/\D/g, '');
+    if (d.length === 10) {
+      phone.value = '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6);
+    }
+  });
+
+  document.getElementById('next-btn').addEventListener('click', function (e) {
+    e.preventDefault();
+    var bad = false;
+    if (!document.getElementById('name').value.trim()) {
+      document.getElementById('name-err').hidden = false; bad = true;
+    } else { document.getElementById('name-err').hidden = true; }
+    if (!document.getElementById('consent-code').value.trim()) {
+      document.getElementById('consent-err').hidden = false; bad = true;
+    } else { document.getElementById('consent-err').hidden = true; }
+    document.getElementById('orphan-err').hidden = !bad;
+    if (!bad) {
+      document.querySelector('h1').textContent = 'Application — Step 3 of 7';
+      // A real step swaps the questions, not just the heading.
+      var form = document.querySelectorAll('.field');
+      form.forEach(function (f) { f.remove(); });
+      document.getElementById('state-slot').innerHTML = '';
+      var d = document.createElement('div');
+      d.className = 'field';
+      d.innerHTML = '<label id="lbl-start" for="start">Earliest Start Date</label>'
+        + '<input id="start" name="start" type="text" aria-labelledby="lbl-start">';
+      document.querySelector('h1').after(d);
+    }
+  });
+</script>

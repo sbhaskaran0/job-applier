@@ -1,0 +1,376 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Workday-shaped My Experience fixture</title>
+<!--
+  A synthetic "My Experience" wizard step, modelled on the DOM shapes a
+  Workday tenant uses for repeating sections. NOT a copy of any Workday page
+  and NOT observed live (that step sits behind sign-in): it is the minimum
+  markup that exercises what fill_repeating_section keys off:
+
+    * "Work Experience" is a role=heading with NO aria-level and NO own
+      container, followed by an h3 "Education" inside a <section>: section
+      ends must not depend on heading levels, and the experience Add is found
+      by range (first Add after the last group, before the next heading)
+    * Add / Add Another buttons that INJECT a new field group via JS, a beat
+      after the click; a numbered sub-heading per group ("Work Experience 2")
+    * decoys that must never be clicked: "Add Certification" INSIDE the
+      Education section, and a Languages section (after Education) whose
+      button is a bare "Add"
+    * "I currently work here" REMOVES the To field from the DOM; #ariacb
+      renders it as a non-native [role=checkbox] instead of an <input>
+    * dates: shape (b) separate Month / Year spinbuttons (experience; the From
+      label is label[for] the Month box, Workday-style) that REVERT invalid
+      input on blur, and shape (a) a single MM/YYYY box plus a YYYY box
+      (education)
+    * Degree as button[aria-haspopup=listbox], "Select One" placeholder, with
+      both specific (BA / BS / MA / MS) and generic ("Bachelor's Degree")
+      options -- BA listed before BS, the order that once mis-picked
+    * School as a PROMPT typeahead: committing CLEARS the <input> and renders
+      the choice as a pill (role=option + remove button); Field of Study as
+      a plain typeahead that keeps the choice in input.value
+    * prefill variants: #prefill (resume-parsed experience group with only
+      title + company), #prefill-edu (education group whose school is a
+      pill), #orphan-edu (education group with a degree but no school)
+    * #remount: the first time a group's Company field loses focus with a
+      value, the WHOLE group is re-rendered (new elements, values carried
+      over, every data-ja* stamp gone), like a framework remount. Models the
+      live Capital One first pass (2026-11-13): every new group "vanished"
+      right after Job Title + Company. The trigger is a model, not observed.
+    * #prompt-edu: School and Field of Study are plain text inputs (no
+      role=combobox) that DROP typed text on blur unless a result was
+      picked. Models the live Capital One School / Field of Study result
+      (`verified:true` while the page showed both boxes empty); built from
+      tool results and one screenshot, not a DOM probe.
+-->
+<style>
+  body { font: 14px system-ui; padding: 24px; max-width: 720px; }
+  .field { margin: 12px 0; }
+  label { display: block; font-weight: 600; margin-bottom: 4px; }
+  input[type=text], textarea { width: 100%; padding: 6px; box-sizing: border-box; }
+  input[role=spinbutton] { width: 70px; padding: 6px; }
+  .grp { border: 1px solid #ccc; padding: 8px 12px; margin: 10px 0; }
+  .sechead { font-size: 18px; font-weight: 700; margin-top: 20px; }
+  button[aria-haspopup=listbox] {
+    width: 100%; text-align: left; padding: 8px; background: #fff;
+    border: 1px solid #999; min-height: 34px;
+  }
+  [role=listbox] { border: 1px solid #999; background: #fff; }
+  [role=option] { padding: 6px 8px; cursor: pointer; }
+  .pills { list-style: none; padding: 0; margin: 4px 0; }
+  .pills li { display: inline-block; background: #e6eefc; padding: 2px 8px; }
+  [hidden] { display: none !important; }
+  .cb label { display: inline; font-weight: 400; }
+  [role=checkbox] { display: inline-block; width: 16px; height: 16px;
+                    border: 1px solid #333; vertical-align: middle; }
+  [role=checkbox][aria-checked=true] { background: #333; }
+</style>
+
+<h2>My Experience</h2>
+
+<div>
+  <div role="heading" class="sechead">Work Experience</div>
+  <div id="we-groups"></div>
+  <button id="we-add" type="button">Add</button>
+</div>
+
+<section aria-labelledby="ed-h">
+  <h3 id="ed-h">Education</h3>
+  <div id="ed-groups"></div>
+  <button id="ed-add" type="button">Add</button>
+  <button id="cert-add" type="button">Add Certification</button>
+</section>
+
+<section aria-labelledby="lang-h">
+  <h3 id="lang-h">Languages</h3>
+  <div id="lang-groups"></div>
+  <button id="lang-add" type="button">Add</button>
+</section>
+
+<button type="button">Back</button>
+<button type="submit">Save and Continue</button>
+
+<script>
+  window.__adds = {we: 0, ed: 0, lang: 0, cert: 0};
+  var ARIACB = location.hash.indexOf('ariacb') !== -1;
+  var REMOUNT = location.hash.indexOf('remount') !== -1;
+  var PROMPT = location.hash.indexOf('prompt-edu') !== -1;
+  window.__remounted = {};
+  window.__remounts = 0;
+  var SCHOOLS = ['University of Southern California',
+                 'University of California, Santa Barbara',
+                 'Stanford University', 'Example State University'];
+  var FIELDS = ['Economics', 'Computer Science', 'Mathematics', 'History'];
+  var DEGREES = ['High School Diploma', "Associate's Degree", 'Bachelor of Arts (BA)',
+                 'Bachelor of Science (BS)', "Bachelor's Degree",
+                 'Master of Arts (MA)', 'Master of Science (MS)',
+                 "Master's Degree", 'Doctorate'];
+
+  function monthYear(id, label, withFor) {
+    return '<div class="field" id="' + id + '-wrap">' +
+      '<label ' + (withFor ? 'for="' + id + '-m"' : '') + '>' + label + '</label>' +
+      '<div role="group">' +
+      '<input type="text" role="spinbutton" aria-label="Month" placeholder="MM" id="' + id + '-m">' +
+      ' / <input type="text" role="spinbutton" aria-label="Year" placeholder="YYYY" id="' + id + '-y">' +
+      ' <button type="button" aria-label="Calendar">&#128197;</button>' +
+      '</div></div>';
+  }
+
+  // React-style spinbuttons: invalid input is thrown away when focus leaves.
+  function wireSpin(id) {
+    ['-m', '-y'].forEach(function (suf) {
+      var el = document.getElementById(id + suf);
+      if (!el) return;
+      el.addEventListener('blur', function () {
+        var v = el.value.trim();
+        if (suf === '-m') {
+          el.value = /^(0?[1-9]|1[0-2])$/.test(v) ? ('0' + parseInt(v, 10)).slice(-2) : '';
+        } else {
+          el.value = /^\d{4}$/.test(v) ? v : '';
+        }
+      });
+    });
+  }
+
+  function addExperience(pre) {
+    var n = document.querySelectorAll('#we-groups .grp').length + 1;
+    var p = 'we' + n;
+    var g = document.createElement('div');
+    g.className = 'grp';
+    g.setAttribute('role', 'group');
+    g.setAttribute('aria-labelledby', p + '-h');
+    var cur = ARIACB
+      ? '<div class="field cb"><span role="checkbox" aria-checked="false" tabindex="0" ' +
+        'id="' + p + '-cur" aria-labelledby="' + p + '-cur-l"></span> ' +
+        '<span id="' + p + '-cur-l">I currently work here</span></div>'
+      : '<div class="field cb"><input type="checkbox" id="' + p + '-cur">' +
+        '<label for="' + p + '-cur">I currently work here</label></div>';
+    g.innerHTML =
+      '<h4 id="' + p + '-h">Work Experience ' + n + '</h4>' +
+      '<button type="button">Delete</button>' +
+      '<div class="field"><label for="' + p + '-title">Job Title*</label>' +
+      '<input type="text" id="' + p + '-title" required></div>' +
+      '<div class="field"><label for="' + p + '-company">Company*</label>' +
+      '<input type="text" id="' + p + '-company" required></div>' +
+      '<div class="field"><label for="' + p + '-loc">Location</label>' +
+      '<input type="text" id="' + p + '-loc"></div>' + cur +
+      monthYear(p + '-from', 'From*', true) +
+      '<div id="' + p + '-toslot">' + monthYear(p + '-to', 'To*', false) + '</div>' +
+      '<div class="field"><label for="' + p + '-desc">Role Description</label>' +
+      '<textarea id="' + p + '-desc" rows="3"></textarea></div>';
+    document.getElementById('we-groups').appendChild(g);
+    wireExperience(p);
+    if (pre) {
+      document.getElementById(p + '-title').value = pre.title;
+      document.getElementById(p + '-company').value = pre.company;
+    }
+    document.getElementById('we-add').textContent = 'Add Another';
+  }
+
+  function wireExperience(p) {
+    wireSpin(p + '-from');
+    wireSpin(p + '-to');
+    var box = document.getElementById(p + '-cur');
+    function isOn() { return ARIACB ? box.getAttribute('aria-checked') === 'true' : box.checked; }
+    function sync() {
+      var slot = document.getElementById(p + '-toslot');
+      // Workday removes To entirely while "I currently work here" is ticked.
+      slot.innerHTML = isOn() ? '' : monthYear(p + '-to', 'To*', false);
+      if (!isOn()) wireSpin(p + '-to');
+    }
+    if (ARIACB) {
+      box.addEventListener('click', function () {
+        box.setAttribute('aria-checked', String(!isOn())); sync();
+      });
+    } else {
+      box.addEventListener('change', sync);
+    }
+    if (REMOUNT && !window.__remounted[p]) {
+      var co = document.getElementById(p + '-company');
+      co.addEventListener('blur', function () {
+        if (window.__remounted[p] || !co.value) return;
+        window.__remounted[p] = true;
+        setTimeout(function () { remountGroup(p); }, 0);
+      });
+    }
+  }
+
+  // Framework-style remount: brand-new elements, the same values, and no
+  // trace of anything a script stamped on the old ones.
+  function remountGroup(p) {
+    var old = document.getElementById(p + '-h').closest('.grp');
+    var vals = {};
+    old.querySelectorAll('input, textarea').forEach(function (e) {
+      vals[e.id] = e.type === 'checkbox' ? e.checked : e.value;
+    });
+    var g = document.createElement('div');
+    g.className = 'grp';
+    g.setAttribute('role', 'group');
+    g.setAttribute('aria-labelledby', p + '-h');
+    g.innerHTML = old.innerHTML.replace(/\sdata-ja[a-z]+="[^"]*"/g, '');
+    old.replaceWith(g);
+    Object.keys(vals).forEach(function (id) {
+      var e = document.getElementById(id);
+      if (!e) return;
+      if (e.type === 'checkbox') e.checked = vals[id]; else e.value = vals[id];
+    });
+    wireExperience(p);
+    window.__remounts += 1;
+  }
+
+  // #prompt-edu: a search box that keeps typed text only until blur; only a
+  // PICKED result (none is ever offered here) would survive.
+  function promptBox(id, label) {
+    return '<div class="field"><label for="' + id + '">' + label + '</label>' +
+      '<ul class="pills" id="' + id + '-pills"></ul>' +
+      '<input type="text" id="' + id + '" autocomplete="off" placeholder="Search">' +
+      '</div>';
+  }
+  function wirePrompt(id) {
+    var inp = document.getElementById(id);
+    inp.addEventListener('blur', function () {
+      setTimeout(function () { inp.value = ''; }, 0);
+    });
+  }
+
+  function typeahead(id, label) {
+    return '<div class="field"><label for="' + id + '">' + label + '</label>' +
+      '<ul class="pills" id="' + id + '-pills"></ul>' +
+      '<input type="text" role="combobox" id="' + id + '" aria-expanded="false" ' +
+      'aria-controls="' + id + '-lb" autocomplete="off" placeholder="Search">' +
+      '<div role="listbox" id="' + id + '-lb" hidden></div></div>';
+  }
+
+  // pill=true: the Workday "prompt" shape -- the input is CLEARED on commit
+  // and the choice is rendered as a removable pill beside it.
+  function setPill(id, text) {
+    var ul = document.getElementById(id + '-pills');
+    ul.innerHTML = '<li role="option" aria-selected="true">' + text +
+      ' <button type="button" aria-label="Remove">&times;</button></li>';
+    ul.querySelector('button').addEventListener('click', function () { ul.innerHTML = ''; });
+  }
+
+  function wireTypeahead(id, list, pill) {
+    var inp = document.getElementById(id);
+    var lb = document.getElementById(id + '-lb');
+    function render() {
+      var q = inp.value.trim().toLowerCase();
+      lb.innerHTML = '';
+      list.filter(function (o) { return !q || o.toLowerCase().indexOf(q) !== -1; })
+        .forEach(function (o) {
+          var d = document.createElement('div');
+          d.setAttribute('role', 'option');
+          d.textContent = o;
+          lb.appendChild(d);
+        });
+      lb.hidden = false;
+      inp.setAttribute('aria-expanded', 'true');
+    }
+    inp.addEventListener('focus', render);
+    inp.addEventListener('input', render);
+    lb.addEventListener('mousedown', function (e) {
+      var o = e.target.closest('[role=option]');
+      if (!o) return;
+      e.preventDefault();
+      if (pill) { setPill(id, o.textContent); inp.value = ''; }
+      else { inp.value = o.textContent; }
+      lb.hidden = true;
+      inp.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function commitListbox(btn, text) {
+    btn.innerHTML = '<span data-automation-id="selectedItem">' + text + '</span>';
+  }
+
+  function wireListbox(btnId, lbId) {
+    var btn = document.getElementById(btnId);
+    var lb = document.getElementById(lbId);
+    btn.addEventListener('click', function () {
+      var open = !lb.hidden;
+      lb.hidden = open;
+      btn.setAttribute('aria-expanded', String(!open));
+    });
+    lb.addEventListener('click', function (e) {
+      var opt = e.target.closest('[role=option]');
+      if (!opt) return;
+      commitListbox(btn, opt.textContent.trim());
+      lb.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function addEducation(pre) {
+    var n = document.querySelectorAll('#ed-groups .grp').length + 1;
+    var p = 'ed' + n;
+    var g = document.createElement('div');
+    g.className = 'grp';
+    g.setAttribute('role', 'group');
+    g.setAttribute('aria-labelledby', p + '-h');
+    g.innerHTML =
+      '<h4 id="' + p + '-h">Education ' + n + '</h4>' +
+      '<button type="button">Delete</button>' +
+      (PROMPT ? promptBox(p + '-school', 'School or University*')
+              : typeahead(p + '-school', 'School or University*')) +
+      '<div class="field"><label id="' + p + '-deg-l">Degree*</label>' +
+      '<button type="button" id="' + p + '-deg" aria-haspopup="listbox" ' +
+      'aria-expanded="false" aria-controls="' + p + '-deg-lb" ' +
+      'aria-labelledby="' + p + '-deg-l">Select One</button>' +
+      '<div role="listbox" id="' + p + '-deg-lb" hidden>' +
+      DEGREES.map(function (d) { return '<div role="option">' + d + '</div>'; }).join('') +
+      '</div></div>' +
+      (PROMPT ? promptBox(p + '-fos', 'Field of Study')
+              : typeahead(p + '-fos', 'Field of Study')) +
+      '<div class="field"><label for="' + p + '-gpa">Overall Result (GPA)</label>' +
+      '<input type="text" id="' + p + '-gpa"></div>' +
+      '<div class="field"><label for="' + p + '-from">From</label>' +
+      '<input type="text" id="' + p + '-from" placeholder="MM/YYYY"></div>' +
+      '<div class="field"><label for="' + p + '-to">To (Actual or Expected)*</label>' +
+      '<input type="text" id="' + p + '-to" placeholder="YYYY"></div>';
+    document.getElementById('ed-groups').appendChild(g);
+    if (PROMPT) {
+      wirePrompt(p + '-school');
+      wirePrompt(p + '-fos');
+    } else {
+      wireTypeahead(p + '-school', SCHOOLS, true);
+      wireTypeahead(p + '-fos', FIELDS, false);
+    }
+    wireListbox(p + '-deg', p + '-deg-lb');
+    if (pre && pre.school) setPill(p + '-school', pre.school);
+    if (pre && pre.degree) commitListbox(document.getElementById(p + '-deg'), pre.degree);
+    document.getElementById('ed-add').textContent = 'Add Another';
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('[role=listbox]').forEach(function (lb) {
+      lb.hidden = true;
+      var b = document.querySelector('[aria-controls="' + lb.id + '"]');
+      if (b) b.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  // Groups appear a beat after the click, like a real async render.
+  document.getElementById('we-add').addEventListener('click', function () {
+    window.__adds.we += 1; setTimeout(function () { addExperience(null); }, 150);
+  });
+  document.getElementById('ed-add').addEventListener('click', function () {
+    window.__adds.ed += 1; setTimeout(function () { addEducation(null); }, 150);
+  });
+  document.getElementById('lang-add').addEventListener('click', function () {
+    window.__adds.lang += 1;
+  });
+  document.getElementById('cert-add').addEventListener('click', function () {
+    window.__adds.cert += 1;
+  });
+
+  var h = location.hash;
+  if (/prefill(?!-)/.test(h)) {
+    addExperience({title: 'Product Manager', company: 'Acme Corp'});
+  }
+  if (h.indexOf('prefill-edu') !== -1) {
+    addEducation({school: 'Example State University', degree: 'Bachelor of Science (BS)'});
+  }
+  if (h.indexOf('orphan-edu') !== -1) {
+    addEducation({degree: 'Bachelor of Science (BS)'});
+  }
+</script>

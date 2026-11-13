@@ -85,6 +85,10 @@ class ActiveProfile:
     def resume_docx(self) -> Path:
         return self.root / "resume.docx"
 
+    @property
+    def cover_letter_template_docx(self) -> Path:
+        return self.root / "cover_letter_template.docx"
+
     # --- per-user data ----------------------------------------------------
     @property
     def data_dir(self) -> Path:
@@ -97,6 +101,11 @@ class ActiveProfile:
     @property
     def applications_json(self) -> Path:
         return self.data_dir / "applications.json"
+
+    @property
+    def workday_accounts_json(self) -> Path:
+        # tenant host -> {email, status, timestamps}; never a password
+        return self.data_dir / "workday_accounts.json"
 
     @property
     def prep_dir(self) -> Path:
@@ -119,6 +128,10 @@ class ActiveProfile:
     @property
     def secrets_dir(self) -> Path:
         return self.root / "secrets"
+
+    @property
+    def credentials_yaml(self) -> Path:
+        return self.secrets_dir / "credentials.yaml"  # local-only, user-written
 
     def ensure_dirs(self) -> None:
         for d in (self.context_dir, self.data_dir, self.prep_dir,

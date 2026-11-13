@@ -8,13 +8,14 @@ and the memory. Run via:  python -m src.mcp_server   (stdio transport).
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-from . import browser, config, context, data, store, tailor
+from . import browser, config, context, data, store, tailor, technical
 from .providers import watchlist as wl
 
-mcp = FastMCP("job-applier")
+mcp = MCPServer("job-applier")
 
 
 # --------------------------------------------------------------------------- #
@@ -90,8 +91,28 @@ async def fill_field(index: int, value: str) -> dict:
     Comboboxes are verified: status "filled" means the widget committed the
     (possibly normalized) `value` shown in the result. Status "unmatched" means
     no option matched — the result carries the widget's real `options`; call
-    again with the correct option text verbatim (e.g. "United States" → "US")."""
-    return await browser.session.fill_field(index, value)
+    again with the correct option text verbatim (e.g. "United States" → "US").
+    A search box (School / Field of Study) is typed, searched (Enter) and a
+    result picked; it is verified only on the committed chip.
+
+    `technical: true` marks a failure of the TOOL, not of the answer: status
+    "error", or "uncommitted" with no `options` (the widget could not be
+    operated). "unmatched" / "uncommitted" WITH options are answer problems
+    (pick one of `options`). Same flag on fill_many items, advance_step
+    (no_change), start_application (no_entry / blocked), authenticate
+    (blocked / unconfirmed / error / toggle_failed / no_auth_submit /
+    unsupported_auth_flow), upload_resume (error), submit_application
+    (no_submit_button only), fill_repeating_section. A plain text field
+    read back empty (a validator cleared it) and a <select> value that is
+    not an option (status "unmatched" with `options`) are NOT technical."""
+    try:
+        res = await browser.session.fill_field(index, value)
+    except ValueError:
+        raise                       # unknown index: a caller bug, say so loudly
+    except Exception as e:          # same shape fill_many already returns
+        res = {"index": index, "status": "error",
+               "error": f"{type(e).__name__}: {e}"[:300]}
+    return technical.mark("fill", res)
 
 
 @mcp.tool()
@@ -102,18 +123,124 @@ async def fill_many(fields: list[dict]) -> list:
     resolved/approved in a single round-trip instead of one fill_field per
     field. Check each result: a combobox row with status "unmatched" includes
     its real `options` — refill those indexes with the matching option text."""
-    return await browser.session.fill_many(fields)
+    return technical.mark("fill", await browser.session.fill_many(fields))
 
 
 @mcp.tool()
-async def upload_resume(index: int = -1, path: str = "") -> dict:
-    """Attach the resume. Pass `index` >= 0 to use a specific file field from
-    read_form; omit it (or -1) to auto-locate a file input anywhere on the page,
-    including hidden ones behind an "Attach"/dropzone widget (Greenhouse/Ashby),
-    preferring a resume/CV input over a cover-letter one. Uses the project resume
-    file (resume.pdf/.docx if present, else resume.txt) unless `path` is given."""
-    return await browser.session.upload_resume(index if index >= 0 else None,
-                                               path or None)
+async def fill_repeating_section(section: str) -> dict:
+    """Fill a repeating "My Experience" section from the PROFILE's structured
+    entries — `section` is "experience" (Work Experience) or "education".
+    You pass no entry data: entries come from profile.yaml server-side, so
+    nothing can be invented. The section is found by its heading; every value
+    goes through fill_field, so dropdowns and verification behave as usual.
+    NOTHING already on the page is overwritten (fill-blanks only).
+
+    Where each entry goes, decided before anything is clicked: a group that
+    already holds it (company + loose title or same start; school) gets its
+    empty fields completed; an "orphan" group (values but no company/title/
+    school, e.g. a half-finished earlier run) consistent with it is
+    completed; a blank group is reused; only then is "Add" / "Add Another"
+    clicked (max 8 entries, 2 clicks each). "I currently work here" is
+    ticked before To and To is skipped for a current role. Degrees match
+    only the profile's own degree (BS <-> Bachelor of Science (BS)) or, on a
+    generic list, its level. GPA follows the profile's gpa_policy (always |
+    if_required | never). Re-running is safe.
+
+    Returns {section, status, added, existing_groups, filled: [{entry, result
+    (added | filled | completed_blanks | completed_orphan), fields: [{key,
+    label, index, status, verified, value, ...}]}], skipped: [{entry,
+    reason}], errors, gpa_policy_used, leftover_blank_groups,
+    orphan_groups?, required_empty?, warnings?}. `entry` indexes the
+    profile's list. Long values are truncated to 60 chars.
+    status:
+      - "ok" — every attempted field verified (or unverifiable) and no
+        required field of a touched group is empty.
+      - "already_present" — every entry was already complete on the page.
+      - "partial" — a field is uncommitted / unmatched (`options` listed;
+        refill that index with fill_field once) / unsupported_date_widget /
+        error; or a company/title/school/start/current-role control was
+        not_found; or `required_empty` lists empty required fields; or
+        `orphan_groups` lists groups no entry fits (Add was not clicked).
+      - "section_not_found" — no heading names the section on this step.
+      - "no_add_button" / "ambiguous_add" / "add_failed" /
+        "new_group_not_blank" — no usable Add control, more than one, or
+        clicking it produced no new blank group.
+      - "no_entries" — the profile has no entries for the section.
+      - "bad_section" — section is not experience / education.
+    Per-field statuses beyond fill_field's: already_set, skipped (reason
+    no_value / current_role / gpa_policy / incomplete_date /
+    to_already_filled), not_found; `day_assumed: true` marks a native date
+    input that got day 01; `committed_as: "pill"` marks a typeahead whose
+    choice shows as a chip; `regrouped: n` on an entry says its group was
+    re-rendered and re-found; `verified_by: "section_reread"` marks a row
+    settled by the end-of-section re-read.
+    `technical: true` (on the result and on each such row) marks a failure
+    of the TOOL rather than a missing answer: rows error / group_vanished /
+    unsupported_date_widget / uncommitted without options / not_found on a
+    company, title, school, start or current-role key; top level
+    no_add_button / ambiguous_add / add_failed / new_group_not_blank, or
+    orphan_groups."""
+    return technical.mark("repeating",
+                          await browser.session.fill_repeating_section(section))
+
+
+@mcp.tool()
+async def fill_credential(index: int, field: str = "password",
+                          service: str = "workday") -> dict:
+    """Fill the account email or password for an ATS login/signup field at
+    `index`, from the user's local credentials.yaml. The value is loaded and
+    typed SERVER-SIDE and never returned. NEVER invent, generate, or type a
+    password yourself, and never pass one through fill_field/fill_many (they
+    refuse password fields with status "use_fill_credential").
+
+    `field` is "password" or "email". A password is only typed into a real
+    type=password input; otherwise status is "not_a_password_field".
+    Returns {index, status, verified, sensitive: true}, or
+    {status: "no_credentials", hint} when the user has not created
+    profiles/<id>/secrets/credentials.yaml: then PARK and ask the user to
+    create it; do not make one up."""
+    if field not in ("password", "email"):
+        return {"index": index, "status": "bad_field",
+                "error": 'field must be "password" or "email"'}
+    value, err = config.credential(service, field)
+    if err:
+        return err
+    try:
+        res = await browser.session.fill_sensitive(
+            index, value, require_password=(field == "password"))
+    except Exception as e:  # never str(e): it may embed the value
+        res = {"index": index, "status": "error", "error": type(e).__name__}
+    res = {k: res[k] for k in ("index", "status", "verified", "error") if k in res}
+    res["sensitive"] = True
+    return res
+
+
+@mcp.tool()
+async def upload_resume(index: int = -1, path: str = "",
+                        target: str = "resume") -> dict:
+    """Attach the resume, or a cover-letter file. Pass `index` >= 0 to use a
+    specific file field from read_form; omit it (or -1) to auto-locate a file
+    input anywhere on the page, including hidden ones behind an "Attach"/
+    dropzone widget (Greenhouse/Ashby). target="resume" (default) prefers a
+    resume/CV input and uses the project resume file unless `path` is given.
+    For a cover letter pass target="cover" AND path=cover_letter_path: only an
+    input labelled "cover" is eligible and the resume slot is never used; with
+    none the result is {status: "no_cover_slot"} (fall back to pasting
+    cover_letter_text). Call resume and cover SEQUENTIALLY, never in parallel.
+    Always check `verified` in the result: `readback` says what confirmed it
+    ("input" = files[0].name; "container" = the slot box shows the filename,
+    as on Greenhouse, which unmounts the input after an upload; "none").
+    `pending: true` = still uploading when read-back stopped waiting;
+    `slot_error` = the slot shows an upload error (never verified).
+    Status "error" (nothing uploaded unless stated) means one of: the cover
+    upload landed in the resume slot (uploaded, wrong slot); the wanted slot
+    already holds a file; the resume slot has no free input and no other
+    slot was used; the only free inputs are cover-letter slots; an explicit
+    index is the wrong kind of slot; the page re-rendered between locating
+    and uploading; a bad target / missing path / unknown index / no file
+    input at all."""
+    return technical.mark("upload_resume", await browser.session.upload_resume(
+        index if index >= 0 else None, path or None, target))
 
 
 @mcp.tool()
@@ -169,6 +296,170 @@ async def fill_verification_code(code: str) -> dict:
 
 
 @mcp.tool()
+async def advance_step() -> dict:
+    """Move a MULTI-STEP application (Workday's "Save and Continue", any
+    wizard's "Next"/"Continue") to the next step. Advancing is NOT submitting
+    and is NOT gated — you do not need the user's confirmation to call this.
+    It never clicks a submit control.
+
+    Returns {status, url_changed, current_url, errors, error_count,
+    unmapped_error_count, fields, button_label, note}:
+      - "advanced" — the step moved. **Every field index from before this call
+        is dead**; use the `fields` in this result (a fresh read_form) for all
+        subsequent fill_field / fill_many / upload_resume calls.
+      - "blocked_validation" — the page refused to advance. `errors` is
+        [{index, field_label, message}]; fix those fields and call again. An
+        error whose `index` is null could not be tied to a scanned field
+        (usually a visually-hidden input) — match it by `field_label`;
+        `unmapped_error_count` says how many are like that. Errors are never
+        silently dropped.
+      - "no_change" — clicked, but nothing moved (swallowed click, or a modal
+        is open). Screenshot before retrying.
+      - "is_submit_page" — the only control here is Submit, so NOTHING was
+        clicked. Review, confirm with the user, then call submit_application.
+        Never use advance_step as a way to "check" the review page.
+      - "entry_page" — a job page / "Start Your Application" chooser (only
+        Apply-like controls). Nothing clicked; call start_application.
+      - "auth_page" — a sign-in / create-account page. Nothing clicked; call
+        authenticate.
+      - "no_advance_button" — single-page form; just submit it.
+
+    `fields` is always a fresh read of the page as it now stands, so you never
+    need a separate read_form after this call."""
+    return technical.mark("advance_step", await browser.session.advance_step())
+
+
+@mcp.tool()
+async def start_application() -> dict:
+    """Get from a job page to the application form (or its sign-in gate) on
+    the ACTIVE tab. Clicks only entry controls: "Apply" on the job page, then
+    "Apply Manually" on Workday's "Start Your Application" chooser, and an
+    "Sign in with email" reveal behind an SSO chooser. It NEVER clicks
+    "Autofill with Resume", "Use My Last Application", SSO buttons, or any
+    submit. Idempotent: on a form or auth page it only classifies. Not gated.
+
+    Returns {status, url, fields, auth}:
+      - "form" — the application form is showing; `fields` is a fresh
+        read_form (passwords masked).
+      - "auth_required" — a sign-in / create-account page. `auth` is
+        {mode: "sign_in"|"create_account"|"unknown", available, email_index,
+        password_index, confirm_index, consent_indexes, submit_label}. Call
+        authenticate() next; never type a password yourself.
+      - "blocked" — a visible CAPTCHA (`signals`); hand to the user.
+      - "no_entry" — nothing to click (unknown layout, OR a closed /
+        dead posting: it carries technical: true either way, so check the
+        page before routing it to a fallback browser).
+      - "already_in_application" — the tab was already filled, or shows a
+        Back control / step indicator; an "Apply" there may be the FINAL
+        submit, so nothing was clicked. Use advance_step / submit_application."""
+    return technical.mark("start_application",
+                          await browser.session.start_application())
+
+
+@mcp.tool()
+async def authenticate(mode: str = "auto") -> dict:
+    """Sign in to, or create, the ATS tenant account on the active tab using
+    the user's local credentials.yaml (workday: email/password). The values
+    are filled server-side and NEVER returned; you never see or invent a
+    password. mode: "auto" (default) or "sign_in" / "create_account".
+    In auto the per-profile Workday ACCOUNT REGISTRY decides (see
+    list_workday_accounts): an `active` account for this tenant -> sign in;
+    no entry -> create the account; `exists_unknown_password` ->
+    "account_exists" with nothing touched; `sso_only` ->
+    "unsupported_auth_flow" with nothing touched. Every confirmed success
+    updates the registry (no password is ever stored). Creating a tenant
+    account is allowed in batch Stage A. At most 2 auth submits per call; a
+    wrong password is never retried.
+
+    Returns {status, url, message_excerpt, account_created?} (message_excerpt
+    is visible page notice text, <= 200 chars, credentials redacted;
+    account_created: true when this call created the account). Statuses:
+      - "authenticated" — the application form (or the account email in the
+        page header) is visible; read_form next. A create that lands on a
+        plain Sign In page with no message is followed by ONE sign-in in the
+        same call: success records the account active; a rejected sign-in
+        means it most likely already existed (some tenants hide "already
+        exists"), so it is recorded exists_unknown_password and the call
+        returns "account_exists".
+      - "account_created_signin_required" — a create landed on a Sign In
+        page but no submit was left to confirm it; unconfirmed, nothing
+        recorded. Park or retry later.
+      - "create_rejected" — the create-account form refused the values
+        (e.g. a password policy, an invalid email: see message_excerpt).
+        Not a lockout; the user must fix credentials.yaml.
+      - "email_verification_required" — fetch the email from the inbox, then
+        open_verification_link(url) for a link, or detect_verification_gate /
+        fill_verification_code for a code; then authenticate() again.
+      - "account_exists" — create-account said the account already exists
+        (or the registry says so). Nothing else is attempted: PARK for the
+        user to sign in by hand.
+      - "no_account" — sign-in said no such user (in auto, after a registry
+        sign-in, it creates the account once instead).
+      - "bad_credentials" — wrong password (also when the page already shows
+        a rejection, or one rendered after an earlier call stopped waiting).
+        STOP and park; do not retry. An `active` registry row is downgraded
+        to exists_unknown_password, so later auto calls park.
+      - "no_credentials" / "bad_credentials_file" — the user must create or fix
+        profiles/<id>/secrets/credentials.yaml; the page was not touched.
+      - "blocked" — visible CAPTCHA. "unconfirmed" — submitted but the
+        result is unclear; screenshot. "error" — exception type only in
+        `error`. Also "toggle_failed", "no_auth_submit", "bad_mode",
+        "no_entry", "already_in_application".
+      - "unsupported_auth_flow" — not a Workday host (credentials are only
+        ever used on *.myworkdayjobs.com / *.myworkday.com / *.workday.com),
+        or no password field. Park; the user signs in by hand.
+      - "recently_submitted" — an auth submit hit this tenant < 60s ago, so
+        the page was only classified. Wait, then call again.
+    Lockout budget: a per-tenant ledger (profiles/<id>/runtime/
+    auth_attempts.json, timestamps + outcomes only) allows at most one failed
+    sign-in per tenant per 24h (a site-reported rejection, or a password
+    field still showing after the wait, counts; a redirect with no password
+    field ("unknown") does not);
+    after bad_credentials every call for that
+    tenant returns bad_credentials without submitting until 24h pass or the
+    USER asks for clear_auth_ledger."""
+    return technical.mark("authenticate", await browser.session.authenticate(mode))
+
+
+@mcp.tool()
+def clear_auth_ledger(tenant: str = "") -> dict:
+    """ONLY on the user's explicit request (e.g. "I fixed my Workday password,
+    try again"). Never call this on your own to get around a
+    bad_credentials result: the ledger is what stops repeated sign-in
+    attempts from locking the user's tenant account. Clears the recorded
+    auth attempts for one tenant (`tenant` = host or URL, e.g.
+    acme.wd5.myworkdayjobs.com) or for all tenants when empty. Returns
+    {status: "cleared", tenants}."""
+    return browser.session.clear_auth_ledger(tenant)
+
+
+@mcp.tool()
+def list_workday_accounts() -> list:
+    """Read-only: the Workday tenant-account registry for the active profile
+    (profiles/<id>/data/workday_accounts.json). One row per tenant host:
+    {tenant, email, status, created_at, last_sign_in_at, source}; status is
+    "active" (created by us or signed in successfully),
+    "exists_unknown_password" (create said it exists; the user signs in by
+    hand) or "sso_only". Holds no passwords. authenticate() reads it to pick
+    sign-in vs create-account."""
+    return browser.session.list_workday_accounts()
+
+
+@mcp.tool()
+async def open_verification_link(url: str) -> dict:
+    """Open an account-verification link (from the applicant's email) in a
+    NEW tab of the session, read up to 300 chars of its text, close it, and
+    reload the original application tab. Only https links whose ASCII host
+    is on a Workday domain (dot-boundary: *.myworkdayjobs.com,
+    *.myworkday.com, *.workday.com), with no userinfo and no port, and on the
+    same Workday domain as the active tab, are opened; anything else returns
+    {status: "not_allowed"} untouched.
+    Returns {status: "opened", text_excerpt, note}. Then call authenticate()
+    (or start_application) again."""
+    return await browser.session.open_verification_link(url)
+
+
+@mcp.tool()
 async def get_job_text() -> str:
     """Return the visible page text (use it to read the job description for a
     fit assessment)."""
@@ -184,9 +475,17 @@ async def snapshot_job(url: str, company: str = "", out_dir: str = "") -> dict:
 
     It composes existing primitives (open_job -> read the form + intervention,
     get_job_text -> the JD) and WRITES the prep file directly, so it is exactly
-    as ATS-agnostic as read_form (any ATS, no per-site rules). It does not click
-    or type, so it captures precisely the initially-rendered fields — same
-    fidelity as a manual read_form. Snapshotting fills nothing, so the active tab
+    as ATS-agnostic as read_form (any ATS, no per-site rules). On a normal page
+    it does not click or type, so it captures precisely the initially-rendered
+    fields — same fidelity as a manual read_form. Exception: a page with no
+    form fields (page chrome such as a language picker ignored) on a
+    myworkdayjobs.com host, or one showing an Apply-like control,
+    is walked to the form first (JD read before leaving the description):
+    start_application, then authenticate when it reports auth_required (Stage
+    A may create the tenant account). The receipt carries `entry_status` and
+    `auth_status`; any auth result other than "authenticated" parks with
+    park_reason "<auth_status>: <message_excerpt>". Snapshotting fills no
+    application answers (only, on that path, the account login), so the active tab
     is reused (no new_tab); resume.txt is re-synced from resume.pdf as a harmless
     side effect of open_job.
 
@@ -222,15 +521,46 @@ async def snapshot_job(url: str, company: str = "", out_dir: str = "") -> dict:
     title = opened.get("title", "")
     ats = opened.get("detected_ats", "")
     base = {"url": url, "company": company, "job_title": title, "ats": ats,
-            "prep_path": None, "field_count": 0, "required_count": 0}
+            "prep_path": None, "field_count": 0, "required_count": 0,
+            "entry_status": None, "auth_status": None}
     if interv.get("blocked"):
         return {**base, "status": "parked",
                 "park_reason": "blocked at open: "
                 + (interv.get("message") or "visible challenge")}
+    jd_text = None
+    if not browser.form_fields(fields) and (
+            browser.is_workday_host(urlparse(url).hostname or "")
+            or await browser.session.has_entry_control()):
+        # A Workday job page shows only "Apply": read the JD HERE, before
+        # leaving the description, then walk to the form.
+        jd_text = await browser.session.get_job_text()
+        entry = await browser.session.start_application()
+        entry_status = base["entry_status"] = entry.get("status")
+        if entry_status == "form":
+            fields = entry.get("fields") or []
+        elif entry_status == "auth_required":
+            # Credentials are Workday-only: an "Apply" that led to iCIMS /
+            # Taleo / SuccessFactors parks instead of signing in there.
+            here = urlparse(entry.get("url") or browser.session.page.url).hostname
+            if not browser.is_workday_host(here or ""):
+                return {**base, "status": "parked",
+                        "park_reason": "auth_required on a non-Workday host "
+                                       "(%s); sign in manually" % (here or "?")}
+            auth = await browser.session.authenticate()
+            auth_status = base["auth_status"] = auth.get("status")
+            if auth_status != "authenticated":
+                return {**base, "status": "parked",
+                        "park_reason": "%s: %s" % (
+                            auth_status, auth.get("message_excerpt") or "")}
+            fields = await browser.session.read_form()
+        else:
+            return {**base, "status": "parked",
+                    "park_reason": "entry %s" % entry_status}
     if not fields:
         return {**base, "status": "parked",
                 "park_reason": "no fields (dead/removed posting or unreadable form)"}
-    jd_text = await browser.session.get_job_text()
+    if jd_text is None:
+        jd_text = await browser.session.get_job_text()
     prep_dir = Path(out_dir) if out_dir else config.PREP_DIR
     prep_dir.mkdir(parents=True, exist_ok=True)
     prep_path = prep_dir / f"{tailor.job_slug(company, title, url)}.json"
@@ -289,7 +619,7 @@ async def submit_application(index: int = -1, company: str = "",
             log_application=(result.get("status") == "submitted"))
     except Exception as e:  # capture must never mask a successful submit
         result["capture"] = {"error": f"{type(e).__name__}: {e}"}
-    return result
+    return technical.mark("submit_application", result)
 
 
 # --------------------------------------------------------------------------- #
@@ -346,6 +676,12 @@ def _clip_hist(rows: list) -> list:
     for h in rows:
         r = dict(h)
         r["answer"] = _clip(r.get("answer", ""), _HIST_ANSWER_CHARS)
+        # `alternates` (optional, added by the history store) are full answers
+        # too — clipping only `answer` would let them walk straight past the
+        # token cap this whole helper exists to enforce.
+        if isinstance(r.get("alternates"), list):
+            r["alternates"] = [_clip(a, _HIST_ANSWER_CHARS) if isinstance(a, str)
+                               else a for a in r["alternates"]]
         out.append(r)
     return out
 
@@ -580,14 +916,33 @@ def get_cover_letter_examples() -> dict:
 
 @mcp.tool()
 def save_cover_letter(company: str = "", job_title: str = "", url: str = "",
-                      text: str = "") -> dict:
+                      text: str = "", force: bool = False) -> dict:
     """Persist a drafted cover letter under resumes/<job-slug>/: cover_letter.txt
-    (for a free-text field) and cover_letter.pdf (a file for a file input). Call
-    this after drafting the letter in the user's voice from
-    get_cover_letter_examples. Same company/job_title/url identity as
-    tailor_resume. Returns {slug, dir, txt_path, pdf_path, pdf_exported, note}."""
+    (body only, for a free-text field) and cover_letter.pdf (a file for a file
+    input, with the letterhead rendered by code from the profile + today's date).
+    Do NOT type a letterhead in `text`; a typed one is stripped. The letter is
+    linted first: if any HARD rule fails (dashes, missing salutation/sign-off,
+    typed letterhead, contact details in the text, length outside 270-460
+    words, parentheticals, placeholders, paragraph count) nothing is written and
+    {saved: False, lint} comes back, so fix and call again. SOFT findings are
+    returned in `lint.soft` and the save proceeds. force=True overrides, only with the user's
+    explicit OK. Same company/job_title/url identity as tailor_resume. Always
+    returns `saved` and `lint`; when saved, also slug, dir, txt_path, pdf_path,
+    pdf_exported, render_warnings, note."""
     return tailor.save_cover_letter(company=company, job_title=job_title,
-                                    url=url, text=text)
+                                    url=url, text=text, force=force)
+
+
+@mcp.tool()
+def lint_text(text: str, kind: str = "answer") -> dict:
+    """Style-lint a drafted free-text answer BEFORE filling it. HARD failures
+    (em dash or " -- ", and for kind="cover_letter" also missing salutation /
+    sign-off, a typed letterhead, contact details in the text, length outside 270-460, parentheticals) must be fixed; SOFT
+    warnings (target word band 295-425, canonical opener/closer, "I'm writing to express", long parentheticals,
+    unquoted "0-to-1", 3+ sentences in a row starting "I ") are advisory.
+    kind: "answer" (default) or "cover_letter". Returns {ok, hard, soft,
+    word_count}."""
+    return tailor.lint_text(text, kind=kind)
 
 
 @mcp.tool()
@@ -681,8 +1036,13 @@ def list_companies() -> list:
 @mcp.tool()
 def add_company(url: str, name: str = "") -> dict:
     """Add a company to the watchlist from a board/careers URL (Greenhouse/Lever/
-    Ashby). Detects the ATS + slug and appends to watchlist.yaml. Optionally pass
-    a display `name`."""
+    Ashby/Workday). Detects the ATS + slug and appends to watchlist.yaml.
+    Optionally pass a display `name`.
+
+    A Workday board needs tenant + shard + site, so pass the FULL board URL
+    (https://acme.wd5.myworkdayjobs.com/External), not the bare tenant host --
+    the site cannot be resolved without a network call this tool does not make.
+    `python scripts/workday_bootstrap.py <company name>` finds it for you."""
     return wl.add_company(url, name or None)
 
 

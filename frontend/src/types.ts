@@ -171,6 +171,7 @@ export interface Status {
   store_age_hours: number | null
   new_qualifying: number
   watchlist_count: number
+  health?: { run_at: string; ok: boolean; error?: string } | null
 }
 
 /* Chat */
